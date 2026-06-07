@@ -1,0 +1,9 @@
+{
+  "ignore": [
+    "uploads",
+    "uploads/*",
+    "uploads/**",
+    "db.json",
+    "error.log"
+  ]
+}
