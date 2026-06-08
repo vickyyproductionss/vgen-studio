@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Zap, Upload, Play, Pause, Trash2, Music, Video, Activity, ChevronRight, AlertTriangle, CheckCircle, RefreshCw, Scissors, Sparkles, HelpCircle, Type } from 'lucide-react';
+import { Zap, Upload, Play, Pause, Trash2, Music, Video, Activity, ChevronRight, AlertTriangle, CheckCircle, RefreshCw, Scissors, Sparkles, Type } from 'lucide-react';
 
 interface ClipSegment {
   start_time: number;
@@ -134,6 +134,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
   // Library lists
   const [clips, setClips] = useState<Clip[]>([]);
   const [bgms, setBgms] = useState<BGM[]>([]);
+  const [sidebarTab, setSidebarTab] = useState<'subtitles' | 'video' | 'audio'>('audio');
   
   // Selected Audio Track state
   const [audioSource, setAudioSource] = useState<'upload' | 'music_library' | 'video_library'>('upload');
@@ -1235,7 +1236,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
       <div>
         <div style={{ marginBottom: '24px' }}>
           <h2 style={{ fontSize: '28px', marginBottom: '8px', display: 'flex', alignItems: 'center' }} className="heading-page">
-            <Zap size={24} style={{ color: 'hsl(var(--accent-purple))', marginRight: '10px', flexShrink: 0 }} />
+            <Zap size={24} style={{ color: 'var(--accent-purple)', marginRight: '10px', flexShrink: 0 }} />
             {projectId ? (
               <input
                 type="text"
@@ -1254,7 +1255,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
                   cursor: 'text'
                 }}
                 onFocus={(e) => {
-                  e.target.style.borderBottomColor = 'hsl(var(--accent-purple))';
+                  e.target.style.borderBottomColor = 'var(--accent-purple)';
                 }}
                 onBlur={(e) => {
                   e.target.style.borderBottomColor = 'transparent';
@@ -1265,7 +1266,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
               "Beat Sync Editor"
             )}
           </h2>
-          <p style={{ color: 'hsl(var(--text-gray))', fontSize: '14px' }}>
+          <p style={{ color: 'var(--text-gray)', fontSize: '14px' }}>
             Sync video cuts perfectly to music drops, shayaris, or dialogue transitions.
           </p>
         </div>
@@ -1282,218 +1283,14 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
           </div>
         )}
 
-        {/* STEP 1: Select Audio Track */}
-        <section className="glass-panel" style={{ padding: '24px', marginBottom: '24px' }}>
-          <h3 className="heading-component" style={{ fontSize: '16px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Music size={18} style={{ color: 'hsl(var(--accent-blue))' }} />
-            Step 1: Choose Audio Track
-          </h3>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '16px' }}>
-            <button
-              className={audioSource === 'upload' ? 'btn-primary' : 'btn-secondary'}
-              onClick={() => { setAudioSource('upload'); setError(''); setSuccess(''); }}
-              style={{ fontSize: '12px', justifyContent: 'center' }}
-            >
-              Upload Audio/Video
-            </button>
-            <button
-              className={audioSource === 'music_library' ? 'btn-primary' : 'btn-secondary'}
-              onClick={() => { setAudioSource('music_library'); setError(''); setSuccess(''); }}
-              style={{ fontSize: '12px', justifyContent: 'center' }}
-            >
-              Music Library
-            </button>
-            <button
-              className={audioSource === 'video_library' ? 'btn-primary' : 'btn-secondary'}
-              onClick={() => { setAudioSource('video_library'); setError(''); setSuccess(''); }}
-              style={{ fontSize: '12px', justifyContent: 'center' }}
-            >
-              Video Library
-            </button>
+        {scenes.length === 0 && (
+          <div className="glass-panel" style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-gray)', borderStyle: 'dashed', borderWidth: '2px', borderRadius: '8px', marginBottom: '24px' }}>
+            <Music size={48} style={{ color: 'var(--accent-purple)', marginBottom: '16px', margin: '0 auto' }} />
+            <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '6px', fontFamily: 'Outfit' }}>No audio analyzed yet</h3>
+            <p style={{ color: 'var(--text-gray)', fontSize: '13px', maxWidth: '400px', margin: '0 auto 24px auto', fontFamily: 'Inter' }}>
+              Go to the "Audio" tab in the right sidebar to select a music track or voiceover, configure sync parameters, and run beat analysis.
+            </p>
           </div>
-
-          {audioSource === 'upload' && (
-            <div
-              onClick={() => fileInputRef.current?.click()}
-              style={{
-                border: '2px dashed var(--border-light)',
-                borderRadius: '8px',
-                padding: '24px',
-                textAlign: 'center',
-                cursor: 'pointer',
-                background: 'hsl(var(--bg-surface))',
-                transition: 'border-color 0.2s'
-              }}
-              onMouseEnter={(e) => e.currentTarget.style.borderColor = 'hsl(var(--accent-purple))'}
-              onMouseLeave={(e) => e.currentTarget.style.borderColor = 'var(--border-light)'}
-            >
-              <input
-                type="file"
-                ref={fileInputRef}
-                onChange={handleFileUpload}
-                accept="audio/*,video/*"
-                style={{ display: 'none' }}
-              />
-              <Upload size={24} style={{ margin: '0 auto 8px auto', color: 'hsl(var(--text-muted))' }} />
-              <div style={{ fontSize: '13px', fontWeight: 600 }}>
-                {uploading ? 'Processing file...' : 'Drag audio/video or click to upload'}
-              </div>
-              <div style={{ fontSize: '11px', color: 'hsl(var(--text-muted))', marginTop: '4px' }}>
-                Auto-extracts audio track from MP4, MOV, MKV, MP3, WAV, etc.
-              </div>
-            </div>
-          )}
-
-          {audioSource === 'music_library' && (
-            <div>
-              <label className="label">Background Music Track</label>
-              <select
-                className="input-field"
-                value={audioPath}
-                onChange={(e) => handleSelectLibraryAudio(e.target.value)}
-              >
-                <option value="">-- Choose Track --</option>
-                {bgms.map(bgm => (
-                  <option key={bgm.id} value={bgm.path}>
-                    {bgm.name} ({Math.floor(bgm.duration / 60)}:{(bgm.duration % 60).toFixed(0).padStart(2, '0')})
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          {audioSource === 'video_library' && (
-            <div>
-              <label className="label">Select Video to Extract Audio From</label>
-              <select
-                className="input-field"
-                value={selectedVideoClipId}
-                onChange={(e) => handleExtractFromLibraryVideo(e.target.value)}
-              >
-                <option value="">-- Choose Video Clip --</option>
-                {clips.filter(c => c.exists !== false).map(clip => (
-                  <option key={clip.id} value={clip.id}>
-                    {clip.name} ({clip.duration.toFixed(1)}s)
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          {audioPath && (
-            <div style={{ marginTop: '16px', padding: '12px', background: 'hsl(var(--bg-surface))', border: '1px solid var(--border-light)', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '280px' }}>
-                <span className="micro-label" style={{ display: 'block', marginBottom: '2px' }}>Selected Track</span>
-                <span style={{ fontSize: '13px', fontWeight: 600 }}>{audioName}</span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <span className="badge-tag">{audioDuration.toFixed(1)}s</span>
-                <button className="btn-secondary" onClick={togglePlayAudio} style={{ padding: '6px', height: '32px', width: '32px', justifyContent: 'center' }}>
-                  {isPlaying ? <Pause size={14} /> : <Play size={14} fill="currentColor" />}
-                </button>
-              </div>
-            </div>
-          )}
-        </section>
-
-        {/* STEP 2: Configure & Analyze Beats */}
-        {audioPath && (
-          <section className="glass-panel" style={{ padding: '24px', marginBottom: '24px' }}>
-            <h3 className="heading-component" style={{ fontSize: '16px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Activity size={18} style={{ color: 'hsl(var(--accent-purple))' }} />
-              Step 2: Sync Analysis Options
-            </h3>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '20px' }}>
-              <div
-                onClick={() => setSyncMode('beats')}
-                style={{
-                  border: '1px solid var(--border-light)',
-                  borderRadius: '8px',
-                  padding: '16px',
-                  cursor: 'pointer',
-                  background: syncMode === 'beats' ? 'rgba(99, 102, 241, 0.1)' : 'hsl(var(--bg-surface))',
-                  borderColor: syncMode === 'beats' ? 'hsl(var(--accent-purple))' : 'var(--border-light)',
-                  transition: 'all 0.2s'
-                }}
-              >
-                <div style={{ fontWeight: 700, fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <Activity size={14} style={{ color: 'hsl(var(--accent-purple))' }} />
-                  Rhythmic Beat Drops
-                </div>
-                <p style={{ fontSize: '11px', color: 'hsl(var(--text-muted))', marginTop: '6px' }}>
-                  Detects music transients, drums kicks, or bass drops to align edits.
-                </p>
-              </div>
-
-              <div
-                onClick={() => setSyncMode('dialogue')}
-                style={{
-                  border: '1px solid var(--border-light)',
-                  borderRadius: '8px',
-                  padding: '16px',
-                  cursor: 'pointer',
-                  background: syncMode === 'dialogue' ? 'rgba(99, 102, 241, 0.1)' : 'hsl(var(--bg-surface))',
-                  borderColor: syncMode === 'dialogue' ? 'hsl(var(--accent-purple))' : 'var(--border-light)',
-                  transition: 'all 0.2s'
-                }}
-              >
-                <div style={{ fontWeight: 700, fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <Sparkles size={14} style={{ color: 'hsl(var(--accent-blue))' }} />
-                  Spoken Dialogue / Shayari
-                </div>
-                <p style={{ fontSize: '11px', color: 'hsl(var(--text-muted))', marginTop: '6px' }}>
-                  Uses Gemini AI to transcribe audio and align splits at sentence endpoints.
-                </p>
-              </div>
-            </div>
-
-            {syncMode === 'beats' && (
-              <div style={{ marginBottom: '20px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'hsl(var(--text-gray))', marginBottom: '6px' }}>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    Beat Sensitivity Threshold 
-                    <span title="Lower = more beats detected, Higher = only loud peaks/drops detected" style={{ cursor: 'help' }}><HelpCircle size={12} /></span>
-                  </span>
-                  <span>{threshold.toFixed(2)}x</span>
-                </div>
-                <input
-                  type="range"
-                  min={1.1}
-                  max={2.0}
-                  step={0.05}
-                  value={threshold}
-                  onChange={(e) => setThreshold(parseFloat(e.target.value))}
-                  style={{ width: '100%' }}
-                />
-              </div>
-            )}
-
-            {syncMode === 'dialogue' && !geminiKeySet && (
-              <div style={{ padding: '12px', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.2)', color: '#f87171', borderRadius: '6px', fontSize: '12px', marginBottom: '20px' }}>
-                <AlertTriangle size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
-                Gemini API key is not configured in Settings. Please set it to analyze dialogues.
-              </div>
-            )}
-
-            <button
-              onClick={handleAnalyzeAudio}
-              className="btn-primary"
-              disabled={analyzing || (syncMode === 'dialogue' && !geminiKeySet)}
-              style={{ width: '100%', height: '44px', justifyContent: 'center' }}
-            >
-              {analyzing ? (
-                <>
-                  <RefreshCw size={16} className="spin-slow" /> Analyzing audio transients...
-                </>
-              ) : (
-                <>
-                  <Zap size={16} /> Start Sync Analysis
-                </>
-              )}
-            </button>
-          </section>
         )}
 
         {/* STEP 3: Timeline Aligned Segment Editor */}
@@ -1501,14 +1298,14 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
           <section className="glass-panel" style={{ padding: '24px', marginBottom: '24px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
               <h3 className="heading-component" style={{ fontSize: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <Scissors size={18} style={{ color: 'hsl(var(--accent-purple))' }} />
+                <Scissors size={18} style={{ color: 'var(--accent-purple)' }} />
                 Step 3: Timeline Roll-Edit List
               </h3>
               
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                 {syncMode === 'dialogue' && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(255, 255, 255, 0.03)', padding: '3px', borderRadius: '6px', border: '1px solid var(--border-light)' }}>
-                    <span style={{ fontSize: '11px', fontWeight: 600, color: 'hsl(var(--text-muted))', padding: '0 6px' }}>Lang:</span>
+                    <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', padding: '0 6px' }}>Lang:</span>
                     <button
                       type="button"
                       onClick={() => handleToggleAllLanguage('hinglish')}
@@ -1518,8 +1315,8 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
                         padding: '0 8px',
                         borderRadius: '4px',
                         border: 'none',
-                        background: activeLang === 'hinglish' ? 'hsl(var(--accent-purple))' : 'transparent',
-                        color: activeLang === 'hinglish' ? '#FFFFFF' : 'hsl(var(--text-muted))',
+                        background: activeLang === 'hinglish' ? 'var(--accent-purple)' : 'transparent',
+                        color: activeLang === 'hinglish' ? '#FFFFFF' : 'var(--text-muted)',
                         fontWeight: activeLang === 'hinglish' ? 700 : 400,
                         cursor: 'pointer',
                         transition: 'all 0.2s'
@@ -1536,8 +1333,8 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
                         padding: '0 8px',
                         borderRadius: '4px',
                         border: 'none',
-                        background: activeLang === 'hindi' ? 'hsl(var(--accent-purple))' : 'transparent',
-                        color: activeLang === 'hindi' ? '#FFFFFF' : 'hsl(var(--text-muted))',
+                        background: activeLang === 'hindi' ? 'var(--accent-purple)' : 'transparent',
+                        color: activeLang === 'hindi' ? '#FFFFFF' : 'var(--text-muted)',
                         fontWeight: activeLang === 'hindi' ? 700 : 400,
                         cursor: 'pointer',
                         transition: 'all 0.2s'
@@ -1573,7 +1370,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
                     onMouseLeave={() => setHoveredSceneIdx(null)}
                     style={{
                       padding: '16px',
-                      background: 'hsl(var(--bg-surface))',
+                      background: 'var(--bg-surface)',
                       border: '1px solid var(--border-light)',
                       borderRadius: 'var(--radius-md)',
                       display: 'flex',
@@ -1633,7 +1430,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
                     {syncMode === 'dialogue' && (
                       <div>
                         {scene.isBeatSyncOnly ? (
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 12px', background: 'rgba(99, 102, 241, 0.05)', border: '1px dashed rgba(99, 102, 241, 0.2)', borderRadius: '6px', fontSize: '11px', color: 'hsl(var(--accent-purple))' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 12px', background: 'rgba(99, 102, 241, 0.05)', border: '1px dashed rgba(99, 102, 241, 0.2)', borderRadius: '6px', fontSize: '11px', color: 'var(--accent-purple)' }}>
                             <span>🎵 Beat Sync Segment (Music Outro - No Subtitles)</span>
                           </div>
                         ) : (
@@ -1655,7 +1452,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
                                     borderRadius: '4px',
                                     border: '1px solid var(--border-light)',
                                     background: scene.text === scene.text_hinglish ? 'rgba(99, 102, 241, 0.2)' : 'transparent',
-                                    color: scene.text === scene.text_hinglish ? 'hsl(var(--accent-purple))' : 'hsl(var(--text-muted))',
+                                    color: scene.text === scene.text_hinglish ? 'var(--accent-purple)' : 'var(--text-muted)',
                                     cursor: 'pointer'
                                   }}
                                 >
@@ -1675,7 +1472,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
                                     borderRadius: '4px',
                                     border: '1px solid var(--border-light)',
                                     background: scene.text === scene.text_hindi ? 'rgba(99, 102, 241, 0.2)' : 'transparent',
-                                    color: scene.text === scene.text_hindi ? 'hsl(var(--accent-purple))' : 'hsl(var(--text-muted))',
+                                    color: scene.text === scene.text_hindi ? 'var(--accent-purple)' : 'var(--text-muted)',
                                     cursor: 'pointer'
                                   }}
                                 >
@@ -1738,7 +1535,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
                       const maxStart = Math.max(0, selectedClip.duration - duration);
                       return (
                         <div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'hsl(var(--text-gray))', marginBottom: '2px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--text-gray)', marginBottom: '2px' }}>
                             <span>Start cut offset: <strong>{(scene.clipStart || 0).toFixed(1)}s</strong></span>
                             <span>Max clip duration: {selectedClip.duration.toFixed(1)}s</span>
                           </div>
@@ -1787,7 +1584,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
                     </div>
 
                     {scene.reason && (
-                      <div style={{ fontSize: '10px', color: 'hsl(var(--text-muted))', borderLeft: '2px solid hsl(var(--accent-purple))', paddingLeft: '6px' }}>
+                      <div style={{ fontSize: '10px', color: 'var(--text-muted)', borderLeft: '2px solid var(--accent-purple)', paddingLeft: '6px' }}>
                         <strong>Reason:</strong> {scene.reason}
                       </div>
                     )}
@@ -1803,10 +1600,264 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
       <div style={{ borderLeft: '1px solid var(--border-light)', paddingLeft: '32px' }}>
         <div style={{ position: 'sticky', top: '0px', maxHeight: 'calc(100vh - 80px)', overflowY: 'auto', paddingRight: '12px' }}>
           
-          {/* Format Settings */}
-          <section className="glass-panel" style={{ padding: '20px', marginBottom: '24px' }}>
+          {/* Tab Selector Headers */}
+          <div style={{ display: 'flex', borderBottom: '1px solid rgba(255, 255, 255, 0.1)', marginBottom: '20px' }}>
+            {[
+              { id: 'subtitles', label: 'Subtitles' },
+              { id: 'video', label: 'Visuals' },
+              { id: 'audio', label: 'Audio' }
+            ].map(t => {
+              const active = sidebarTab === t.id;
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setSidebarTab(t.id as any)}
+                  style={{
+                    flex: 1,
+                    padding: '16px 0',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.08em',
+                    background: 'transparent',
+                    border: 'none',
+                    borderBottom: active ? '2px solid var(--accent-purple)' : 'none',
+                    color: active ? 'var(--text-white)' : 'var(--text-gray)',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease'
+                  }}
+                >
+                  {t.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* TAB 1: AUDIO */}
+          {sidebarTab === 'audio' && (
+            <div style={{ animation: 'fadeIn 0.2s ease-out' }}>
+              
+              {/* Choose Audio Track */}
+              <section className="glass-panel" style={{ padding: '20px', marginBottom: '24px' }}>
+                <h4 style={{ fontSize: '13px', marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '6px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  <Music size={15} style={{ color: 'var(--accent-blue)' }} />
+                  Choose Audio Track
+                </h4>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px', marginBottom: '14px' }}>
+                  <button
+                    className={audioSource === 'upload' ? 'btn-primary' : 'btn-secondary'}
+                    onClick={() => { setAudioSource('upload'); setError(''); setSuccess(''); }}
+                    style={{ fontSize: '10px', padding: '6px 2px', justifyContent: 'center' }}
+                  >
+                    Upload
+                  </button>
+                  <button
+                    className={audioSource === 'music_library' ? 'btn-primary' : 'btn-secondary'}
+                    onClick={() => { setAudioSource('music_library'); setError(''); setSuccess(''); }}
+                    style={{ fontSize: '10px', padding: '6px 2px', justifyContent: 'center' }}
+                  >
+                    Music Lib
+                  </button>
+                  <button
+                    className={audioSource === 'video_library' ? 'btn-primary' : 'btn-secondary'}
+                    onClick={() => { setAudioSource('video_library'); setError(''); setSuccess(''); }}
+                    style={{ fontSize: '10px', padding: '6px 2px', justifyContent: 'center' }}
+                  >
+                    Video Lib
+                  </button>
+                </div>
+
+                {audioSource === 'upload' && (
+                  <div
+                    onClick={() => fileInputRef.current?.click()}
+                    style={{
+                      border: '2px dashed var(--border-light)',
+                      borderRadius: '8px',
+                      padding: '16px',
+                      textAlign: 'center',
+                      cursor: 'pointer',
+                      background: 'var(--bg-surface)',
+                      transition: 'border-color 0.2s'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.borderColor = 'var(--accent-purple)'}
+                    onMouseLeave={(e) => e.currentTarget.style.borderColor = 'var(--border-light)'}
+                  >
+                    <input
+                      type="file"
+                      ref={fileInputRef}
+                      onChange={handleFileUpload}
+                      accept="audio/*,video/*"
+                      style={{ display: 'none' }}
+                    />
+                    <Upload size={20} style={{ margin: '0 auto 6px auto', color: 'var(--text-muted)' }} />
+                    <div style={{ fontSize: '11px', fontWeight: 600 }}>
+                      {uploading ? 'Processing...' : 'Drag file or click to upload'}
+                    </div>
+                  </div>
+                )}
+
+                {audioSource === 'music_library' && (
+                  <div>
+                    <label className="label">Background Music Track</label>
+                    <select
+                      className="input-field"
+                      value={audioPath}
+                      onChange={(e) => handleSelectLibraryAudio(e.target.value)}
+                      style={{ height: '34px', fontSize: '12px' }}
+                    >
+                      <option value="">-- Choose Track --</option>
+                      {bgms.map(bgm => (
+                        <option key={bgm.id} value={bgm.path}>
+                          {bgm.name} ({Math.floor(bgm.duration / 60)}:{(bgm.duration % 60).toFixed(0).padStart(2, '0')})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {audioSource === 'video_library' && (
+                  <div>
+                    <label className="label">Select Video for Extraction</label>
+                    <select
+                      className="input-field"
+                      value={selectedVideoClipId}
+                      onChange={(e) => handleExtractFromLibraryVideo(e.target.value)}
+                      style={{ height: '34px', fontSize: '12px' }}
+                    >
+                      <option value="">-- Choose Video Clip --</option>
+                      {clips.filter(c => c.exists !== false).map(clip => (
+                        <option key={clip.id} value={clip.id}>
+                          {clip.name} ({clip.duration.toFixed(1)}s)
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {audioPath && (
+                  <div style={{ marginTop: '12px', padding: '10px', background: 'var(--bg-surface)', border: '1px solid var(--border-light)', borderRadius: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '180px' }}>
+                      <span className="micro-label" style={{ display: 'block', marginBottom: '1px' }}>Selected Track</span>
+                      <span style={{ fontSize: '12px', fontWeight: 600 }}>{audioName}</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span className="badge-tag" style={{ fontSize: '9px', padding: '2px 4px' }}>{audioDuration.toFixed(1)}s</span>
+                      <button className="btn-secondary" onClick={togglePlayAudio} style={{ padding: '4px', height: '26px', width: '26px', justifyContent: 'center' }}>
+                        {isPlaying ? <Pause size={11} /> : <Play size={11} fill="currentColor" />}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </section>
+
+              {/* Sync Analysis Options */}
+              {audioPath && (
+                <section className="glass-panel" style={{ padding: '20px', marginBottom: '24px' }}>
+                  <h4 style={{ fontSize: '13px', marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '6px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    <Activity size={15} style={{ color: 'var(--accent-purple)' }} />
+                    Sync Analysis Options
+                  </h4>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '14px' }}>
+                    <div
+                      onClick={() => setSyncMode('beats')}
+                      style={{
+                        border: '1px solid var(--border-light)',
+                        borderRadius: '6px',
+                        padding: '10px',
+                        cursor: 'pointer',
+                        background: syncMode === 'beats' ? 'rgba(99, 102, 241, 0.08)' : 'var(--bg-surface)',
+                        borderColor: syncMode === 'beats' ? 'var(--accent-purple)' : 'var(--border-light)',
+                        transition: 'all 0.2s'
+                      }}
+                    >
+                      <div style={{ fontWeight: 700, fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <Activity size={12} style={{ color: 'var(--accent-purple)' }} />
+                        Rhythmic Beat Drops
+                      </div>
+                      <p style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '4px', lineHeight: '1.3' }}>
+                        Detects music transients/kicks to align edits.
+                      </p>
+                    </div>
+
+                    <div
+                      onClick={() => setSyncMode('dialogue')}
+                      style={{
+                        border: '1px solid var(--border-light)',
+                        borderRadius: '6px',
+                        padding: '10px',
+                        cursor: 'pointer',
+                        background: syncMode === 'dialogue' ? 'rgba(99, 102, 241, 0.08)' : 'var(--bg-surface)',
+                        borderColor: syncMode === 'dialogue' ? 'var(--accent-purple)' : 'var(--border-light)',
+                        transition: 'all 0.2s'
+                      }}
+                    >
+                      <div style={{ fontWeight: 700, fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <Sparkles size={12} style={{ color: 'var(--accent-blue)' }} />
+                        Spoken Dialogue / Shayari
+                      </div>
+                      <p style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '4px', lineHeight: '1.3' }}>
+                        Splits at sentence endpoints using Gemini AI.
+                      </p>
+                    </div>
+                  </div>
+
+                  {syncMode === 'beats' && (
+                    <div style={{ marginBottom: '14px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--text-gray)', marginBottom: '4px' }}>
+                        <span>Sensitivity Threshold</span>
+                        <span>{threshold.toFixed(2)}x</span>
+                      </div>
+                      <input
+                        type="range"
+                        min={1.1}
+                        max={2.0}
+                        step={0.05}
+                        value={threshold}
+                        onChange={(e) => setThreshold(parseFloat(e.target.value))}
+                        style={{ width: '100%' }}
+                      />
+                    </div>
+                  )}
+
+                  {syncMode === 'dialogue' && !geminiKeySet && (
+                    <div style={{ padding: '10px', background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.15)', color: '#f87171', borderRadius: '6px', fontSize: '11px', marginBottom: '14px' }}>
+                      <AlertTriangle size={12} style={{ marginRight: '4px', verticalAlign: 'middle' }} />
+                      Gemini API key is not configured in Settings.
+                    </div>
+                  )}
+
+                  <button
+                    onClick={handleAnalyzeAudio}
+                    className="btn-primary"
+                    disabled={analyzing || (syncMode === 'dialogue' && !geminiKeySet)}
+                    style={{ width: '100%', height: '38px', justifyContent: 'center', fontSize: '12px' }}
+                  >
+                    {analyzing ? (
+                      <>
+                        <RefreshCw size={14} className="spin-slow" style={{ marginRight: '6px' }} /> Analyzing...
+                      </>
+                    ) : (
+                      <>
+                        <Zap size={14} style={{ marginRight: '6px' }} /> Start Sync Analysis
+                      </>
+                    )}
+                  </button>
+                </section>
+              )}
+            </div>
+          )}
+
+          {/* TAB 2: VISUALS */}
+          {sidebarTab === 'video' && (
+            <div style={{ animation: 'fadeIn 0.2s ease-out' }}>
+              
+              {/* Format Settings */}
+              <section className="glass-panel" style={{ padding: '20px', marginBottom: '24px' }}>
             <h4 style={{ fontSize: '14px', marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <Video size={16} style={{ color: 'hsl(var(--accent-purple))' }} />
+              <Video size={16} style={{ color: 'var(--accent-purple)' }} />
               Video Formatting
             </h4>
 
@@ -1964,7 +2015,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
                 <option value="shake">Dynamic Camera Shake</option>
                 <option value="both">Blink & Camera Shake</option>
               </select>
-              <div style={{ fontSize: '10px', color: 'hsl(var(--text-muted))', marginTop: '4px' }}>
+              <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '4px' }}>
                 Triggers visual stroboscopic shakes/blinks on minor rhythmic sub-beats.
               </div>
             </div>
@@ -1998,12 +2049,12 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
                   </button>
                 ))}
               </div>
-              <div style={{ fontSize: '10px', color: 'hsl(var(--text-muted))', marginTop: '4px' }}>Click active preset again to reset all effects.</div>
+              <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '4px' }}>Click active preset again to reset all effects.</div>
             </div>
 
             {/* Tier 1 — Maximum Impact */}
             <div style={{ marginBottom: '14px' }}>
-              <div style={{ fontSize: '11px', textTransform: 'uppercase', fontWeight: 600, letterSpacing: '0.05em', color: 'hsl(var(--text-muted))', marginBottom: '8px' }}>⚡ Maximum Impact</div>
+              <div style={{ fontSize: '11px', textTransform: 'uppercase', fontWeight: 600, letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: '8px' }}>⚡ Maximum Impact</div>
               
               {/* White Flash */}
               <div style={{ marginBottom: '10px' }}>
@@ -2064,7 +2115,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
 
             {/* Tier 2 — Pro Editor */}
             <div style={{ marginBottom: '14px' }}>
-              <div style={{ fontSize: '11px', textTransform: 'uppercase', fontWeight: 600, letterSpacing: '0.05em', color: 'hsl(var(--text-muted))', marginBottom: '8px' }}>🎬 Pro Editor</div>
+              <div style={{ fontSize: '11px', textTransform: 'uppercase', fontWeight: 600, letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: '8px' }}>🎬 Pro Editor</div>
 
               {/* Whip Pan */}
               <div style={{ marginBottom: '10px' }}>
@@ -2108,7 +2159,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
 
             {/* Tier 3 — Polish & Atmosphere */}
             <div>
-              <div style={{ fontSize: '11px', textTransform: 'uppercase', fontWeight: 600, letterSpacing: '0.05em', color: 'hsl(var(--text-muted))', marginBottom: '8px' }}>✨ Polish & Atmosphere</div>
+              <div style={{ fontSize: '11px', textTransform: 'uppercase', fontWeight: 600, letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: '8px' }}>✨ Polish & Atmosphere</div>
 
               {/* Film Grain */}
               <div style={{ marginBottom: '10px' }}>
@@ -2147,12 +2198,16 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
               </div>
             </div>
           </section>
+        </div>
+      )}
 
-          {/* Subtitle Style Options - Only visible in Spoken Dialogue/Shayari Mode */}
-          {syncMode === 'dialogue' && (
+      {/* TAB 3: SUBTITLES */}
+      {sidebarTab === 'subtitles' && (
+        <div style={{ animation: 'fadeIn 0.2s ease-out' }}>
+          {syncMode === 'dialogue' ? (
             <section className="glass-panel" style={{ padding: '20px', marginBottom: '24px' }}>
               <h4 style={{ fontSize: '14px', marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <Type size={16} style={{ color: 'hsl(var(--accent-purple))' }} />
+                <Type size={16} style={{ color: 'var(--accent-purple)' }} />
                 Subtitle Styling
               </h4>
 
@@ -2212,11 +2267,11 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
                     justifyContent: 'space-between',
                     alignItems: 'center',
                     height: '40px',
-                    background: 'hsl(var(--bg-surface))'
+                    background: 'var(--bg-surface)'
                   }}
                 >
                   <span style={{ fontFamily: fontName, fontSize: '15px' }}>{fontName}</span>
-                  <span style={{ fontSize: '10px', color: 'hsl(var(--text-gray))', transform: fontSelectorOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>▼</span>
+                  <span style={{ fontSize: '10px', color: 'var(--text-gray)', transform: fontSelectorOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>▼</span>
                 </div>
 
                 {fontSelectorOpen && (
@@ -2233,7 +2288,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
                       flexDirection: 'column',
                       gap: '8px',
                       boxShadow: '0 10px 30px rgba(0,0,0,0.5)',
-                      background: 'hsl(var(--bg-card))',
+                      background: 'var(--bg-card)',
                       border: '1px solid var(--border-light)'
                     }}
                     onClick={(e) => e.stopPropagation()}
@@ -2252,7 +2307,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
                     />
 
                     {fontLoading && (
-                      <div style={{ fontSize: '12px', color: 'hsl(var(--accent-purple))', padding: '4px' }}>
+                      <div style={{ fontSize: '12px', color: 'var(--accent-purple)', padding: '4px' }}>
                         Checking and downloading font from Google Fonts...
                       </div>
                     )}
@@ -2298,7 +2353,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
                             fontFamily: font,
                             fontSize: '15px',
                             background: fontName === font ? 'rgba(99, 102, 241, 0.15)' : 'transparent',
-                            color: fontName === font ? '#fff' : 'hsl(var(--text-gray))',
+                            color: fontName === font ? '#fff' : 'var(--text-gray)',
                             transition: 'background 0.2s',
                             display: 'flex',
                             justifyContent: 'space-between',
@@ -2318,7 +2373,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
 
                       {filteredFonts.length === 0 && fontSearchQuery.trim().length > 0 && (
                         <div style={{ padding: '8px', textAlign: 'center' }}>
-                          <p style={{ fontSize: '12px', color: 'hsl(var(--text-muted))', marginBottom: '8px' }}>No curated match for "{fontSearchQuery}"</p>
+                          <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '8px' }}>No curated match for "{fontSearchQuery}"</p>
                           <button
                             type="button"
                             className="btn-primary"
@@ -2437,7 +2492,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
 
               <div style={{ borderTop: '1px solid var(--border-light)', paddingTop: '14px', marginTop: '14px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
                 <div>
-                  <label className="label" style={{ fontWeight: 600, color: 'hsl(var(--text-white))', marginBottom: '10px' }}>Text Animations & Effects</label>
+                  <label className="label" style={{ fontWeight: 600, color: 'var(--text-white)', marginBottom: '10px' }}>Text Animations & Effects</label>
                   
                   <div style={{ display: 'flex', gap: '16px', marginBottom: '10px' }}>
                     <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer' }}>
@@ -2522,7 +2577,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
               {subtitleMode !== 'pop' && (
                 <div style={{ borderTop: '1px solid var(--border-light)', paddingTop: '14px', marginTop: '14px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
                   <div>
-                    <label className="label" style={{ fontWeight: 600, color: 'hsl(var(--text-white))', marginBottom: '10px' }}>Text Positioning</label>
+                    <label className="label" style={{ fontWeight: 600, color: 'var(--text-white)', marginBottom: '10px' }}>Text Positioning</label>
                     
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px', marginBottom: '12px' }}>
                       <button
@@ -2631,7 +2686,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
               {/* Premium Algorithmic Styles Section */}
               <div style={{ borderTop: '1px solid var(--border-light)', paddingTop: '14px', marginTop: '14px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
                 <div>
-                  <label className="label" style={{ fontWeight: 600, color: 'hsl(var(--text-white))', marginBottom: '10px' }}>🔥 Premium Retention Styles</label>
+                  <label className="label" style={{ fontWeight: 600, color: 'var(--text-white)', marginBottom: '10px' }}>🔥 Premium Retention Styles</label>
 
                   {/* Auto-Emoji Pop */}
                   <div style={{ marginBottom: '10px' }}>
@@ -2639,7 +2694,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
                       <input type="checkbox" checked={showEmojis} onChange={(e) => setShowEmojis(e.target.checked)} />
                       Auto-Emoji Pop (Algorithm Booster)
                     </label>
-                    <div style={{ fontSize: '11px', color: 'hsl(var(--text-gray))', marginLeft: '20px', marginTop: '2px' }}>
+                    <div style={{ fontSize: '11px', color: 'var(--text-gray)', marginLeft: '20px', marginTop: '2px' }}>
                       Automatically burns contextual emojis next to matching words on-screen.
                     </div>
                   </div>
@@ -2650,7 +2705,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
                       <input type="checkbox" checked={autoEmphasis} onChange={(e) => setAutoEmphasis(e.target.checked)} />
                       Key-Phrase Auto-Emphasis (Hormozi Style)
                     </label>
-                    <div style={{ fontSize: '11px', color: 'hsl(var(--text-gray))', marginLeft: '20px', marginTop: '2px', marginBottom: '6px' }}>
+                    <div style={{ fontSize: '11px', color: 'var(--text-gray)', marginLeft: '20px', marginTop: '2px', marginBottom: '6px' }}>
                       Highlights high-impact words (e.g. money, free, crash) with a 25% scale bump.
                     </div>
                     {autoEmphasis && (
@@ -2668,7 +2723,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
                       <input type="checkbox" checked={neonGlow} onChange={(e) => setNeonGlow(e.target.checked)} />
                       Cyberpunk Neon Glow (Modern Vibe)
                     </label>
-                    <div style={{ fontSize: '11px', color: 'hsl(var(--text-gray))', marginLeft: '20px', marginTop: '2px', marginBottom: '6px' }}>
+                    <div style={{ fontSize: '11px', color: 'var(--text-gray)', marginLeft: '20px', marginTop: '2px', marginBottom: '6px' }}>
                       Injects a dual-layered soft glowing neon aura behind a sharp white core.
                     </div>
                     {neonGlow && (
@@ -2686,7 +2741,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
                       <input type="checkbox" checked={pop3d} onChange={(e) => setPop3d(e.target.checked)} />
                       3D Pop Extrusion (Retro Meme Style)
                     </label>
-                    <div style={{ fontSize: '11px', color: 'hsl(var(--text-gray))', marginLeft: '20px', marginTop: '2px', marginBottom: '6px' }}>
+                    <div style={{ fontSize: '11px', color: 'var(--text-gray)', marginLeft: '20px', marginTop: '2px', marginBottom: '6px' }}>
                       Applies a solid, thick blocky shadow offset for high-contrast visibility.
                     </div>
                     {pop3d && (
@@ -2700,12 +2755,28 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
                 </div>
               </div>
             </section>
+          ) : (
+            <div className="inspector-card" style={{ padding: '24px', textAlign: 'center', color: 'var(--text-gray)' }}>
+              <Type size={32} style={{ color: 'var(--text-muted)', marginBottom: '12px', margin: '0 auto' }} />
+              <div className="inspector-sub-title" style={{ fontSize: '14px', marginBottom: '6px' }}>Subtitles Disabled</div>
+              <p style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.4' }}>
+                Subtitles are only available in **Spoken Dialogue / Shayari** sync mode.
+              </p>
+              <p style={{ fontSize: '11px', color: 'var(--text-gray)', marginTop: '8px' }}>
+                Switch to **Dialogue Sync** in the **Audio** tab to configure transcription and styling.
+              </p>
+            </div>
           )}
+        </div>
+      )}
 
+      {/* Export Options (under Visuals tab) */}
+      {sidebarTab === 'video' && (
+        <div style={{ animation: 'fadeIn 0.2s ease-out' }}>
           {/* Export Options */}
           <section className="glass-panel" style={{ padding: '20px', marginBottom: '24px' }}>
             <h4 style={{ fontSize: '14px', marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <ChevronRight size={16} style={{ color: 'hsl(var(--accent-blue))' }} />
+              <ChevronRight size={16} style={{ color: 'var(--accent-blue)' }} />
               Export Quality Settings
             </h4>
 
@@ -2741,6 +2812,8 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
               </div>
             </div>
           </section>
+        </div>
+      )}
 
           {/* Compilation Banner and Action Button */}
           {scenes.length > 0 && (() => {

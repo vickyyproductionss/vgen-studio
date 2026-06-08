@@ -177,7 +177,7 @@ export default function ClipsLibrary() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px' }}>
         <div>
           <h2 style={{ fontSize: '28px', marginBottom: '8px' }}>Video Library</h2>
-          <p style={{ color: 'hsl(var(--text-gray))', fontSize: '14px' }}>
+          <p style={{ color: 'var(--text-gray)', fontSize: '14px' }}>
             Import your short media clips. Gemini automatically analyzes content and extracts tags.
           </p>
         </div>
@@ -275,7 +275,7 @@ export default function ClipsLibrary() {
       {/* Search & Stats */}
       <div style={{ display: 'flex', gap: '20px', marginBottom: '24px', alignItems: 'center' }}>
         <div style={{ position: 'relative', flex: 1 }}>
-          <Search size={16} style={{ position: 'absolute', left: '16px', top: '15px', color: 'hsl(var(--text-muted))' }} />
+          <Search size={16} style={{ position: 'absolute', left: '16px', top: '15px', color: 'var(--text-muted)' }} />
           <input
             type="text"
             className="input-field"
@@ -287,16 +287,16 @@ export default function ClipsLibrary() {
         </div>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
           <span className="badge-tag">Total Clips: {clips.length}</span>
-          <span className="badge-tag" style={{ color: '#6366f1', borderColor: 'rgba(99, 102, 241, 0.2)' }}>Ready: {clips.filter(c => c.status === 'ready').length}</span>
+          <span className="badge-tag" style={{ color: 'var(--accent-indigo)', borderColor: 'var(--border-light)' }}>Ready: {clips.filter(c => c.status === 'ready').length}</span>
         </div>
       </div>
 
       {/* Clips Grid */}
       {filteredClips.length === 0 ? (
-        <div className="glass-panel" style={{ padding: '60px 20px', textAlign: 'center', color: 'hsl(var(--text-gray))' }}>
-          <Video size={48} style={{ color: 'hsl(var(--text-muted))', marginBottom: '16px' }} />
+        <div className="glass-panel" style={{ padding: '60px 20px', textAlign: 'center', color: 'var(--text-gray)' }}>
+          <Video size={48} style={{ color: 'var(--text-muted)', marginBottom: '16px' }} />
           <h3>No clips found</h3>
-          <p style={{ fontSize: '14px', marginTop: '8px', color: 'hsl(var(--text-muted))' }}>
+          <p style={{ fontSize: '14px', marginTop: '8px', color: 'var(--text-muted)' }}>
             {search ? 'Try adjusting your search criteria.' : 'Import local paths or upload clips to populate your video library.'}
           </p>
         </div>
@@ -318,7 +318,7 @@ export default function ClipsLibrary() {
               }}
             >
               {/* Thumbnail Container */}
-              <div style={{ position: 'relative', width: '100%', paddingTop: '56.25%', background: '#05060b' }}>
+              <div style={{ position: 'relative', width: '100%', paddingTop: '56.25%', background: 'var(--bg-darker)' }}>
                 {clip.thumbnail ? (
                   <img
                     src={clip.thumbnail}
@@ -342,7 +342,7 @@ export default function ClipsLibrary() {
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    color: 'hsl(var(--text-muted))'
+                    color: 'var(--text-muted)'
                   }}>
                     <Video size={24} />
                   </div>
@@ -449,7 +449,7 @@ export default function ClipsLibrary() {
                   </h4>
                   <p style={{
                     fontSize: '12px',
-                    color: 'hsl(var(--text-gray))',
+                    color: 'var(--text-gray)',
                     lineHeight: '1.4',
                     marginBottom: '12px',
                     display: '-webkit-box',
@@ -473,7 +473,7 @@ export default function ClipsLibrary() {
                           padding: '2px 6px',
                           borderRadius: '4px',
                           fontSize: '10px',
-                          color: 'hsl(var(--text-gray))'
+                          color: 'var(--text-gray)'
                         }}
                       >
                         #{tag}
@@ -482,7 +482,7 @@ export default function ClipsLibrary() {
                   </div>
 
                   {/* Actions */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border-light)', paddingTop: '12px', fontSize: '11px', color: 'hsl(var(--text-muted))' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border-light)', paddingTop: '12px', fontSize: '11px', color: 'var(--text-muted)' }}>
                     <span style={{ display: 'flex', alignItems: 'center', gap: '4px', maxWidth: '70%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={clip.path}>
                       <FileText size={12} /> {clip.path}
                     </span>
@@ -491,12 +491,12 @@ export default function ClipsLibrary() {
                       style={{
                         background: 'none',
                         border: 'none',
-                        color: 'hsl(var(--text-muted))',
+                        color: 'var(--text-muted)',
                         cursor: 'pointer',
                         transition: 'color 0.2s'
                       }}
                       onMouseEnter={(e) => e.currentTarget.style.color = '#ef4444'}
-                      onMouseLeave={(e) => e.currentTarget.style.color = 'hsl(var(--text-muted))'}
+                      onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-muted)'}
                     >
                       <Trash2 size={14} />
                     </button>

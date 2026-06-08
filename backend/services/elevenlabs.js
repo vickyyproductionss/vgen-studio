@@ -33,7 +33,7 @@ export async function getVoices(apiKey) {
   }));
 }
 
-export async function generateSpeech(text, voiceId, apiKey, outputFilePath) {
+export async function generateSpeech(text, voiceId, apiKey, outputFilePath, modelId = 'eleven_multilingual_v2') {
   if (!apiKey) {
     throw new Error('ElevenLabs API Key is required');
   }
@@ -46,7 +46,7 @@ export async function generateSpeech(text, voiceId, apiKey, outputFilePath) {
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      console.log(`Generating ElevenLabs speech with voice ${voiceId} (attempt ${attempt}/${maxAttempts})...`);
+      console.log(`Generating ElevenLabs speech with voice ${voiceId} using model ${modelId} (attempt ${attempt}/${maxAttempts})...`);
       const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
         method: 'POST',
         headers: {
@@ -56,7 +56,7 @@ export async function generateSpeech(text, voiceId, apiKey, outputFilePath) {
         },
         body: JSON.stringify({
           text: text,
-          model_id: 'eleven_multilingual_v2',
+          model_id: modelId,
           voice_settings: {
             stability: 0.8,
             similarity_boost: 0.95,

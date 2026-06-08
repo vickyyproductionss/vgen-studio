@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Folder, Plus, Trash2, Calendar, Film, Zap, Search, AlertCircle, Play, Pencil, MoreVertical } from 'lucide-react';
+import { Folder, Plus, Trash2, Search, AlertCircle, Play, Pencil } from 'lucide-react';
 
 interface Project {
   id: string;
@@ -14,32 +14,7 @@ interface ProjectsListProps {
   onOpenProject: (projectId: string, type: 'create' | 'beatsync') => void;
 }
 
-const formatSize = (bytes?: number) => {
-  if (bytes === undefined || bytes === null || bytes === 0) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-};
 
-const MOCK_THUMBNAILS = [
-  "https://lh3.googleusercontent.com/aida-public/AB6AXuALmezZc6_V2FtOb1xk7bFARyHW5L0LhXju85JnS-O4vtsXavgzOnhaE1YM-cd9XvktZWQ0tfD7bNeCGtEU4tAage1j9UnhR3d49Q3fQLqGD3lusCQ-CMXLKA1JcNYjO3iQmWZd_dlgFfzRKs_7MHjYbZ4ZvMTnjBawjSXyyAfZ_vbDV0NzDAR5susGxVRoh04ojEMmJ5Cmb70ii1uOl7ng0HHqgIXqsaNXUogRL7Yk7LS7vZ3iuMVF_mTC2EyF9hGBPetByT6YN9A",
-  "https://lh3.googleusercontent.com/aida-public/AB6AXuA1bW2uxq4nWJ0BSNZML3D75GO2DzdZU8dL85FW4wSkgEvaTdu4e19SrOz4D36GO9tovrtAlvnpJDcL84XrFggR2_9ShM4Z_zvTVyRiwSgkv2ATR3LdGpPGsha86ZK36ALiKTxgU1BQoFhRHmcaNtnfSW7wLdZjCzv4zUfM2r1oWxna-QS3tGDENQxd3EzEY1WyPeUbToABbi4GAJNfn1AJiJ3qTz905GUy0qO2HVbHn1TBvQxOK_fk_ChmJmhMU-b2_A-CC5OpUcc",
-  "https://lh3.googleusercontent.com/aida-public/AB6AXuAO7zoh52Ugn22tH_gxN_mM1xo4q-NIX_jZVG2jNQxYJKGUVyHZHMOVCghdJ7ohkqswRzAjX44enC4j_5dVB7BhBNYAfHKvny16PI2PlVM-x9GiL-2Llqv9FeGjUAfLF8rJeBhMv0ixesNdDlH2aQO-ee3BfSDSrJwUZ22xxHzO5pVhCVd19OSGydlfP554nkwkWJDd4Kj9T02C53AWTRGJ5z784kUilYqPCMWReYdoWQtqEz-l3OoHXj1RGgXHtmQ4Hu0WZCmGHqg",
-  "https://lh3.googleusercontent.com/aida-public/AB6AXuCFocHX5ZugyM_Mfbe_fn8ylRMYpksbYPblLHZICfWXtzu_iTCQ7PMAFyfZ5AbE5lGuXouImKdIqCpFHDifKPLgLcpRtuaFCFD8Rk9_3tHw0yoCEURYYAu9KrwxMFeKNItdVg3DMJyIi7xXmZSfJ0gIQFs1v4NTiILbfm8JfiWyXn96yi9XyvqudAA68kcBrbOamm8bgb61dCa5-4n1_JylbKFB13jKPZ0GjXFe1gOZtEiWO6Ei27uU9OA009KL2lvPzwZDoJCe3p4"
-];
-
-const getThumbnail = (idx: number) => MOCK_THUMBNAILS[idx % MOCK_THUMBNAILS.length];
-
-const getProjectState = (idx: number, name: string) => {
-  if (name.toLowerCase().includes('minimal') || idx === 1) {
-    return { type: 'generating', progress: 64 };
-  }
-  if (name.toLowerCase().includes('void') || idx === 2) {
-    return { type: 'draft' };
-  }
-  return { type: 'rendered' };
-};
 
 export default function ProjectsList({ onOpenProject }: ProjectsListProps) {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -47,19 +22,55 @@ export default function ProjectsList({ onOpenProject }: ProjectsListProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState<'all' | 'create' | 'beatsync'>('all');
   const [error, setError] = useState('');
+  const [clips, setClips] = useState<any[]>([]);
+  const [activeJobs, setActiveJobs] = useState<any[]>([]);
   
   // Ambient glow coordinate tracking
   const [coords, setCoords] = useState({ x: 0, y: 0 });
 
   useEffect(() => {
     fetchProjects();
+    fetchClips();
+    fetchActiveJobs();
 
     const handleMouseMove = (e: MouseEvent) => {
       setCoords({ x: e.clientX, y: e.clientY });
     };
     window.addEventListener('mousemove', handleMouseMove);
-    return () => window.removeEventListener('mousemove', handleMouseMove);
+
+    const interval = setInterval(() => {
+      fetchActiveJobs();
+    }, 4000);
+
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      clearInterval(interval);
+    };
   }, []);
+
+  const fetchClips = async () => {
+    try {
+      const res = await fetch('/api/clips');
+      if (res.ok) {
+        const data = await res.json();
+        setClips(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch clips:', err);
+    }
+  };
+
+  const fetchActiveJobs = async () => {
+    try {
+      const res = await fetch('/api/jobs/active');
+      if (res.ok) {
+        const data = await res.json();
+        setActiveJobs(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch active jobs:', err);
+    }
+  };
 
   const fetchProjects = async () => {
     try {
@@ -74,6 +85,62 @@ export default function ProjectsList({ onOpenProject }: ProjectsListProps) {
     } finally {
       setLoading(false);
     }
+  };
+
+  const getProjectThumbnail = (proj: Project) => {
+    if (proj.state && Array.isArray(proj.state.scenes)) {
+      const firstSceneWithClip = proj.state.scenes.find((s: any) => s.clipId);
+      if (firstSceneWithClip) {
+        const clip = clips.find(c => c.id === firstSceneWithClip.clipId);
+        if (clip && clip.thumbnail) {
+          return clip.thumbnail;
+        }
+      }
+    }
+    if (proj.state && proj.state.selectedVideoClipId) {
+      const clip = clips.find(c => c.id === proj.state.selectedVideoClipId);
+      if (clip && clip.thumbnail) {
+        return clip.thumbnail;
+      }
+    }
+    if (clips.length > 0 && clips[0].thumbnail) {
+      return clips[0].thumbnail;
+    }
+    return proj.type === 'beatsync'
+      ? "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=500&auto=format&fit=crop&q=60"
+      : "https://images.unsplash.com/photo-1614850523459-c2f4c699c52e?w=500&auto=format&fit=crop&q=60";
+  };
+
+  const getProjectState = (proj: Project) => {
+    const activeJob = activeJobs.find(job => job.projectId === proj.id);
+    if (activeJob) {
+      return { type: 'generating', progress: activeJob.progress, statusText: activeJob.status };
+    }
+    if (proj.state && proj.state.lastRenderedVideoPath) {
+      return { type: 'rendered' };
+    }
+    return { type: 'draft' };
+  };
+
+  const getProjectDuration = (proj: Project) => {
+    if (proj.state) {
+      if (typeof proj.state.audioDuration === 'number' && proj.state.audioDuration > 0) {
+        return formatDuration(proj.state.audioDuration);
+      }
+      if (Array.isArray(proj.state.scenes) && proj.state.scenes.length > 0) {
+        const maxEndTime = Math.max(...proj.state.scenes.map((s: any) => s.end_time || 0));
+        if (maxEndTime > 0) {
+          return formatDuration(maxEndTime);
+        }
+      }
+    }
+    return '0:00';
+  };
+
+  const formatDuration = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
   const handleCreateProject = async (type: 'create' | 'beatsync') => {
@@ -112,6 +179,17 @@ export default function ProjectsList({ onOpenProject }: ProjectsListProps) {
     return matchesSearch && matchesType;
   });
 
+  const totalProjects = projects.length;
+  const totalDiskSize = projects.reduce((sum, p) => sum + (p.diskSize || 0), 0);
+  const totalRenders = projects.filter(p => p.state?.lastRenderedVideoPath).length;
+
+  const formatStorage = (bytes: number) => {
+    const mb = bytes / (1024 * 1024);
+    if (mb < 100) return `${mb.toFixed(1)} MB`;
+    const gb = mb / 1024;
+    return `${gb.toFixed(2)} GB`;
+  };
+
   return (
     <div 
       style={{ 
@@ -126,7 +204,7 @@ export default function ProjectsList({ onOpenProject }: ProjectsListProps) {
       {/* Header section with Create triggers */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '40px' }}>
         <div>
-          <h2 style={{ fontSize: '32px', fontFamily: 'Outfit', fontWeight: 600, color: '#fff', letterSpacing: '-0.03em', marginBottom: '4px' }}>
+          <h2 style={{ fontSize: '32px', fontFamily: 'Outfit', fontWeight: 600, color: 'var(--text-white)', letterSpacing: '-0.03em', marginBottom: '4px' }}>
             My Projects
           </h2>
           <p style={{ color: 'var(--text-gray)', fontSize: '14px', fontFamily: 'Inter' }}>
@@ -184,14 +262,14 @@ export default function ProjectsList({ onOpenProject }: ProjectsListProps) {
         </div>
 
         <div style={{ position: 'relative', width: '300px' }}>
-          <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'rgba(255, 255, 255, 0.4)' }} />
+          <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-gray)' }} />
           <input
             type="text"
             className="input-field"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search projects..."
-            style={{ paddingLeft: '38px', margin: 0, height: '36px', fontSize: '13px', borderRadius: '9999px', background: 'rgba(255, 255, 255, 0.02)' }}
+            style={{ paddingLeft: '38px', margin: 0, height: '36px', fontSize: '13px', borderRadius: '9999px', background: 'var(--bg-surface)' }}
           />
         </div>
       </div>
@@ -233,25 +311,25 @@ export default function ProjectsList({ onOpenProject }: ProjectsListProps) {
             className="project-card"
             style={{
               aspectRatio: '9/16',
-              border: '2px dashed rgba(255, 255, 255, 0.1)',
+              border: '2px dashed var(--border-medium)',
               borderRadius: '8px',
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'center',
               cursor: 'pointer',
-              background: 'rgba(255, 255, 255, 0.005)',
+              background: 'rgba(var(--scrollbar-thumb), 0.05)',
               padding: '24px'
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.3)';
-              e.currentTarget.style.background = 'rgba(255, 255, 255, 0.015)';
+              e.currentTarget.style.borderColor = 'var(--text-gray)';
+              e.currentTarget.style.background = 'rgba(var(--scrollbar-thumb), 0.1)';
               const iconWrapper = e.currentTarget.querySelector('.add-icon-wrapper') as HTMLElement;
               if (iconWrapper) iconWrapper.style.transform = 'scale(1.1)';
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)';
-              e.currentTarget.style.background = 'rgba(255, 255, 255, 0.005)';
+              e.currentTarget.style.borderColor = 'var(--border-medium)';
+              e.currentTarget.style.background = 'rgba(var(--scrollbar-thumb), 0.05)';
               const iconWrapper = e.currentTarget.querySelector('.add-icon-wrapper') as HTMLElement;
               if (iconWrapper) iconWrapper.style.transform = 'scale(1)';
             }}
@@ -262,7 +340,7 @@ export default function ProjectsList({ onOpenProject }: ProjectsListProps) {
                 width: '48px',
                 height: '48px',
                 borderRadius: '50%',
-                border: '1px solid rgba(255, 255, 255, 0.15)',
+                border: '1px solid var(--border-medium)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -270,21 +348,20 @@ export default function ProjectsList({ onOpenProject }: ProjectsListProps) {
                 transition: 'transform 0.3s cubic-bezier(0.16, 1, 0.3, 1)'
               }}
             >
-              <Plus size={20} color="#fff" />
+              <Plus size={20} color="var(--text-white)" />
             </div>
             <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-gray)', fontFamily: 'Inter' }}>Create New Video</span>
           </div>
 
-          {filteredProjects.map((proj, index) => {
-            const isBeatSync = proj.type === 'beatsync';
+          {filteredProjects.map((proj) => {
             const updatedAtStr = new Date(proj.updatedAt).toLocaleDateString(undefined, {
               month: 'short',
               day: 'numeric',
               year: 'numeric'
             });
 
-            const pState = getProjectState(index, proj.name);
-            const thumbUrl = getThumbnail(index);
+            const pState = getProjectState(proj);
+            const thumbUrl = getProjectThumbnail(proj);
 
             return (
               <div
@@ -292,8 +369,8 @@ export default function ProjectsList({ onOpenProject }: ProjectsListProps) {
                 className="project-card"
                 style={{
                   aspectRatio: '9/16',
-                  background: '#0A0A0A',
-                  border: '1px solid rgba(255, 255, 255, 0.04)',
+                  background: 'var(--bg-card)',
+                  border: '1px solid var(--border-medium)',
                   borderRadius: '8px',
                   overflow: 'hidden',
                   display: 'flex',
@@ -302,14 +379,14 @@ export default function ProjectsList({ onOpenProject }: ProjectsListProps) {
                   position: 'relative'
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.12)';
+                  e.currentTarget.style.borderColor = 'var(--border-glow)';
                   const img = e.currentTarget.querySelector('.card-thumbnail-img') as HTMLElement;
                   if (img) img.style.transform = 'scale(1.05)';
                   const overlay = e.currentTarget.querySelector('.card-hover-overlay') as HTMLElement;
                   if (overlay) overlay.style.opacity = '1';
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.04)';
+                  e.currentTarget.style.borderColor = 'var(--border-medium)';
                   const img = e.currentTarget.querySelector('.card-thumbnail-img') as HTMLElement;
                   if (img) img.style.transform = 'scale(1)';
                   const overlay = e.currentTarget.querySelector('.card-hover-overlay') as HTMLElement;
@@ -318,7 +395,7 @@ export default function ProjectsList({ onOpenProject }: ProjectsListProps) {
                 onClick={() => onOpenProject(proj.id, proj.type)}
               >
                 {/* Visual Thumbnail Area */}
-                <div style={{ flex: 1, position: 'relative', overflow: 'hidden', background: '#050505' }}>
+                <div style={{ flex: 1, position: 'relative', overflow: 'hidden', background: 'var(--bg-darker)' }}>
                   <img 
                     src={thumbUrl} 
                     alt={proj.name}
@@ -354,8 +431,8 @@ export default function ProjectsList({ onOpenProject }: ProjectsListProps) {
                           width: '40px',
                           height: '40px',
                           borderRadius: '50%',
-                          background: '#ffffff',
-                          color: '#000000',
+                          background: 'var(--primary)',
+                          color: 'var(--primary-foreground)',
                           border: 'none',
                           display: 'flex',
                           alignItems: 'center',
@@ -370,7 +447,7 @@ export default function ProjectsList({ onOpenProject }: ProjectsListProps) {
                           onOpenProject(proj.id, proj.type);
                         }}
                       >
-                        <Play size={18} fill="#000000" />
+                        <Play size={18} fill="var(--primary-foreground)" />
                       </button>
                     )}
                     <button 
@@ -378,9 +455,9 @@ export default function ProjectsList({ onOpenProject }: ProjectsListProps) {
                         width: '40px',
                         height: '40px',
                         borderRadius: '50%',
-                        background: 'rgba(0,0,0,0.6)',
-                        color: '#ffffff',
-                        border: '1px solid rgba(255,255,255,0.1)',
+                        background: 'var(--glass-bg)',
+                        color: 'var(--text-white)',
+                        border: '1px solid var(--glass-border)',
                         backdropFilter: 'blur(8px)',
                         display: 'flex',
                         alignItems: 'center',
@@ -404,20 +481,20 @@ export default function ProjectsList({ onOpenProject }: ProjectsListProps) {
                     position: 'absolute',
                     top: '12px',
                     left: '12px',
-                    background: 'rgba(0, 0, 0, 0.6)',
+                    background: 'var(--glass-bg)',
                     backdropFilter: 'blur(8px)',
-                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    border: '1px solid var(--glass-border)',
                     borderRadius: '4px',
                     padding: '3px 8px',
                     fontSize: '10px',
                     fontFamily: 'monospace',
                     fontWeight: 700,
-                    color: '#ffffff',
+                    color: 'var(--text-white)',
                     textTransform: 'uppercase',
                     letterSpacing: '0.05em',
                     zIndex: 1
                   }}>
-                    {pState.type === 'draft' ? 'Draft' : isBeatSync ? '0:22' : '0:15'}
+                    {pState.type === 'draft' ? 'Draft' : pState.type === 'generating' ? 'Rendering' : getProjectDuration(proj)}
                   </div>
 
                   {/* Active Rendering State */}
@@ -437,16 +514,16 @@ export default function ProjectsList({ onOpenProject }: ProjectsListProps) {
                         style={{
                           width: '100%',
                           height: '2px',
-                          background: 'rgba(255,255,255,0.1)',
+                          background: 'var(--border-medium)',
                           position: 'relative',
                           overflow: 'hidden',
                           marginBottom: '12px',
                           borderRadius: '1px'
                         }}
                       >
-                        <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${pState.progress}%`, background: '#ffffff' }} />
+                        <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${pState.progress}%`, background: 'var(--primary)' }} />
                       </div>
-                      <span style={{ fontSize: '11px', fontFamily: 'Inter', fontWeight: 600, color: '#ffffff', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                      <span style={{ fontSize: '11px', fontFamily: 'Inter', fontWeight: 600, color: 'var(--text-white)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
                         Generating... {pState.progress}%
                       </span>
                     </div>
@@ -454,9 +531,9 @@ export default function ProjectsList({ onOpenProject }: ProjectsListProps) {
                 </div>
 
                 {/* Info & Footer Details */}
-                <div style={{ padding: '16px', borderTop: '1px solid rgba(255, 255, 255, 0.03)' }}>
+                <div style={{ padding: '16px', borderTop: '1px solid var(--border-light)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
-                    <h3 style={{ fontSize: '13px', fontWeight: 600, color: '#ffffff', fontFamily: 'Inter', margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '85%' }}>
+                    <h3 style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-white)', fontFamily: 'Inter', margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '85%' }}>
                       {proj.name}
                     </h3>
                     
@@ -465,7 +542,7 @@ export default function ProjectsList({ onOpenProject }: ProjectsListProps) {
                       style={{
                         background: 'none',
                         border: 'none',
-                        color: 'rgba(255, 255, 255, 0.4)',
+                        color: 'var(--text-muted)',
                         cursor: 'pointer',
                         padding: '2px',
                         display: 'flex',
@@ -473,7 +550,7 @@ export default function ProjectsList({ onOpenProject }: ProjectsListProps) {
                         justifyContent: 'center'
                       }}
                       onMouseEnter={(e) => e.currentTarget.style.color = '#ef4444'}
-                      onMouseLeave={(e) => e.currentTarget.style.color = 'rgba(255, 255, 255, 0.4)'}
+                      onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-muted)'}
                       title="Delete project"
                     >
                       <Trash2 size={13} />
@@ -491,7 +568,7 @@ export default function ProjectsList({ onOpenProject }: ProjectsListProps) {
                           width: '6px',
                           height: '6px',
                           borderRadius: '50%',
-                          background: pState.type === 'generating' ? '#ffffff' : pState.type === 'draft' ? '#444748' : '#10b981',
+                          background: pState.type === 'generating' ? 'var(--primary)' : pState.type === 'draft' ? 'var(--text-muted)' : '#10b981',
                           animation: pState.type === 'generating' ? 'pulse 1.5s infinite' : 'none'
                         }}
                       />
@@ -517,24 +594,28 @@ export default function ProjectsList({ onOpenProject }: ProjectsListProps) {
           alignItems: 'center', 
           justifyContent: 'between', 
           borderRadius: '8px',
-          border: '1px solid rgba(255, 255, 255, 0.05)',
+          border: '1px solid var(--border-medium)',
           gap: '24px'
         }}
       >
         <div style={{ display: 'flex', gap: '48px', flexGrow: 1 }}>
           <div>
             <span style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--text-gray)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px', fontFamily: 'Inter' }}>Total Projects</span>
-            <span style={{ fontSize: '24px', fontFamily: 'Outfit', fontWeight: 600, color: '#fff' }}>24</span>
-          </div>
-          <div>
-            <span style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--text-gray)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px', fontFamily: 'Inter' }}>Storage Used</span>
-            <span style={{ fontSize: '24px', fontFamily: 'Outfit', fontWeight: 600, color: '#fff' }}>
-              12.4 GB <span style={{ fontSize: '13px', color: 'var(--text-gray)', fontWeight: 400, fontFamily: 'Inter' }}>/ 50GB</span>
+            <span style={{ fontSize: '24px', fontFamily: 'Outfit', fontWeight: 600, color: 'var(--text-white)' }}>
+              {totalProjects}
             </span>
           </div>
           <div>
-            <span style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--text-gray)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px', fontFamily: 'Inter' }}>Renders This Month</span>
-            <span style={{ fontSize: '24px', fontFamily: 'Outfit', fontWeight: 600, color: '#fff' }}>148</span>
+            <span style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--text-gray)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px', fontFamily: 'Inter' }}>Storage Used</span>
+            <span style={{ fontSize: '24px', fontFamily: 'Outfit', fontWeight: 600, color: 'var(--text-white)' }}>
+              {formatStorage(totalDiskSize)} <span style={{ fontSize: '13px', color: 'var(--text-gray)', fontWeight: 400, fontFamily: 'Inter' }}>/ 50GB</span>
+            </span>
+          </div>
+          <div>
+            <span style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--text-gray)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px', fontFamily: 'Inter' }}>Total Renders</span>
+            <span style={{ fontSize: '24px', fontFamily: 'Outfit', fontWeight: 600, color: 'var(--text-white)' }}>
+              {totalRenders}
+            </span>
           </div>
         </div>
 

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Film, Settings as SettingsIcon, Play, Video, Terminal, Music, Zap, Folder, LogOut, User, Check, X, Bell, HelpCircle, Rocket } from 'lucide-react';
+import { Film, Settings as SettingsIcon, Play, Video, Terminal, Music, Zap, Folder, LogOut, User, Check, X, Bell, HelpCircle, Rocket, Sun, Moon } from 'lucide-react';
 import ClipsLibrary from './components/ClipsLibrary';
 import MusicLibrary from './components/MusicLibrary';
 import CreateProject from './components/CreateProject';
@@ -14,6 +14,21 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('projects');
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
+
+  // Theme State
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
+    return (localStorage.getItem('vgen_theme') as 'dark' | 'light') || 'dark';
+  });
+
+  useEffect(() => {
+    document.documentElement.className = theme;
+    localStorage.setItem('vgen_theme', theme);
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme(prev => prev === 'dark' ? 'light' : 'dark');
+  };
+
 
   // SaaS States
   const [user, setUser] = useState<{ email: string; plan: string; credits: number } | null>(null);
@@ -290,7 +305,7 @@ export default function App() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', marginBottom: '36px', padding: '0 8px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <div style={{
-                background: '#ffffff',
+                background: 'var(--primary)',
                 width: '20px',
                 height: '20px',
                 borderRadius: '4px',
@@ -299,9 +314,9 @@ export default function App() {
                 justifyContent: 'center',
                 flexShrink: 0
               }}>
-                <Play size={8} fill="black" color="black" style={{ marginLeft: '1px' }} />
+                <Play size={8} fill="var(--primary-foreground)" color="var(--primary-foreground)" style={{ marginLeft: '1px' }} />
               </div>
-              <h1 style={{ fontSize: '18px', fontWeight: 800, letterSpacing: '-0.02em', color: '#ffffff', fontFamily: 'var(--font-headline)', margin: 0, lineHeight: 1.1 }}>
+              <h1 style={{ fontSize: '18px', fontWeight: 800, letterSpacing: '-0.02em', color: 'var(--text-white)', fontFamily: 'var(--font-headline)', margin: 0, lineHeight: 1.1 }}>
                 V-Gen Studio
               </h1>
             </div>
@@ -371,7 +386,7 @@ export default function App() {
                   width: '6px',
                   height: '6px',
                   borderRadius: '50%',
-                  background: '#ffffff',
+                  background: 'var(--primary)',
                   marginLeft: 'auto'
                 }} />
               )}
@@ -406,7 +421,7 @@ export default function App() {
 
           {user && user.plan === 'local' && (
             <div className="credit-widget" onClick={() => setShowAuthModal(true)} style={{ cursor: 'pointer', background: 'rgba(255,255,255,0.01)' }}>
-              <Zap size={16} color="hsl(var(--text-gray))" style={{ flexShrink: 0 }} />
+              <Zap size={16} color="var(--text-gray)" style={{ flexShrink: 0 }} />
               <div className="credit-details">
                 <span className="credit-title">Local Workspace</span>
                 <span className="credit-number" style={{ fontSize: '11px' }}>Unlimited Credits</span>
@@ -444,19 +459,19 @@ export default function App() {
               </div>
             ) : (
               <div className="profile-card" onClick={() => { setShowAuthModal(true); setAuthTab('login'); }}>
-                <div className="profile-avatar" style={{ background: '#52525b' }}>
+                <div className="profile-avatar" style={{ background: 'var(--bg-surface)' }}>
                   <User size={14} />
                 </div>
                 <div className="profile-info">
                   <span className="profile-name">Sign In / Register</span>
-                  <span className="profile-badge" style={{ color: 'hsl(var(--text-muted))' }}>Local Mode</span>
+                  <span className="profile-badge" style={{ color: 'var(--text-muted)' }}>Local Mode</span>
                 </div>
               </div>
             )}
           </div>
           <div style={{
             fontSize: '9px',
-            color: 'hsl(var(--text-muted))',
+            color: 'var(--text-muted)',
             padding: '12px 8px 0 8px',
             textAlign: 'center',
             borderTop: '1px solid var(--border-light)',
@@ -499,6 +514,13 @@ export default function App() {
           )}
 
           <div className="top-header-icons">
+            <button 
+              className="btn-icon top-header-icon-btn" 
+              onClick={toggleTheme} 
+              title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+            >
+              {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+            </button>
             <button className="btn-icon top-header-icon-btn" title="Notifications">
               <Bell size={16} />
             </button>
@@ -630,7 +652,7 @@ export default function App() {
             <div style={{ 
               marginTop: '16px', 
               fontSize: '11px', 
-              color: 'hsl(var(--text-muted))', 
+              color: 'var(--text-muted)', 
               textAlign: 'center' 
             }}>
               By continuing, you agree to our Terms of Service & Privacy Policy.
@@ -647,8 +669,8 @@ export default function App() {
               <X size={18} />
             </button>
             <h2 style={{ marginBottom: '8px' }}>Manage Subscription & Credits</h2>
-            <p style={{ color: 'hsl(var(--text-gray))', fontSize: '13px', marginBottom: '24px' }}>
-              Current Account: <strong style={{ color: 'hsl(var(--text-white))' }}>{user?.email}</strong> (Plan: <span style={{ textTransform: 'uppercase', color: 'var(--primary)' }}>{user?.plan}</span>)
+            <p style={{ color: 'var(--text-gray)', fontSize: '13px', marginBottom: '24px' }}>
+              Current Account: <strong style={{ color: 'var(--text-white)' }}>{user?.email}</strong> (Plan: <span style={{ textTransform: 'uppercase', color: 'var(--primary)' }}>{user?.plan}</span>)
             </p>
 
             <div className="pricing-grid">
@@ -720,7 +742,7 @@ export default function App() {
 
             <div className="buy-credits-section">
               <h3 style={{ fontSize: '15px', marginBottom: '8px' }}>Purchase Additional Credits</h3>
-              <p style={{ color: 'hsl(var(--text-gray))', fontSize: '12px', marginBottom: '16px' }}>
+              <p style={{ color: 'var(--text-gray)', fontSize: '12px', marginBottom: '16px' }}>
                 Credits cost $0.02 each. Add credits directly to your balance to continue rendering without upgrading.
               </p>
               <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
@@ -733,7 +755,7 @@ export default function App() {
                   placeholder="500"
                   min="100"
                 />
-                <span style={{ fontSize: '13px', color: 'hsl(var(--text-gray))' }}>
+                <span style={{ fontSize: '13px', color: 'var(--text-gray)' }}>
                   = ${(parseInt(customCreditsAmount, 10) * 0.02 || 0).toFixed(2)} USD
                 </span>
                 <button 

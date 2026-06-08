@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import multer from 'multer';
@@ -8,13 +9,42 @@ import { existsSync, readFileSync, writeFileSync, appendFileSync, statSync, unli
 import { fileURLToPath } from 'url';
 
 // Import services
-import { analyzeVideo, alignScriptAndAudio, matchClipsToScenes } from './services/gemini.js';
+import { analyzeVideo, alignScriptAndAudio, matchClipsToScenes, enhanceScriptWithTags } from './services/gemini.js';
 import { getVoices, generateSpeech } from './services/elevenlabs.js';
 import { getVideoDuration, generateThumbnail, assembleVideo, ensureFontExists, extractAudioFromVideo } from './services/video.js';
 import { detectBeats } from './services/beats.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+function resolvePath(filePath) {
+  if (!filePath) return filePath;
+  
+  // Try resolving as absolute path first
+  if (path.isAbsolute(filePath) && existsSync(filePath)) {
+    return filePath;
+  }
+  
+  // Try resolving relative to backend directory (__dirname)
+  const resolvedDir = path.resolve(__dirname, filePath);
+  if (existsSync(resolvedDir)) {
+    return resolvedDir;
+  }
+  
+  // Try resolving relative to project root
+  const resolvedRoot = path.resolve(__dirname, '..', filePath);
+  if (existsSync(resolvedRoot)) {
+    return resolvedRoot;
+  }
+
+  // If path contains "uploads/", resolve relative to __dirname
+  if (filePath.includes('uploads/')) {
+    const relativePart = filePath.substring(filePath.indexOf('uploads/'));
+    return path.join(__dirname, relativePart);
+  }
+
+  return filePath;
+}
 
 function logErrorToFile(context, error) {
   try {
@@ -45,6 +75,9 @@ await fs.mkdir(MUSIC_DIR, { recursive: true });
 
 // Serve uploads folder as static
 app.use('/uploads', express.static(UPLOADS_DIR));
+
+// Serve React frontend static files in production
+app.use(express.static(path.join(__dirname, '../dist')));
 
 // Database Helpers (Synchronous read/write for simplicity)
 const DB_PATH = path.join(__dirname, 'db.json');
@@ -216,7 +249,14 @@ app.post('/api/billing/add-credits', (req, res) => {
 // ==========================================
 app.get('/api/settings', (req, res) => {
   const db = getDb();
-  res.json(db.settings);
+  const settings = { ...db.settings };
+  if (process.env.GEMINI_API_KEY) {
+    settings.geminiApiKey = settings.geminiApiKey || '•••••••• (Set by Environment)';
+  }
+  if (process.env.ELEVENLABS_API_KEY) {
+    settings.elevenLabsApiKey = settings.elevenLabsApiKey || '•••••••• (Set by Environment)';
+  }
+  res.json(settings);
 });
 
 app.post('/api/settings', (req, res) => {
@@ -284,9 +324,10 @@ function getProjectDiskSize(project) {
   }
   
   for (const filePath of paths) {
-    if (filePath && existsSync(filePath)) {
+    const resolved = resolvePath(filePath);
+    if (resolved && existsSync(resolved)) {
       try {
-        const stats = statSync(filePath);
+        const stats = statSync(resolved);
         totalSize += stats.size;
       } catch (err) {
         // Ignore stats errors
@@ -448,12 +489,13 @@ app.delete('/api/projects/:id', (req, res) => {
   }
   
   for (const filePath of filesToDelete) {
-    if (filePath && existsSync(filePath)) {
+    const resolved = resolvePath(filePath);
+    if (resolved && existsSync(resolved)) {
       try {
-        unlinkSync(filePath);
-        console.log(`Deleted project file: ${filePath}`);
+        unlinkSync(resolved);
+        console.log(`Deleted project file: ${resolved}`);
       } catch (err) {
-        console.error(`Failed to delete project file: ${filePath}`, err);
+        console.error(`Failed to delete project file: ${resolved}`, err);
       }
     }
   }
@@ -474,7 +516,7 @@ app.delete('/api/projects/:id', (req, res) => {
 app.get('/api/voices', async (req, res) => {
   try {
     const db = getDb();
-    const apiKey = req.query.apiKey || db.settings.elevenLabsApiKey;
+    const apiKey = req.query.apiKey || process.env.ELEVENLABS_API_KEY || db.settings.elevenLabsApiKey;
     if (!apiKey) {
       return res.status(400).json({ error: 'ElevenLabs API key is missing. Please configure it in Settings.' });
     }
@@ -492,10 +534,13 @@ app.get('/api/clips', (req, res) => {
   const userId = getUserId(req);
   const db = getDb();
   const userClips = (db.clips || []).filter(c => (c.userId || 'local-user') === userId);
-  const clipsWithStatus = userClips.map(clip => ({
-    ...clip,
-    exists: clip.path ? existsSync(clip.path) : false
-  }));
+  const clipsWithStatus = userClips.map(clip => {
+    const resolved = resolvePath(clip.path);
+    return {
+      ...clip,
+      exists: resolved ? existsSync(resolved) : false
+    };
+  });
   res.json(clipsWithStatus);
 });
 
@@ -508,7 +553,7 @@ app.post('/api/clips/add-path', async (req, res) => {
 
   const userId = getUserId(req);
   const db = getDb();
-  const apiKey = db.settings.geminiApiKey;
+  const apiKey = process.env.GEMINI_API_KEY || db.settings.geminiApiKey;
   if (!apiKey) {
     return res.status(400).json({ error: 'Gemini API key is required to analyze clips. Please set it in Settings.' });
   }
@@ -558,7 +603,7 @@ app.post('/api/clips/upload', upload.array('videos', 20), async (req, res) => {
 
   const userId = getUserId(req);
   const db = getDb();
-  const apiKey = db.settings.geminiApiKey;
+  const apiKey = process.env.GEMINI_API_KEY || db.settings.geminiApiKey;
   if (!apiKey) {
     return res.status(400).json({ error: 'Gemini API key is required to analyze clips. Please set it in Settings.' });
   }
@@ -615,7 +660,7 @@ app.post('/api/clips/add-folder', async (req, res) => {
 
     const userId = getUserId(req);
     const db = getDb();
-    const apiKey = db.settings.geminiApiKey;
+    const apiKey = process.env.GEMINI_API_KEY || db.settings.geminiApiKey;
     if (!apiKey) {
       return res.status(400).json({ error: 'Gemini API key is required to analyze clips. Please set it in Settings.' });
     }
@@ -697,11 +742,12 @@ app.get('/api/clips/:id/video', (req, res) => {
     return res.status(404).json({ error: 'Clip not found' });
   }
 
-  if (!existsSync(clip.path)) {
+  const resolved = resolvePath(clip.path);
+  if (!resolved || !existsSync(resolved)) {
     return res.status(404).json({ error: 'Clip video file does not exist on disk' });
   }
 
-  res.sendFile(clip.path);
+  res.sendFile(resolved);
 });
 
 // Delete clip
@@ -940,11 +986,12 @@ app.delete('/api/bgms/:id', async (req, res) => {
   saveDb(db);
 
   // Clean up uploaded file if it resides in our uploads directory
-  if (bgm.path.includes(path.join('uploads', 'music'))) {
+  const resolved = resolvePath(bgm.path);
+  if (resolved && resolved.includes(path.join('uploads', 'music'))) {
     try {
-      await fs.unlink(bgm.path);
+      await fs.unlink(resolved);
     } catch (err) {
-      console.warn(`Could not delete file on disk: ${bgm.path}`);
+      console.warn(`Could not delete file on disk: ${resolved}`);
     }
   }
 
@@ -957,13 +1004,13 @@ app.delete('/api/bgms/:id', async (req, res) => {
 
 // 1. Voiceover endpoint (Generate via ElevenLabs)
 app.post('/api/generate-voiceover', async (req, res) => {
-  const { text, voiceId } = req.body;
+  const { text, voiceId, modelId, enhanceSpeech } = req.body;
   if (!text || !voiceId) {
     return res.status(400).json({ error: 'Script text and Voice ID are required.' });
   }
 
   const db = getDb();
-  const apiKey = db.settings.elevenLabsApiKey;
+  const apiKey = process.env.ELEVENLABS_API_KEY || db.settings.elevenLabsApiKey;
   if (!apiKey) {
     return res.status(400).json({ error: 'ElevenLabs API key is missing. Please configure it in Settings.' });
   }
@@ -989,8 +1036,14 @@ app.post('/api/generate-voiceover', async (req, res) => {
   const audioFilename = `voiceover_${audioId}.mp3`;
   const audioPath = path.join(GENERATED_DIR, audioFilename);
 
+  const finalModelId = modelId || 'eleven_multilingual_v2';
+  let ttsText = text;
+  if (finalModelId === 'eleven_v3' && enhanceSpeech) {
+    ttsText = `[thoughtful] ${text}`;
+  }
+
   try {
-    await generateSpeech(text, voiceId, apiKey, audioPath);
+    await generateSpeech(ttsText, voiceId, apiKey, audioPath, finalModelId);
     
     // Deduct credits if applicable
     if (user) {
@@ -1077,7 +1130,8 @@ app.post('/api/clips/extract-audio', async (req, res) => {
     return res.status(404).json({ error: 'Clip not found.' });
   }
 
-  if (!existsSync(clip.path)) {
+  const resolved = resolvePath(clip.path);
+  if (!resolved || !existsSync(resolved)) {
     return res.status(404).json({ error: 'Clip source file does not exist on disk.' });
   }
 
@@ -1085,7 +1139,7 @@ app.post('/api/clips/extract-audio', async (req, res) => {
   const audioOutputPath = path.join(GENERATED_DIR, audioOutputFilename);
 
   try {
-    const finalAudioPath = await extractAudioFromVideo(clip.path, audioOutputPath);
+    const finalAudioPath = await extractAudioFromVideo(resolved, audioOutputPath);
     const finalFilename = path.basename(finalAudioPath);
     
     res.json({
@@ -1099,6 +1153,28 @@ app.post('/api/clips/extract-audio', async (req, res) => {
   }
 });
 
+app.post('/api/enhance-script', async (req, res) => {
+  const { scriptText } = req.body;
+  if (!scriptText) {
+    return res.status(400).json({ error: 'Script text is required.' });
+  }
+
+  const db = getDb();
+  const apiKey = process.env.GEMINI_API_KEY || db.settings.geminiApiKey;
+  if (!apiKey) {
+    return res.status(400).json({ error: 'Gemini API key is missing. Please configure it in Settings.' });
+  }
+
+  try {
+    const enhancedText = await enhanceScriptWithTags(scriptText, apiKey);
+    res.json({ success: true, enhancedText });
+  } catch (error) {
+    console.error('Error in /api/enhance-script:', error);
+    logErrorToFile('/api/enhance-script', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // 3. Script segmentation and time alignment (via Gemini)
 app.post('/api/align-script', async (req, res) => {
   const { scriptText, audioPath } = req.body;
@@ -1107,18 +1183,19 @@ app.post('/api/align-script', async (req, res) => {
   }
 
   const db = getDb();
-  const apiKey = db.settings.geminiApiKey;
+  const apiKey = process.env.GEMINI_API_KEY || db.settings.geminiApiKey;
   if (!apiKey) {
     return res.status(400).json({ error: 'Gemini API key is missing. Please configure it in Settings.' });
   }
 
   try {
-    const rawSegments = await alignScriptAndAudio(scriptText || '', audioPath, apiKey);
+    const resolved = resolvePath(audioPath);
+    const rawSegments = await alignScriptAndAudio(scriptText || '', resolved, apiKey);
     
     // Check audio duration and fallback to beat sync at the end of dialogue
     let audioDuration = 0;
     try {
-      audioDuration = await getVideoDuration(audioPath);
+      audioDuration = await getVideoDuration(resolved);
     } catch (err) {
       console.warn('[Aligner] Failed to get audio duration:', err.message);
     }
@@ -1129,7 +1206,7 @@ app.post('/api/align-script', async (req, res) => {
         console.log(`[Aligner] Dialogue ends at ${lastSpeechEndTime}s, but audio runs until ${audioDuration}s. Appending beat-sync segments.`);
         try {
           // Detect beats for the remaining duration
-          const beats = await detectBeats(audioPath, 1.4, 0.4);
+          const beats = await detectBeats(resolved, 1.4, 0.4);
           
           // Filter beats that occur after the last speech segment ends
           const postBeats = beats.filter(b => b > lastSpeechEndTime + 0.2 && b < audioDuration - 0.2);
@@ -1246,13 +1323,14 @@ app.post('/api/beat-sync/analyze', async (req, res) => {
   }
 
   try {
+    const resolved = resolvePath(audioPath);
     const thresh = threshold !== undefined ? Number(threshold) : 1.4;
     // Detect Major Beats (default minDistance = 0.4s)
-    const beats = await detectBeats(audioPath, thresh, 0.4);
+    const beats = await detectBeats(resolved, thresh, 0.4);
 
     // Detect Minor sub-beats (lower threshold, e.g. thresh - 0.20, and smaller minDistance = 0.15s)
     const minorThresh = Math.max(1.1, thresh - 0.20);
-    const allPeaks = await detectBeats(audioPath, minorThresh, 0.15);
+    const allPeaks = await detectBeats(resolved, minorThresh, 0.15);
 
     // Filter out minor peaks that are too close to major beats (within 0.18s) to avoid overlaps
     const miniBeats = allPeaks.filter(p => {
@@ -1275,7 +1353,7 @@ app.post('/api/match-clips', async (req, res) => {
   }
 
   const db = getDb();
-  const apiKey = db.settings.geminiApiKey;
+  const apiKey = process.env.GEMINI_API_KEY || db.settings.geminiApiKey;
   if (!apiKey) {
     return res.status(400).json({ error: 'Gemini API key is missing. Please configure it in Settings.' });
   }
@@ -1354,6 +1432,9 @@ app.post('/api/generate-video', async (req, res) => {
   let user = null;
   let estimatedCredits = 0;
 
+  const resolvedVoiceoverPath = resolvePath(voiceoverPath);
+  const resolvedBgMusicPath = resolvePath(bgMusicPath);
+
   if (userId !== 'local-user') {
     user = db.users.find(u => u.uid === userId);
     if (!user) {
@@ -1361,8 +1442,8 @@ app.post('/api/generate-video', async (req, res) => {
     }
     
     try {
-      if (existsSync(voiceoverPath)) {
-        const duration = await getVideoDuration(voiceoverPath);
+      if (resolvedVoiceoverPath && existsSync(resolvedVoiceoverPath)) {
+        const duration = await getVideoDuration(resolvedVoiceoverPath);
         estimatedCredits = Math.max(1, Math.ceil(duration));
       } else {
         return res.status(400).json({ error: `Voiceover audio file does not exist: ${voiceoverPath}` });
@@ -1385,6 +1466,7 @@ app.post('/api/generate-video', async (req, res) => {
   // Create job structure
   const jobState = {
     id: jobId,
+    projectId: projectId || null,
     progress: 0,
     status: 'Queued',
     resultUrl: null,
@@ -1399,9 +1481,12 @@ app.post('/api/generate-video', async (req, res) => {
     userId,
     estimatedCredits,
     scenes,
-    clips: db.clips,
-    voiceoverPath,
-    bgMusicPath,
+    clips: db.clips.map(c => ({
+      ...c,
+      path: resolvePath(c.path)
+    })),
+    voiceoverPath: resolvedVoiceoverPath,
+    bgMusicPath: resolvedBgMusicPath,
     bgMusicVolume,
     bgMusicStartOffset,
     voiceoverVolume,
@@ -1475,6 +1560,15 @@ async function runVideoCompilation(jobId, options) {
   }
 }
 
+// Expose all currently active rendering jobs
+app.get('/api/jobs/active', (req, res) => {
+  const activeList = [];
+  for (const [jobId, job] of activeJobs.entries()) {
+    activeList.push(job);
+  }
+  res.json(activeList);
+});
+
 // 6. Server-Sent Events (SSE) connection for progress reporting
 app.get('/api/jobs/:id/progress', (req, res) => {
   const { id } = req.params;
@@ -1515,6 +1609,14 @@ app.get('/api/jobs/:id/progress', (req, res) => {
   });
 });
 
+// Serve SPA route fallback for client-side routing
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith('/api') || req.path.startsWith('/uploads')) {
+    return next();
+  }
+  res.sendFile(path.join(__dirname, '../dist/index.html'));
+});
+
 // Start Server
 app.listen(PORT, () => {
   console.log(`=================================================`);
@@ -1526,10 +1628,11 @@ app.listen(PORT, () => {
   try {
     const db = getDb();
     const interruptedClips = db.clips.filter(c => c.status === 'analyzing');
-    if (interruptedClips.length > 0 && db.settings.geminiApiKey) {
+    const apiKey = process.env.GEMINI_API_KEY || db.settings.geminiApiKey;
+    if (interruptedClips.length > 0 && apiKey) {
       console.log(`[Startup Recovery] Found ${interruptedClips.length} interrupted analysis tasks. Resuming background analysis...`);
       interruptedClips.forEach(clip => {
-        analyzeVideoInBackground(clip.id, clip.path, db.settings.geminiApiKey);
+        analyzeVideoInBackground(clip.id, clip.path, apiKey);
       });
     }
   } catch (err) {

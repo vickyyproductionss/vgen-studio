@@ -4,19 +4,23 @@
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-headline: 'Outfit', 'Inter', -apple-system, sans-serif;
   
-  /* Color Palette - Google Stitch Premium Overhaul */
+  /* DEFAULT THEME: Dark Theme Variables */
   --bg-darker: #050505;        /* Base canvas background */
-  --bg-dark: #1c1b1b;          /* Sidebar container background */
+  --bg-dark: #121212;          /* Sidebar container background */
   --bg-card: #0a0a0a;          /* Cards/Panels background */
   --bg-surface: #141313;       /* Inputs background */
   
   --primary: #ffffff;          /* White text/buttons */
-  --primary-foreground: #0e0e0e;
+  --primary-foreground: #050505;
   --success: #10b981;          /* Clean Emerald Green */
   
   --text-white: #ffffff;
   --text-gray: #8e9192;        /* Muted body text */
   --text-muted: #444748;       /* Subtle descriptors */
+  
+  --accent-purple: #8b5cf6;     /* Vibrant Violet */
+  --accent-blue: #3b82f6;       /* Vibrant Blue */
+  --accent-indigo: #6366f1;     /* Indigo Accent */
   
   --border-light: rgba(255, 255, 255, 0.04);
   --border-medium: rgba(255, 255, 255, 0.06);
@@ -28,10 +32,47 @@
   --radius-lg: 8px;            /* Soft corners */
   --radius-md: 4px;            /* Soft standard UI corners */
   
+  --glow-color: rgba(255, 255, 255, 0.1);
+  --shimmer-grad: linear-gradient(90deg, transparent, rgba(255,255,255,0.05), transparent);
+  --scrollbar-thumb: rgba(255, 255, 255, 0.1);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.2);
+
   font-family: var(--font-sans);
   background-color: var(--bg-darker);
   color: var(--text-white);
   -webkit-font-smoothing: antialiased;
+}
+
+html.light {
+  /* Light Theme Variables */
+  --bg-darker: #fafafa;        /* Base canvas background */
+  --bg-dark: #f4f4f5;          /* Sidebar container background */
+  --bg-card: #ffffff;          /* Cards/Panels background */
+  --bg-surface: #f1f3f5;       /* Inputs background */
+  
+  --primary: #18181b;          /* Zinc-900 black text/buttons */
+  --primary-foreground: #ffffff;
+  --success: #10b981;
+  
+  --text-white: #18181b;       /* Dark text */
+  --text-gray: #71717a;        /* Muted body text */
+  --text-muted: #a1a1aa;       /* Subtle descriptors */
+  
+  --accent-purple: #7c3aed;     /* Slightly darker violet for contrast */
+  --accent-blue: #2563eb;       /* Slightly darker blue for contrast */
+  --accent-indigo: #4f46e5;     /* Indigo Accent */
+  
+  --border-light: rgba(0, 0, 0, 0.05);
+  --border-medium: rgba(0, 0, 0, 0.08);
+  --border-glow: rgba(0, 0, 0, 0.12);
+  
+  --glass-bg: rgba(255, 255, 255, 0.85);
+  --glass-border: rgba(0, 0, 0, 0.05);
+  
+  --glow-color: rgba(0, 0, 0, 0.08);
+  --shimmer-grad: linear-gradient(90deg, transparent, rgba(0,0,0,0.03), transparent);
+  --scrollbar-thumb: rgba(0, 0, 0, 0.1);
+  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.18);
 }
 
 * {
@@ -39,7 +80,7 @@
   margin: 0;
   padding: 0;
   scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
 }
 
 body {
@@ -57,11 +98,11 @@ body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--scrollbar-thumb);
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background: var(--scrollbar-thumb-hover);
 }
 
 /* Background glow effects - very faint for minimal design */
@@ -91,11 +132,11 @@ body {
 }
 
 .active-glow {
-  box-shadow: 0 0 15px rgba(255, 255, 255, 0.1);
+  box-shadow: 0 0 15px var(--glow-color);
 }
 
 .shimmer {
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.05), transparent);
+  background: var(--shimmer-grad);
   background-size: 200% 100%;
   animation: shimmer 2s infinite;
 }
@@ -106,7 +147,7 @@ body {
 }
 
 .premium-card:hover, .glass-panel-interactive:hover {
-  border-color: rgba(255, 255, 255, 0.12);
+  border-color: var(--border-glow);
   background: rgba(255, 255, 255, 0.01);
 }
 
@@ -928,24 +969,25 @@ input[type="color"]::-webkit-color-swatch {
 .matrix-btn {
   width: 100%;
   aspect-ratio: 1;
-  border: 1px solid rgba(255,255,255,0.06);
+  border: 1px solid var(--border-medium);
   display: flex;
   align-items: center;
   justify-content: center;
   transition: all 0.2s;
-  background: rgba(255,255,255,0.02);
+  background: var(--bg-surface);
   border-radius: 2px;
   cursor: pointer;
 }
 .matrix-btn:hover {
-  background: rgba(255,255,255,0.08);
+  background: var(--border-light);
 }
 .matrix-btn.active {
-  background: #ffffff;
+  background: var(--primary);
 }
 .waveform-bar {
   width: 3px;
-  background: rgba(255,255,255,0.2);
+  background: var(--text-gray);
+  opacity: 0.6;
   transition: height 0.2s;
   border-radius: 1px;
 }

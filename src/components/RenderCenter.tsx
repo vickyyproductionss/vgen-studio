@@ -68,10 +68,10 @@ export default function RenderCenter({ jobId, onClearJob }: RenderCenterProps) {
 
   if (!jobId) {
     return (
-      <div className="glass-panel" style={{ padding: '60px 20px', textAlign: 'center', color: 'hsl(var(--text-gray))', animation: 'slideUp 0.3s ease' }}>
-        <Film size={48} style={{ color: 'hsl(var(--text-muted))', marginBottom: '16px' }} />
+      <div className="glass-panel" style={{ padding: '60px 20px', textAlign: 'center', color: 'var(--text-gray)', animation: 'slideUp 0.3s ease' }}>
+        <Film size={48} style={{ color: 'var(--text-muted)', marginBottom: '16px' }} />
         <h3>No rendering jobs active</h3>
-        <p style={{ fontSize: '14px', marginTop: '8px', color: 'hsl(var(--text-muted))' }}>
+        <p style={{ fontSize: '14px', marginTop: '8px', color: 'var(--text-muted)' }}>
           Go to the "Create Project" tab to customize subtitle styles, storyboard your scenes, and compile your video.
         </p>
       </div>
@@ -83,7 +83,7 @@ export default function RenderCenter({ jobId, onClearJob }: RenderCenterProps) {
       <div style={{ marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
           <h2 style={{ fontSize: '28px', marginBottom: '8px' }}>Render Center</h2>
-          <p style={{ color: 'hsl(var(--text-gray))', fontSize: '14px' }}>
+          <p style={{ color: 'var(--text-gray)', fontSize: '14px' }}>
             Job ID: <code style={{ fontSize: '12px', background: 'rgba(255,255,255,0.05)', padding: '2px 6px', borderRadius: '4px' }}>{jobId}</code>
           </p>
         </div>
@@ -117,7 +117,7 @@ export default function RenderCenter({ jobId, onClearJob }: RenderCenterProps) {
               <div style={{
                 width: `${job.progress}%`,
                 height: '100%',
-                background: '#ffffff',
+                background: 'var(--primary)',
                 borderRadius: '99px',
                 transition: 'width 0.4s ease'
               }} />
@@ -138,7 +138,7 @@ export default function RenderCenter({ jobId, onClearJob }: RenderCenterProps) {
 
         {/* Logs terminal */}
         <div>
-          <span style={{ fontSize: '12px', color: 'hsl(var(--text-gray))', fontWeight: 600, display: 'block', marginBottom: '8px' }}>Pipeline Status Log</span>
+          <span style={{ fontSize: '12px', color: 'var(--text-gray)', fontWeight: 600, display: 'block', marginBottom: '8px' }}>Pipeline Status Log</span>
           <div style={{
             background: 'rgba(0, 0, 0, 0.4)',
             border: '1px solid var(--border-light)',
@@ -146,7 +146,7 @@ export default function RenderCenter({ jobId, onClearJob }: RenderCenterProps) {
             padding: '16px',
             fontFamily: 'monospace',
             fontSize: '12px',
-            color: '#34d399',
+            color: 'var(--success)',
             maxHeight: '160px',
             overflowY: 'auto',
             display: 'flex',
@@ -155,7 +155,7 @@ export default function RenderCenter({ jobId, onClearJob }: RenderCenterProps) {
           }}>
             {logs.map((log, idx) => (
               <div key={idx} style={{ display: 'flex', gap: '8px' }}>
-                <span style={{ color: 'hsl(var(--text-muted))' }}>&gt;</span>
+                <span style={{ color: 'var(--text-muted)' }}>&gt;</span>
                 <span>{log}</span>
               </div>
             ))}
@@ -178,7 +178,7 @@ export default function RenderCenter({ jobId, onClearJob }: RenderCenterProps) {
               width: '100%',
               borderRadius: '8px',
               overflow: 'hidden',
-              background: '#05060b',
+              background: 'var(--bg-darker)',
               border: '1px solid var(--border-light)',
               boxShadow: 'var(--shadow-lg)'
             }}>
@@ -197,7 +197,7 @@ export default function RenderCenter({ jobId, onClearJob }: RenderCenterProps) {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
               <div>
                 <h4 style={{ fontSize: '15px', marginBottom: '6px' }}>Render Successful</h4>
-                <p style={{ fontSize: '13px', color: 'hsl(var(--text-gray))', lineHeight: '1.4' }}>
+                <p style={{ fontSize: '13px', color: 'var(--text-gray)', lineHeight: '1.4' }}>
                   The video has been compiled. Audio mixing, subtitle burns, aspect ratios, and transitions were applied successfully.
                 </p>
               </div>
@@ -221,7 +221,7 @@ export default function RenderCenter({ jobId, onClearJob }: RenderCenterProps) {
                     <Copy size={16} />
                   </button>
                 </div>
-                {copied && <span style={{ fontSize: '11px', color: '#34d399', display: 'block', marginTop: '4px' }}>Copied to clipboard!</span>}
+                {copied && <span style={{ fontSize: '11px', color: 'var(--success)', display: 'block', marginTop: '4px' }}>Copied to clipboard!</span>}
               </div>
 
               <div style={{ display: 'flex', gap: '12px' }}>

@@ -801,7 +801,7 @@ export default function TimelineEditor({ onStartRender, onBack }: TimelineEditor
         gridTemplateRows: 'auto 1fr 280px',
         height: 'calc(100vh - 40px)',
         gap: '16px',
-        color: 'hsl(var(--text-white))',
+        color: 'var(--text-white)',
         fontFamily: 'var(--font-sans)',
         overflow: 'hidden'
       }}
@@ -826,7 +826,7 @@ export default function TimelineEditor({ onStartRender, onBack }: TimelineEditor
           </button>
           <div>
             <h2 style={{ fontSize: '18px', fontWeight: 800 }}>V-Gen Timeline Studio</h2>
-            <span style={{ fontSize: '12px', color: 'hsl(var(--text-gray))' }}>
+            <span style={{ fontSize: '12px', color: 'var(--text-gray)' }}>
               Adjust scene cuts, trim video sources, split segments, and customize styles in real time.
             </span>
           </div>
@@ -834,7 +834,7 @@ export default function TimelineEditor({ onStartRender, onBack }: TimelineEditor
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           {saving && (
-            <span style={{ fontSize: '12px', color: 'hsl(var(--text-muted))', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '6px' }}>
               <Loader2 size={14} className="spin" style={{ animation: 'spin-slow 2s linear infinite' }} />
               Saving...
             </span>
@@ -867,7 +867,7 @@ export default function TimelineEditor({ onStartRender, onBack }: TimelineEditor
       {(error || loading) && (
         <div style={{ padding: '0 24px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
           {loading && (
-            <div style={{ padding: '10px 16px', background: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.2)', color: '#60a5fa', borderRadius: '8px', fontSize: '13px' }}>
+            <div style={{ padding: '10px 16px', background: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.2)', color: 'var(--accent-blue)', borderRadius: '8px', fontSize: '13px' }}>
               Loading project data...
             </div>
           )}
@@ -888,7 +888,7 @@ export default function TimelineEditor({ onStartRender, onBack }: TimelineEditor
             style={{
               display: 'flex',
               borderBottom: '1px solid var(--border-light)',
-              background: 'rgba(0,0,0,0.2)'
+              background: 'var(--bg-dark)'
             }}
           >
             {(['clips', 'subtitles', 'audio', 'video'] as const).map(tab => (
@@ -902,8 +902,8 @@ export default function TimelineEditor({ onStartRender, onBack }: TimelineEditor
                   fontWeight: 600,
                   textTransform: 'capitalize',
                   background: activeTab === tab ? 'rgba(255,255,255,0.05)' : 'transparent',
-                  borderBottom: activeTab === tab ? '2px solid hsl(var(--accent-purple))' : 'none',
-                  color: activeTab === tab ? 'hsl(var(--text-white))' : 'hsl(var(--text-gray))',
+                  borderBottom: activeTab === tab ? '2px solid var(--accent-purple)' : 'none',
+                  color: activeTab === tab ? 'var(--text-white)' : 'var(--text-gray)',
                   cursor: 'pointer'
                 }}
               >
@@ -916,7 +916,7 @@ export default function TimelineEditor({ onStartRender, onBack }: TimelineEditor
             {activeTab === 'clips' && (
               <div>
                 <h4 style={{ fontSize: '14px', marginBottom: '12px' }}>Clips Library</h4>
-                <p style={{ fontSize: '11px', color: 'hsl(var(--text-gray))', marginBottom: '16px' }}>
+                <p style={{ fontSize: '11px', color: 'var(--text-gray)', marginBottom: '16px' }}>
                   Click a scene in the timeline below, then choose a clip here to re-assign or swap.
                 </p>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
@@ -1270,9 +1270,9 @@ export default function TimelineEditor({ onStartRender, onBack }: TimelineEditor
               position: 'relative',
               width: aspectRatio === '9:16' ? '280px' : (aspectRatio === '16:9' ? '500px' : '360px'),
               height: aspectRatio === '9:16' ? '497px' : (aspectRatio === '16:9' ? '281px' : '360px'),
-              background: '#0c0c0f',
+              background: 'var(--bg-card)',
               border: '1px solid var(--border-medium)',
-              boxShadow: '0 10px 40px rgba(0,0,0,0.8)',
+              boxShadow: 'none',
               overflow: 'hidden'
             }}
           >
@@ -1324,7 +1324,7 @@ export default function TimelineEditor({ onStartRender, onBack }: TimelineEditor
             >
               {isPlaying ? <Pause size={18} /> : <Play size={18} />}
             </button>
-            <span style={{ fontSize: '11px', fontFamily: 'monospace', color: 'hsl(var(--text-gray))' }}>
+            <span style={{ fontSize: '11px', fontFamily: 'monospace', color: 'var(--text-gray)' }}>
               {currentTime.toFixed(1)}s / {totalDuration.toFixed(1)}s
             </span>
           </div>
@@ -1402,7 +1402,7 @@ export default function TimelineEditor({ onStartRender, onBack }: TimelineEditor
               style={{ width: '80px', height: '4px' }}
             />
             <ZoomIn size={12} />
-            <span style={{ fontSize: '10px', color: 'hsl(var(--text-gray))', marginLeft: '6px' }}>
+            <span style={{ fontSize: '10px', color: 'var(--text-gray)', marginLeft: '6px' }}>
               Scale: {timelineZoom}px/s
             </span>
           </div>
@@ -1461,7 +1461,7 @@ export default function TimelineEditor({ onStartRender, onBack }: TimelineEditor
 
             {/* TRACK 1: Subtitle blocks */}
             <div style={{ display: 'flex', alignItems: 'center', height: '36px', marginBottom: '6px', position: 'relative' }}>
-              <div style={{ position: 'absolute', left: 0, width: '60px', fontSize: '10px', fontWeight: 600, color: 'hsl(var(--text-muted))', paddingLeft: '4px' }}>TEXT</div>
+              <div style={{ position: 'absolute', left: 0, width: '60px', fontSize: '10px', fontWeight: 600, color: 'var(--text-muted)', paddingLeft: '4px' }}>TEXT</div>
               <div style={{ marginLeft: '70px', display: 'flex', height: '100%', position: 'relative', width: '100%' }}>
                 {scenes.map((scene, idx) => {
                   const left = scene.start_time * timelineZoom;
@@ -1476,7 +1476,7 @@ export default function TimelineEditor({ onStartRender, onBack }: TimelineEditor
                         width: `${width}px`,
                         height: '100%',
                         background: selectedSceneIdx === idx ? 'rgba(138, 75, 243, 0.25)' : 'rgba(255,255,255,0.03)',
-                        border: selectedSceneIdx === idx ? '1px solid hsl(var(--accent-purple))' : '1px dashed var(--border-medium)',
+                        border: selectedSceneIdx === idx ? '1px solid var(--accent-purple)' : '1px dashed var(--border-medium)',
                         borderRadius: '4px',
                         padding: '4px',
                         overflow: 'hidden',
@@ -1508,7 +1508,7 @@ export default function TimelineEditor({ onStartRender, onBack }: TimelineEditor
 
             {/* TRACK 2: Video clip blocks */}
             <div style={{ display: 'flex', alignItems: 'center', height: '60px', marginBottom: '8px', position: 'relative' }}>
-              <div style={{ position: 'absolute', left: 0, width: '60px', fontSize: '10px', fontWeight: 600, color: 'hsl(var(--text-muted))', paddingLeft: '4px' }}>VIDEO</div>
+              <div style={{ position: 'absolute', left: 0, width: '60px', fontSize: '10px', fontWeight: 600, color: 'var(--text-muted)', paddingLeft: '4px' }}>VIDEO</div>
               <div style={{ marginLeft: '70px', display: 'flex', height: '100%', position: 'relative', width: '100%' }}>
                 {scenes.map((scene, idx) => {
                   const left = scene.start_time * timelineZoom;
@@ -1529,7 +1529,7 @@ export default function TimelineEditor({ onStartRender, onBack }: TimelineEditor
                         width: `${width}px`,
                         height: '100%',
                         background: selectedSceneIdx === idx ? 'rgba(138, 75, 243, 0.15)' : 'rgba(255,255,255,0.02)',
-                        border: selectedSceneIdx === idx ? '2px solid hsl(var(--accent-purple))' : '1px solid var(--border-light)',
+                        border: selectedSceneIdx === idx ? '2px solid var(--accent-purple)' : '1px solid var(--border-light)',
                         borderRadius: '4px',
                         cursor: 'ew-resize',
                         display: 'flex',
@@ -1589,7 +1589,7 @@ export default function TimelineEditor({ onStartRender, onBack }: TimelineEditor
 
             {/* TRACK 3: Voiceover waveform block */}
             <div style={{ display: 'flex', alignItems: 'center', height: '24px', marginBottom: '4px', position: 'relative' }}>
-              <div style={{ position: 'absolute', left: 0, width: '60px', fontSize: '10px', fontWeight: 600, color: 'hsl(var(--text-muted))', paddingLeft: '4px' }}>VOICE</div>
+              <div style={{ position: 'absolute', left: 0, width: '60px', fontSize: '10px', fontWeight: 600, color: 'var(--text-muted)', paddingLeft: '4px' }}>VOICE</div>
               <div
                 onClick={() => setActiveTab('audio')}
                 style={{
@@ -1615,7 +1615,7 @@ export default function TimelineEditor({ onStartRender, onBack }: TimelineEditor
             {/* TRACK 4: BGM track block */}
             {bgMusicPath && (
               <div style={{ display: 'flex', alignItems: 'center', height: '24px', position: 'relative' }}>
-                <div style={{ position: 'absolute', left: 0, width: '60px', fontSize: '10px', fontWeight: 600, color: 'hsl(var(--text-muted))', paddingLeft: '4px' }}>MUSIC</div>
+                <div style={{ position: 'absolute', left: 0, width: '60px', fontSize: '10px', fontWeight: 600, color: 'var(--text-muted)', paddingLeft: '4px' }}>MUSIC</div>
                 <div
                   onClick={() => setActiveTab('audio')}
                   style={{

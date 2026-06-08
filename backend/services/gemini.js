@@ -518,3 +518,30 @@ function reassignMatch(matchIdx, matches, clips, scenes, segmentUsage, maxRepeti
   console.warn(`[Post-processing] Could not find alternative for scene ${match.sceneIndex}`);
   return false;
 }
+
+/**
+ * Enhances a script by automatically inserting ElevenLabs V3 expression tags using Gemini.
+ */
+export async function enhanceScriptWithTags(text, apiKey) {
+  const ai = new GoogleGenAI({ apiKey });
+
+  const prompt = `You are a script formatting assistant for a Text-to-Speech system.
+Your job is to read this voiceover script and insert ElevenLabs v3 expression tags: [thoughtful], [sigh], [gasp], [laughs], [whisper], [cry].
+
+Rules:
+1. ONLY insert these tags in bracketed format: [thoughtful], [sigh], [gasp], [laughs], [whisper], [cry].
+2. Insert them at natural pauses, punctuation boundaries, or transitions where they fit the emotional tone of the narration.
+3. DO NOT change, rewrite, delete, or translate any of the words in the script. Keep all the original text completely identical, only adding the expression tags.
+4. Do not over-use the tags. Use them sparingly (e.g. 1-3 tags total in a short paragraph) to keep the voice sounding natural and professional.
+5. Return the resulting script text. Do not wrap the output in quotes or code block markers.
+
+Script to enhance:
+"${text}"`;
+
+  const response = await generateContentWithFallback(ai, {
+    contents: prompt,
+    model: 'gemini-2.5-flash',
+  });
+
+  return response.text.trim();
+}

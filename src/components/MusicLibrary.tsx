@@ -186,7 +186,7 @@ export default function MusicLibrary() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px' }}>
         <div>
           <h2 style={{ fontSize: '28px', marginBottom: '8px' }}>Music Library</h2>
-          <p style={{ color: 'hsl(var(--text-gray))', fontSize: '14px' }}>
+          <p style={{ color: 'var(--text-gray)', fontSize: '14px' }}>
             Manage background music tracks (.mp3, .wav, .m4a) to overlay on your generated videos.
           </p>
         </div>
@@ -234,8 +234,8 @@ export default function MusicLibrary() {
         
         {/* LEFT: Local Import Form */}
         <section className="glass-panel" style={{ padding: '24px' }}>
-          <h3 style={{ fontSize: '16px', marginBottom: '16px', color: 'hsl(var(--text-white))', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Plus size={16} style={{ color: 'hsl(var(--accent-purple))' }} />
+          <h3 style={{ fontSize: '16px', marginBottom: '16px', color: 'var(--text-white)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Plus size={16} style={{ color: 'var(--accent-purple)' }} />
             Import Local Audio
           </h3>
 
@@ -271,7 +271,7 @@ export default function MusicLibrary() {
                 onChange={(e) => setLocalPath(e.target.value)}
                 required
               />
-              <span style={{ fontSize: '11px', color: 'hsl(var(--text-muted))', marginTop: '6px', display: 'block' }}>
+              <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px', display: 'block' }}>
                 Audio will be registered instantly without heavy AI transcript analysis.
               </span>
             </div>
@@ -291,7 +291,7 @@ export default function MusicLibrary() {
         <section className="glass-panel" style={{ padding: '24px' }}>
           <div style={{ display: 'flex', gap: '16px', marginBottom: '24px', alignItems: 'center' }}>
             <div style={{ position: 'relative', flex: 1 }}>
-              <Search size={16} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: 'hsl(var(--text-muted))' }} />
+              <Search size={16} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
               <input
                 type="text"
                 className="input-field"
@@ -304,7 +304,7 @@ export default function MusicLibrary() {
           </div>
 
           {filteredBgms.length === 0 ? (
-            <div style={{ padding: '48px 0', textAlign: 'center', color: 'hsl(var(--text-muted))' }}>
+            <div style={{ padding: '48px 0', textAlign: 'center', color: 'var(--text-muted)' }}>
               <FileAudio size={48} style={{ strokeWidth: 1, marginBottom: '16px', opacity: 0.5 }} />
               <p style={{ fontSize: '14px' }}>No music files found in library.</p>
               <p style={{ fontSize: '12px', marginTop: '4px' }}>Upload audio files or import local paths to populate the BGM choices.</p>
@@ -336,7 +336,7 @@ export default function MusicLibrary() {
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        color: 'hsl(var(--accent-purple))',
+                        color: 'var(--accent-purple)',
                         flexShrink: 0
                       }}
                     >
@@ -344,10 +344,10 @@ export default function MusicLibrary() {
                     </div>
 
                     <div style={{ minWidth: 0, flex: 1 }}>
-                      <h4 style={{ fontSize: '14px', fontWeight: 600, color: 'hsl(var(--text-white))', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', marginBottom: '2px' }}>
+                      <h4 style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-white)', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', marginBottom: '2px' }}>
                         {bgm.name}
                       </h4>
-                      <p style={{ fontSize: '11px', color: 'hsl(var(--text-muted))', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                      <p style={{ fontSize: '11px', color: 'var(--text-muted)', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
                         {bgm.path}
                       </p>
                     </div>
@@ -355,7 +355,7 @@ export default function MusicLibrary() {
 
                   {/* Track Duration & Actions */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginLeft: '16px' }}>
-                    <span style={{ fontSize: '13px', color: 'hsl(var(--text-gray))', fontFamily: 'monospace' }}>
+                    <span style={{ fontSize: '13px', color: 'var(--text-gray)', fontFamily: 'monospace' }}>
                       {formatDuration(bgm.duration)}
                     </span>
 
@@ -369,14 +369,14 @@ export default function MusicLibrary() {
                           borderRadius: '50%',
                           background: 'rgba(255, 255, 255, 0.05)',
                           border: '1px solid var(--border-light)',
-                          color: '#fff',
+                          color: 'var(--text-white)',
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
                           cursor: 'pointer'
                         }}
                       >
-                        {playingBgmId === bgm.id ? <Pause size={14} fill="#fff" /> : <Play size={14} fill="#fff" style={{ marginLeft: '1px' }} />}
+                        {playingBgmId === bgm.id ? <Pause size={14} fill="var(--text-white)" /> : <Play size={14} fill="var(--text-white)" style={{ marginLeft: '1px' }} />}
                       </button>
                     )}
 

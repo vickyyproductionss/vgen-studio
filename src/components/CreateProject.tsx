@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Sparkles, Music, Type, Video, RefreshCw, AlertTriangle, ArrowRight, CheckCircle, Upload, Zap, Search } from 'lucide-react';
+import { Sparkles, RefreshCw, AlertTriangle, CheckCircle, Upload, Zap, Search, Play, Pause } from 'lucide-react';
 
 interface Voice {
   id: string;
@@ -335,6 +335,69 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
   const [hasLoadedProject, setHasLoadedProject] = useState(false);
+  const [elevenLabsModel, setElevenLabsModel] = useState('eleven_multilingual_v2');
+  const [enhanceWithThoughtfulTags, setEnhanceWithThoughtfulTags] = useState(false);
+  const [originalScriptText, setOriginalScriptText] = useState<string | null>(null);
+  const [enhancingScript, setEnhancingScript] = useState(false);
+  const [playingVoiceId, setPlayingVoiceId] = useState<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+    };
+  }, []);
+
+  const toggleVoicePreview = (voice: Voice) => {
+    if (!voice.previewUrl) return;
+    
+    if (playingVoiceId === voice.id) {
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+      setPlayingVoiceId(null);
+    } else {
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+      const audio = new Audio(voice.previewUrl);
+      audioRef.current = audio;
+      setPlayingVoiceId(voice.id);
+      audio.play().catch(err => {
+        console.error("Failed to play preview:", err);
+        setPlayingVoiceId(null);
+      });
+      audio.onended = () => {
+        setPlayingVoiceId(null);
+      };
+    }
+  };
+
+  const insertExpressionTag = (tag: string) => {
+    const textarea = document.getElementById('script-textarea') as HTMLTextAreaElement;
+    if (!textarea) return;
+
+    const startPos = textarea.selectionStart;
+    const endPos = textarea.selectionEnd;
+    const textBefore = scriptText.substring(0, startPos);
+    const textAfter = scriptText.substring(endPos, scriptText.length);
+
+    // Insert tag with surrounding spaces if appropriate
+    const spacerBefore = (startPos === 0 || textBefore.endsWith(' ') || textBefore.endsWith('\n')) ? '' : ' ';
+    const spacerAfter = (endPos === scriptText.length || textAfter.startsWith(' ') || textAfter.startsWith('\n')) ? '' : ' ';
+    const newText = textBefore + spacerBefore + tag + spacerAfter + textAfter;
+    setScriptText(newText);
+
+    // Refocus and set cursor position after the tag
+    setTimeout(() => {
+      textarea.focus();
+      const newCursorPos = startPos + spacerBefore.length + tag.length + spacerAfter.length;
+      textarea.setSelectionRange(newCursorPos, newCursorPos);
+    }, 0);
+  };
+
   const [projectName, setProjectName] = useState('Untitled Project');
 
   const handleRenameProject = async (newName: string) => {
@@ -490,7 +553,8 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
             fontName, fontSize, fontColor, outlineColor, bold, italic, shadow, highlightColor,
             showHighlightBox, boxColor, boxRounding, textFade, textTransition, textMotion,
             activeWordScale, wordDisplayTime, textPositionX, textPositionY, exportResolution,
-            exportFps, showEmojis, autoEmphasis, emphasisColor, neonGlow, glowColor, pop3d, pop3dColor
+            exportFps, showEmojis, autoEmphasis, emphasisColor, neonGlow, glowColor, pop3d, pop3dColor,
+            elevenLabsModel, enhanceWithThoughtfulTags, originalScriptText
           }
         } : {
           scriptText, selectedVoice, audioSource, voiceoverPath, voiceoverUrl, scenes,
@@ -499,7 +563,8 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
           fontName, fontSize, fontColor, outlineColor, bold, italic, shadow, highlightColor,
           showHighlightBox, boxColor, boxRounding, textFade, textTransition, textMotion,
           activeWordScale, wordDisplayTime, textPositionX, textPositionY, exportResolution,
-          exportFps, showEmojis, autoEmphasis, emphasisColor, neonGlow, glowColor, pop3d, pop3dColor
+          exportFps, showEmojis, autoEmphasis, emphasisColor, neonGlow, glowColor, pop3d, pop3dColor,
+          elevenLabsModel, enhanceWithThoughtfulTags, originalScriptText
         };
 
         await fetch(endpoint, {
@@ -524,7 +589,7 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
     bold, italic, shadow, highlightColor, showHighlightBox, boxColor, boxRounding, textFade,
     textTransition, textMotion, activeWordScale, wordDisplayTime, textPositionX, textPositionY,
     exportResolution, exportFps, showEmojis, autoEmphasis, emphasisColor, neonGlow, glowColor,
-    pop3d, pop3dColor, hasLoadedProject, projectId
+    pop3d, pop3dColor, elevenLabsModel, enhanceWithThoughtfulTags, originalScriptText, hasLoadedProject, projectId
   ]);
 
   const fetchProjectState = async () => {
@@ -586,6 +651,9 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
         if (project.glowColor !== undefined) setGlowColor(project.glowColor);
         if (project.pop3d !== undefined) setPop3d(project.pop3d);
         if (project.pop3dColor !== undefined) setPop3dColor(project.pop3dColor);
+        if (project.elevenLabsModel !== undefined) setElevenLabsModel(project.elevenLabsModel);
+        if (project.enhanceWithThoughtfulTags !== undefined) setEnhanceWithThoughtfulTags(project.enhanceWithThoughtfulTags);
+        if (project.originalScriptText !== undefined) setOriginalScriptText(project.originalScriptText);
       }
     } catch (err) {
       console.error('Failed to load project state:', err);
@@ -648,6 +716,42 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
     }
   };
 
+  const handleEnhanceScript = async () => {
+    if (!scriptText) {
+      setError('Please write a script first.');
+      return;
+    }
+    setEnhancingScript(true);
+    setError('');
+    setSuccess('');
+    try {
+      const res = await fetch('/api/enhance-script', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scriptText })
+      });
+      if (!res.ok) {
+        throw new Error('Failed to enhance script. Please check your Gemini API key in Settings.');
+      }
+      const data = await res.json();
+      setOriginalScriptText(scriptText);
+      setScriptText(data.enhancedText);
+      setSuccess('Script enhanced with voiceover expressions!');
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setEnhancingScript(false);
+    }
+  };
+
+  const handleRevertScript = () => {
+    if (originalScriptText !== null) {
+      setScriptText(originalScriptText);
+      setOriginalScriptText(null);
+      setSuccess('Reverted script to original text.');
+    }
+  };
+
   const handleGenerateVoiceover = async () => {
     if (!scriptText) {
       setError('Please write a voiceover script first.');
@@ -666,7 +770,12 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
       const res = await fetch('/api/generate-voiceover', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: scriptText, voiceId: selectedVoice })
+        body: JSON.stringify({
+          text: scriptText,
+          voiceId: selectedVoice,
+          modelId: elevenLabsModel,
+          enhanceSpeech: enhanceWithThoughtfulTags
+        })
       });
 
       if (!res.ok) {
@@ -1015,17 +1124,17 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                 onChange={(e) => handleRenameProject(e.target.value)}
                 style={{
                   fontSize: '28px', fontWeight: 800, marginBottom: '8px', background: 'transparent',
-                  border: 'none', outline: 'none', color: 'white', width: '100%', padding: 0,
+                  border: 'none', outline: 'none', color: 'var(--text-white)', width: '100%', padding: 0,
                   borderBottom: '1px dashed transparent', cursor: 'text'
                 }}
-                onFocus={(e) => { e.target.style.borderBottomColor = 'hsl(var(--accent-purple))'; }}
+                onFocus={(e) => { e.target.style.borderBottomColor = 'var(--accent-purple)'; }}
                 onBlur={(e) => { e.target.style.borderBottomColor = 'transparent'; }}
                 placeholder="Project Name"
               />
             ) : (
               <h2 style={{ fontSize: '28px', marginBottom: '8px' }}>Create Project</h2>
             )}
-            <p style={{ color: 'hsl(var(--text-gray))', fontSize: '14px' }}>
+            <p style={{ color: 'var(--text-gray)', fontSize: '14px' }}>
               Build your storyboard, align audio timeline, choose aesthetics, and compile.
             </p>
           </div>
@@ -1062,7 +1171,7 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
         <section className="glass-panel" style={{ padding: '24px', marginBottom: '24px' }}>
           <h3 style={{ fontSize: '18px', display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px', fontFamily: 'var(--font-headline)', fontWeight: 600 }}>
             <span style={{
-              width: '24px', height: '24px', borderRadius: '50%', background: '#ffffff', color: '#000000',
+              width: '24px', height: '24px', borderRadius: '50%', background: 'var(--primary)', color: 'var(--primary-foreground)',
               display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold',
               fontSize: '11px', fontFamily: 'var(--font-sans)', flexShrink: 0
             }}>1</span>
@@ -1070,15 +1179,92 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
           </h3>
 
           <div style={{ marginBottom: '20px' }}>
-            <label className="label">Script text</label>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+              <label className="label" style={{ marginBottom: 0 }}>Script text</label>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  type="button"
+                  onClick={handleEnhanceScript}
+                  disabled={enhancingScript || !scriptText}
+                  className="btn-secondary"
+                  style={{
+                    fontSize: '12px',
+                    padding: '4px 10.5px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    borderColor: 'var(--accent-purple)',
+                    color: 'var(--accent-purple)',
+                    height: '28px'
+                  }}
+                >
+                  <Sparkles size={12} />
+                  {enhancingScript ? 'Enhancing...' : 'AI Enhance Script'}
+                </button>
+                {originalScriptText !== null && (
+                  <button
+                    type="button"
+                    onClick={handleRevertScript}
+                    className="btn-secondary"
+                    style={{
+                      fontSize: '12px',
+                      padding: '4px 10.5px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      borderColor: '#ef4444',
+                      color: '#ef4444',
+                      height: '28px'
+                    }}
+                  >
+                    Revert
+                  </button>
+                )}
+              </div>
+            </div>
             <textarea
+              id="script-textarea"
               className="input-field"
               rows={4}
               placeholder="e.g. When performing a proper barbell squat, ensure your feet are shoulder-width apart. Focus on keeping your spine straight and descend slowly until your thighs are parallel to the floor."
               value={scriptText}
               onChange={(e) => setScriptText(e.target.value)}
-              style={{ resize: 'vertical' }}
+              style={{ resize: 'vertical', marginBottom: '8px' }}
             />
+            {elevenLabsModel === 'eleven_v3' && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: '500' }}>Insert ElevenLabs V3 Tag:</span>
+                {['[thoughtful]', '[sigh]', '[gasp]', '[laughs]', '[whisper]', '[cry]'].map((tag) => (
+                  <button
+                    key={tag}
+                    type="button"
+                    onClick={() => insertExpressionTag(tag)}
+                    style={{
+                      fontSize: '11px',
+                      background: 'rgba(255, 255, 255, 0.04)',
+                      border: '1px solid var(--border-light)',
+                      borderRadius: '4px',
+                      padding: '2px 8px',
+                      color: 'var(--accent-purple)',
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease',
+                      fontWeight: '600',
+                      outline: 'none'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
+                      e.currentTarget.style.borderColor = 'var(--accent-purple)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'rgba(255, 255, 255, 0.04)';
+                      e.currentTarget.style.borderColor = 'var(--border-light)';
+                    }}
+                  >
+                    {tag}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           <div style={{ display: 'flex', gap: '24px', marginBottom: '20px' }}>
@@ -1093,40 +1279,109 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
           </div>
 
           {audioSource === 'generate' ? (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '16px', alignItems: 'flex-end' }}>
-              <div style={{ flex: 1 }}>
-                <label className="label">ElevenLabs Voice</label>
-                {!elevenLabsKeySet ? (
-                  <div style={{ color: '#f87171', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <AlertTriangle size={14} /> ElevenLabs key not set. Go to Settings tab.
-                  </div>
-                ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', alignItems: 'flex-end' }}>
+                <div style={{ flex: 1 }}>
+                  <label className="label">ElevenLabs Voice</label>
+                  {!elevenLabsKeySet ? (
+                    <div style={{ color: '#f87171', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <AlertTriangle size={14} /> ElevenLabs key not set. Go to Settings tab.
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      <select
+                        className="input-field"
+                        value={selectedVoice}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setSelectedVoice(val);
+                          if (audioRef.current) {
+                            audioRef.current.pause();
+                            setPlayingVoiceId(null);
+                          }
+                          fetch('/api/settings', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ lastSelectedVoice: val })
+                          }).catch(err => console.error('Failed to save lastSelectedVoice:', err));
+                        }}
+                        style={{ flex: 1 }}
+                      >
+                        {voices.map(voice => (
+                          <option key={voice.id} value={voice.id}>
+                            {voice.name} ({voice.category})
+                          </option>
+                        ))}
+                      </select>
+                      {voices.find(v => v.id === selectedVoice)?.previewUrl && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const voiceObj = voices.find(v => v.id === selectedVoice);
+                            if (voiceObj) toggleVoicePreview(voiceObj);
+                          }}
+                          className="btn-secondary"
+                          style={{
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            width: '42px', height: '42px', padding: 0, borderRadius: '50%', flexShrink: 0
+                          }}
+                          title="Listen to voice sample"
+                        >
+                          {playingVoiceId === selectedVoice ? <Pause size={18} /> : <Play size={18} />}
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ flex: 1 }}>
+                  <label className="label">Synthesis Model</label>
                   <select
                     className="input-field"
-                    value={selectedVoice}
+                    value={elevenLabsModel}
                     onChange={(e) => {
-                      const val = e.target.value;
-                      setSelectedVoice(val);
-                      fetch('/api/settings', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ lastSelectedVoice: val })
-                      }).catch(err => console.error('Failed to save lastSelectedVoice:', err));
+                      setElevenLabsModel(e.target.value);
+                      if (e.target.value !== 'eleven_v3') {
+                        setEnhanceWithThoughtfulTags(false);
+                      }
                     }}
                   >
-                    {voices.map(voice => (
-                      <option key={voice.id} value={voice.id}>
-                        {voice.name} ({voice.category})
-                      </option>
-                    ))}
+                    <option value="eleven_multilingual_v2">Multilingual v2 (Standard)</option>
+                    <option value="eleven_v3">Eleven v3 (Expressive)</option>
+                    <option value="eleven_flash_v2_5">Flash v2.5 (Fast)</option>
+                    <option value="eleven_turbo_v2_5">Turbo v2.5 (Balanced)</option>
                   </select>
-                )}
+                </div>
               </div>
+
+              {elevenLabsModel === 'eleven_v3' && (
+                <div 
+                  style={{ 
+                    display: 'flex', alignItems: 'center', gap: '8px', 
+                    background: 'rgba(255, 255, 255, 0.02)', padding: '12px 16px', 
+                    borderRadius: '8px', border: '1px solid var(--border-light)',
+                    marginTop: '-4px'
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    id="enhance-thoughtful"
+                    checked={enhanceWithThoughtfulTags}
+                    onChange={(e) => setEnhanceWithThoughtfulTags(e.target.checked)}
+                    style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                  />
+                  <label htmlFor="enhance-thoughtful" style={{ fontSize: '13px', cursor: 'pointer', display: 'flex', flexDirection: 'column' }}>
+                    <span style={{ fontWeight: '500', color: 'var(--text-main)' }}>Enhance speech expression</span>
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Automatically injects a [thoughtful] style prompt for deeper and more emotional narration</span>
+                  </label>
+                </div>
+              )}
+
               <button
                 onClick={handleGenerateVoiceover}
                 className="btn-primary"
                 disabled={generatingAudio || !elevenLabsKeySet || !scriptText}
-                style={{ height: '46px' }}
+                style={{ height: '46px', width: '100%' }}
               >
                 <Sparkles size={16} />
                 {generatingAudio ? 'Generating...' : 'Synthesize Voiceover'}
@@ -1160,11 +1415,11 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                   disabled={uploadingAudio}
                   style={{ display: 'none' }}
                 />
-                <Upload size={20} style={{ color: 'hsl(var(--text-muted))', marginBottom: '4px' }} />
+                <Upload size={20} style={{ color: 'var(--text-muted)', marginBottom: '4px' }} />
                 <div style={{ fontSize: '13px', fontWeight: 500, color: 'white' }}>
                   {uploadingAudio ? 'Uploading audio file...' : uploadedFileName ? 'Change audio file' : 'Select audio file'}
                 </div>
-                <div style={{ fontSize: '11px', color: 'hsl(var(--text-muted))' }}>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
                   {uploadedFileName || 'Drag and drop or click to browse (.mp3)'}
                 </div>
               </div>
@@ -1173,7 +1428,7 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
 
           {voiceoverUrl && (
             <div style={{ marginTop: '20px', padding: '16px', background: 'rgba(255, 255, 255, 0.03)', borderRadius: '8px', border: '1px solid var(--border-light)' }}>
-              <span style={{ fontSize: '13px', display: 'block', color: 'hsl(var(--text-gray))', marginBottom: '8px' }}>Voiceover Preview:</span>
+              <span style={{ fontSize: '13px', display: 'block', color: 'var(--text-gray)', marginBottom: '8px' }}>Voiceover Preview:</span>
               <audio src={voiceoverUrl} controls style={{ width: '100%' }} />
             </div>
           )}
@@ -1185,7 +1440,7 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
             <div style={{ width: '1px', height: '32px', background: 'linear-gradient(to bottom, rgba(255,255,255,0.15) 0%, transparent 100%)' }}></div>
             
             {!geminiKeySet ? (
-              <div style={{ color: '#f87171', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', background: '#0a0a0a', border: '1px solid rgba(239, 68, 68, 0.2)', padding: '10px 20px', borderRadius: '20px' }}>
+              <div style={{ color: '#f87171', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--bg-card)', border: '1px solid rgba(239, 68, 68, 0.2)', padding: '10px 20px', borderRadius: '20px' }}>
                 <AlertTriangle size={14} /> Gemini API key not set. Go to Settings tab.
               </div>
             ) : (
@@ -1198,7 +1453,7 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                   display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 24px',
                   background: 'var(--bg-card)', border: '1px solid var(--border-medium)',
                   borderRadius: '24px', cursor: 'pointer', fontWeight: 600, fontSize: '13px',
-                  color: '#ffffff', transition: 'all 0.2s ease', height: '40px'
+                  color: 'var(--text-white)', transition: 'all 0.2s ease', height: '40px'
                 }}
               >
                 <RefreshCw size={14} className={aligning ? 'spin' : ''} style={{ animation: aligning ? 'spin-slow 2s linear infinite' : 'none' }} />
@@ -1216,7 +1471,7 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
               <h3 style={{ fontSize: '18px', display: 'flex', alignItems: 'center', gap: '12px', fontFamily: 'var(--font-headline)', fontWeight: 600, margin: 0 }}>
                 <span style={{
-                  width: '24px', height: '24px', borderRadius: '50%', background: '#ffffff', color: '#000000',
+                  width: '24px', height: '24px', borderRadius: '50%', background: 'var(--primary)', color: 'var(--primary-foreground)',
                   display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold',
                   fontSize: '11px', fontFamily: 'var(--font-sans)', flexShrink: 0
                 }}>3</span>
@@ -1280,10 +1535,10 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                         )}
                         
                         <div style={{
-                          position: 'absolute', top: '8px', left: '8px', background: 'rgba(0,0,0,0.65)',
+                          position: 'absolute', top: '8px', left: '8px', background: 'var(--glass-bg)',
                           backdropFilter: 'blur(8px)', padding: '2px 8px', borderRadius: '4px',
-                          fontSize: '10px', fontFamily: 'monospace', color: '#ffffff',
-                          border: '1px solid rgba(255,255,255,0.06)', zIndex: 10
+                          fontSize: '10px', fontFamily: 'monospace', color: 'var(--text-white)',
+                          border: '1px solid var(--glass-border)', zIndex: 10
                         }}>
                           {scene.start_time.toFixed(1)}s - {scene.end_time.toFixed(1)}s ({duration.toFixed(1)}s)
                         </div>
@@ -1457,8 +1712,8 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                   style={{
                     flex: 1, padding: '16px 0', fontSize: '11px', fontWeight: 700,
                     textTransform: 'uppercase', letterSpacing: '0.08em', background: 'transparent',
-                    border: 'none', borderBottom: active ? '2px solid #ffffff' : 'none',
-                    color: active ? '#ffffff' : 'rgba(255, 255, 255, 0.4)', cursor: 'pointer', transition: 'all 0.15s ease'
+                    border: 'none', borderBottom: active ? '2px solid var(--primary)' : 'none',
+                    color: active ? 'var(--text-white)' : 'var(--text-gray)', cursor: 'pointer', transition: 'all 0.15s ease'
                   }}
                 >
                   {t.label}
@@ -1485,21 +1740,21 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                         key={p.id} type="button" onClick={() => handleApplyPreset(p)}
                         style={{
                           display: 'flex', flexDirection: 'column', alignItems: 'stretch', padding: '8px',
-                          borderRadius: '8px', background: isSelected ? 'rgba(255, 255, 255, 0.04)' : 'rgba(255, 255, 255, 0.01)',
-                          border: isSelected ? '1px solid rgba(255, 255, 255, 0.25)' : '1px solid var(--border-light)',
+                          borderRadius: '8px', background: isSelected ? 'rgba(var(--scrollbar-thumb), 0.1)' : 'rgba(var(--scrollbar-thumb), 0.02)',
+                          border: isSelected ? '1px solid var(--primary)' : '1px solid var(--border-light)',
                           textAlign: 'left', cursor: 'pointer', transition: 'all 0.2s ease', minHeight: '115px'
                         }}
                       >
                         <div style={{
-                          height: '48px', background: '#050505', borderRadius: '6px',
-                          border: '1px solid rgba(255,255,255,0.06)', display: 'flex',
+                          height: '48px', background: 'var(--bg-darker)', borderRadius: '6px',
+                          border: '1px solid var(--border-medium)', display: 'flex',
                           alignItems: 'center', justifyContent: 'center', marginBottom: '8px'
                         }}>
                           {p.id === 'tiktok-hormozi' && (
                             <span style={{ fontFamily: 'Outfit', fontWeight: 900, fontSize: '11px', fontStyle: 'italic', background: '#eab308', color: '#000000', padding: '2px 4px' }}>HORMOZI</span>
                           )}
                           {p.id === 'minimal-vercel' && (
-                            <span style={{ fontFamily: 'Inter', fontSize: '11px', color: 'rgba(255,255,255,0.6)' }}>Minimal Vercel</span>
+                            <span style={{ fontFamily: 'Inter', fontSize: '11px', color: 'var(--text-gray)' }}>Minimal Vercel</span>
                           )}
                           {p.id === 'cyberpunk-neon' && (
                             <span style={{ fontFamily: 'Outfit', fontWeight: 900, fontSize: '11px', color: '#22d3ee', textShadow: '0 0 5px rgba(34,211,238,0.8)' }}>CYBER</span>
@@ -1509,7 +1764,7 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                           )}
                         </div>
                         
-                        <span style={{ fontSize: '12px', fontWeight: 600, color: isSelected ? '#ffffff' : 'rgba(255, 255, 255, 0.9)', lineHeight: 1.2 }}>{p.name}</span>
+                        <span style={{ fontSize: '12px', fontWeight: 600, color: isSelected ? 'var(--text-white)' : 'var(--text-gray)', lineHeight: 1.2 }}>{p.name}</span>
                         <span style={{
                           fontSize: '10px', color: 'var(--text-gray)', lineHeight: 1.3, marginTop: '4px',
                           display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden'
@@ -1536,13 +1791,13 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                         key={mode.id} type="button" onClick={() => setSubtitleMode(mode.id as any)}
                         style={{
                           display: 'flex', flexDirection: 'column', alignItems: 'flex-start', padding: '12px',
-                          borderRadius: '8px', background: subtitleMode === mode.id ? 'rgba(255, 255, 255, 0.03)' : 'transparent',
-                          border: subtitleMode === mode.id ? '1px solid rgba(255, 255, 255, 0.2)' : '1px solid var(--border-light)',
-                          color: subtitleMode === mode.id ? 'white' : 'hsl(var(--text-gray))', textAlign: 'left', cursor: 'pointer', transition: 'all 0.2s ease'
+                          borderRadius: '8px', background: subtitleMode === mode.id ? 'rgba(var(--scrollbar-thumb), 0.1)' : 'transparent',
+                          border: subtitleMode === mode.id ? '1px solid var(--primary)' : '1px solid var(--border-light)',
+                          color: subtitleMode === mode.id ? 'var(--text-white)' : 'var(--text-gray)', textAlign: 'left', cursor: 'pointer', transition: 'all 0.2s ease'
                         }}
                       >
-                        <span style={{ fontSize: '11px', fontWeight: 600, color: subtitleMode === mode.id ? 'white' : 'hsl(var(--text-white))' }}>{mode.label}</span>
-                        <span style={{ fontSize: '9px', color: 'hsl(var(--text-muted))', marginTop: '2px', lineHeight: '1.2' }}>{mode.desc}</span>
+                        <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-white)' }}>{mode.label}</span>
+                        <span style={{ fontSize: '9px', color: 'var(--text-muted)', marginTop: '2px', lineHeight: '1.2' }}>{mode.desc}</span>
                       </button>
                     ))}
                   </div>
@@ -1553,8 +1808,8 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                     <label className="label">Anchor Alignment</label>
                     <div style={{ display: 'flex', gap: '16px', alignItems: 'center', marginBottom: '16px' }}>
                       <div style={{
-                        width: '96px', height: '96px', border: '1px solid rgba(255, 255, 255, 0.06)',
-                        borderRadius: '6px', background: '#050505', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)',
+                        width: '96px', height: '96px', border: '1px solid var(--border-medium)',
+                        borderRadius: '6px', background: 'var(--bg-darker)', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)',
                         padding: '6px', gap: '4px', flexShrink: 0
                       }}>
                         {[
@@ -1574,13 +1829,13 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                               className={`matrix-btn ${isSelected ? 'active' : ''}`}
                               style={{ border: 'none', padding: 0 }}
                             >
-                              {isSelected && <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#050505' }} />}
+                              {isSelected && <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--primary-foreground)' }} />}
                             </button>
                           );
                         })}
                       </div>
                       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                        <span style={{ fontSize: '10px', color: 'hsl(var(--text-muted))', lineHeight: '1.4', fontFamily: 'Inter' }}>
+                        <span style={{ fontSize: '10px', color: 'var(--text-muted)', lineHeight: '1.4', fontFamily: 'Inter' }}>
                           Select cell to snap subtitles, or drag the sliders below.
                         </span>
                         <button
@@ -1599,7 +1854,7 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '16px' }}>
                       <div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
-                          <span style={{ fontSize: '11px', color: 'hsl(var(--text-gray))', fontFamily: 'Inter' }}>Horizontal Offset (X)</span>
+                          <span style={{ fontSize: '11px', color: 'var(--text-gray)', fontFamily: 'Inter' }}>Horizontal Offset (X)</span>
                           <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{textPositionX > 0 ? `+${textPositionX}` : textPositionX}px</span>
                         </div>
                         <input
@@ -1610,7 +1865,7 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                       </div>
                       <div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
-                          <span style={{ fontSize: '11px', color: 'hsl(var(--text-gray))', fontFamily: 'Inter' }}>Vertical Offset (Y)</span>
+                          <span style={{ fontSize: '11px', color: 'var(--text-gray)', fontFamily: 'Inter' }}>Vertical Offset (Y)</span>
                           <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{textPositionY > 0 ? `+${textPositionY}` : textPositionY}px</span>
                         </div>
                         <input
@@ -1638,13 +1893,13 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                     }}
                     style={{
                       cursor: 'pointer', display: 'flex', alignItems: 'center', height: '38px',
-                      background: '#050505', border: '1px solid rgba(255, 255, 255, 0.06)',
+                      background: 'var(--bg-darker)', border: '1px solid var(--border-medium)',
                       borderRadius: '4px', padding: '0 12px'
                     }}
                   >
                     <Search size={14} style={{ marginRight: '8px', opacity: 0.4 }} />
                     <span style={{ fontFamily: fontName, fontSize: '13px', fontWeight: 600 }}>{fontName}</span>
-                    <span style={{ fontSize: '8px', color: 'rgba(255,255,255,0.4)', marginLeft: 'auto' }}>▼</span>
+                    <span style={{ fontSize: '8px', color: 'var(--text-gray)', marginLeft: 'auto' }}>▼</span>
                   </div>
 
                   {fontSelectorOpen && (
@@ -1653,7 +1908,7 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                       style={{
                         position: 'absolute', top: '64px', left: 0, right: 0, zIndex: 100, padding: '12px',
                         display: 'flex', flexDirection: 'column', gap: '8px', boxShadow: '0 10px 30px rgba(0,0,0,0.5)',
-                        background: 'hsl(var(--bg-card))', border: '1px solid var(--border-light)'
+                        background: 'var(--bg-card)', border: '1px solid var(--border-light)'
                       }}
                       onClick={(e) => e.stopPropagation()}
                     >
@@ -1668,7 +1923,7 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                       />
 
                       {fontLoading && (
-                        <div style={{ fontSize: '11px', color: 'hsl(var(--accent-purple))', padding: '4px' }}>
+                        <div style={{ fontSize: '11px', color: 'var(--accent-purple)', padding: '4px' }}>
                           Downloading from Google Fonts...
                         </div>
                       )}
@@ -1683,7 +1938,7 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                         style={{ maxHeight: '160px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '2px', paddingRight: '4px' }}
                       >
                         {filteredFonts.map((font) => (
-                          <div
+                           <div
                             key={font}
                             onClick={async () => {
                               try {
@@ -1700,8 +1955,8 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                             }}
                             style={{
                               padding: '6px 10px', borderRadius: '4px', cursor: 'pointer', fontFamily: font, fontSize: '13px',
-                              background: fontName === font ? 'rgba(255, 255, 255, 0.08)' : 'transparent',
-                              color: fontName === font ? '#fff' : 'hsl(var(--text-gray))', transition: 'background 0.2s',
+                              background: fontName === font ? 'rgba(var(--scrollbar-thumb), 0.15)' : 'transparent',
+                              color: fontName === font ? 'var(--text-white)' : 'var(--text-gray)', transition: 'background 0.2s',
                               display: 'flex', justifyContent: 'space-between', alignItems: 'center'
                             }}
                           >
@@ -1728,7 +1983,7 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
 
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '12px' }}>
                   <div style={{ 
-                    flex: 1, background: '#050505', border: '1px solid rgba(255,255,255,0.06)', 
+                    flex: 1, background: 'var(--bg-darker)', border: '1px solid var(--border-medium)', 
                     borderRadius: '4px', padding: '8px 12px', display: 'flex', alignItems: 'center', 
                     justifyContent: 'space-between', height: '38px' 
                   }}>
@@ -1736,17 +1991,17 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1px', marginLeft: 'auto' }}>
                       <button 
                         type="button" onClick={() => setFontSize(Math.min(48, fontSize + 2))}
-                        style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', padding: 0, height: '10px', fontSize: '8px' }}
+                        style={{ background: 'none', border: 'none', color: 'var(--text-white)', cursor: 'pointer', padding: 0, height: '10px', fontSize: '8px' }}
                       >▲</button>
                       <button 
                         type="button" onClick={() => setFontSize(Math.max(12, fontSize - 2))}
-                        style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', padding: 0, height: '10px', fontSize: '8px' }}
+                        style={{ background: 'none', border: 'none', color: 'var(--text-white)', cursor: 'pointer', padding: 0, height: '10px', fontSize: '8px' }}
                       >▼</button>
                     </div>
                   </div>
 
                   <div style={{ 
-                    display: 'flex', gap: '6px', background: '#050505', border: '1px solid rgba(255,255,255,0.06)', 
+                    display: 'flex', gap: '6px', background: 'var(--bg-darker)', border: '1px solid var(--border-medium)', 
                     borderRadius: '4px', padding: '8px', height: '38px', alignItems: 'center' 
                   }}>
                     {['#FFFFFF', '#FFCC00', '#00FFFF', '#FF3333'].map(color => (
@@ -1754,8 +2009,8 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                         key={color} type="button" onClick={() => setFontColor(color)}
                         style={{
                           width: '16px', height: '16px', borderRadius: '50%', background: color,
-                          border: fontColor === color ? '1.5px solid #fff' : 'none', cursor: 'pointer',
-                          boxShadow: fontColor === color ? '0 0 4px rgba(255,255,255,0.5)' : 'none', padding: 0
+                          border: fontColor === color ? '1.5px solid var(--text-white)' : 'none', cursor: 'pointer',
+                          boxShadow: fontColor === color ? '0 0 4px var(--border-glow)' : 'none', padding: 0
                         }}
                       />
                     ))}
@@ -2176,7 +2431,7 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                       ))}
                     </select>
                     {bgms.length === 0 && (
-                      <span style={{ fontSize: '11px', color: 'hsl(var(--text-muted))', marginTop: '6px', display: 'block' }}>
+                      <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px', display: 'block' }}>
                         No tracks imported yet. Go to Music Library tab to import BGMs.
                       </span>
                     )}
@@ -2224,7 +2479,7 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
           {/* Compile Button - Pinned at bottom of sidebar */}
           <div style={{
             borderTop: '1px solid var(--border-light)', paddingTop: '20px', marginTop: '20px',
-            background: 'hsl(var(--bg-card))', position: 'sticky', bottom: 0, zIndex: 10
+            background: 'var(--bg-card)', position: 'sticky', bottom: 0, zIndex: 10
           }}>
             {hasSplicingError && (
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.2)', color: '#f87171', borderRadius: '8px', fontSize: '11px', marginBottom: '12px' }}>
@@ -2236,14 +2491,14 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
               onClick={handleCompileVideo}
               disabled={loading || scenes.length === 0 || scenes.some(s => !s.clipId) || hasSplicingError}
               style={{
-                width: '100%', background: '#ffffff', color: '#000000', padding: '14px 0',
+                width: '100%', background: 'var(--primary)', color: 'var(--primary-foreground)', padding: '14px 0',
                 borderRadius: '12px', fontWeight: 900, textTransform: 'uppercase',
                 letterSpacing: '-0.03em', fontSize: '13px', border: 'none', cursor: 'pointer',
                 transition: 'all 0.2s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px'
               }}
               onMouseEnter={(e) => {
                 if (!e.currentTarget.disabled) {
-                  e.currentTarget.style.boxShadow = '0 0 15px rgba(255, 255, 255, 0.25)';
+                  e.currentTarget.style.boxShadow = '0 0 15px var(--glow-color)';
                   e.currentTarget.style.transform = 'scale(1.02)';
                 }
               }}
@@ -2252,7 +2507,7 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                 e.currentTarget.style.transform = 'scale(1)';
               }}
             >
-              <Zap size={14} fill="#000" />
+              <Zap size={14} fill="var(--primary-foreground)" />
               {loading ? 'Submitting render...' : 'Generate Video'}
             </button>
           </div>
