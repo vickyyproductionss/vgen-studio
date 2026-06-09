@@ -582,7 +582,7 @@ export function getLocalWordTimings(words, sceneStartTime, duration) {
 /**
  * Generates an ASS subtitle file content
  */
-function createAssFileContent(originalScene, duration, style, width, height) {
+export function createAssFileContent(originalScene, duration, style, width, height) {
   const scene = {
     ...originalScene,
     text: shapeDevanagari(originalScene.text),
@@ -769,6 +769,69 @@ function createAssFileContent(originalScene, duration, style, width, height) {
   const X_pos = Math.round((width / 2) + (textPositionX / 100) * (width * 0.42));
   const Y_pos = Math.round((height / 2) - (textPositionY / 100) * (height * 0.42));
 
+  let headingStyleLine = '';
+  let headingEvents = '';
+  if (style.headingTitle && style.headingTitle.trim().length > 0) {
+    const headingFont = style.headingFontName || 'Montserrat';
+    const headingFontSize = Math.round((style.headingFontSize || 18) * (height / 640));
+    const headingFontColor = hexToAssColor(style.headingFontColor || '#FFFFFF', '00');
+    const headingBoxColor = hexToAssColor(style.headingBoxColor || '#1A1A1A', 'B0'); // 70% opacity charcoal
+    const headingOutline = Math.max(4, Math.round((style.headingPadding || 6) * (height / 640)));
+    const marginL = Math.round(width * 0.05);
+    const marginR = Math.round(width * 0.5);
+    const marginV_heading = Math.round(height * 0.05);
+    
+    headingStyleLine = `Style: Heading,${headingFont},${headingFontSize},${headingFontColor},&H000000FF,&H00000000,${headingBoxColor},-1,0,0,0,100,100,0,0,3,${headingOutline},0,7,${marginL},${marginR},${marginV_heading},1\n`;
+    
+    const globalStart = scene.start_time || 0.0;
+    const globalEnd = scene.end_time || (globalStart + duration);
+    const headingStartGlobal = 0.0;
+    const headingEndGlobal = 3.0;
+    
+    const overlapStartGlobal = Math.max(globalStart, headingStartGlobal);
+    const overlapEndGlobal = Math.min(globalEnd, headingEndGlobal);
+    
+    if (overlapStartGlobal < overlapEndGlobal) {
+      const localStart = overlapStartGlobal - globalStart;
+      const localEnd = overlapEndGlobal - globalStart;
+      
+      const X_heading = Math.round(width * 0.05);
+      const Y_heading = Math.round(height * 0.05);
+      const text = shapeDevanagari(style.headingTitle.trim());
+      
+      // Case 1: Both entry and exit inside this scene
+      if (globalStart === 0.0 && globalEnd >= 3.0) {
+        headingEvents += `Dialogue: 10,${formatTime(0.0)},${formatTime(0.4)},Heading,,0,0,0,,{\\an7\\move(${-300},${Y_heading},${X_heading},${Y_heading},0,400)\\fad(400,0)}${text}\n`;
+        headingEvents += `Dialogue: 10,${formatTime(0.4)},${formatTime(2.7)},Heading,,0,0,0,,{\\an7\\pos(${X_heading},${Y_heading})}${text}\n`;
+        headingEvents += `Dialogue: 10,${formatTime(2.7)},${formatTime(3.0)},Heading,,0,0,0,,{\\an7\\move(${X_heading},${Y_heading},${-300},${Y_heading},0,300)\\fad(0,300)}${text}\n`;
+      }
+      // Case 2: Entry inside this scene, exit is not
+      else if (globalStart === 0.0 && globalEnd < 3.0) {
+        if (localEnd <= 0.4) {
+          const ms = Math.round(localEnd * 1000);
+          headingEvents += `Dialogue: 10,${formatTime(0.0)},${formatTime(localEnd)},Heading,,0,0,0,,{\\an7\\move(${-300},${Y_heading},${X_heading},${Y_heading},0,${ms})\\fad(${ms},0)}${text}\n`;
+        } else {
+          headingEvents += `Dialogue: 10,${formatTime(0.0)},${formatTime(0.4)},Heading,,0,0,0,,{\\an7\\move(${-300},${Y_heading},${X_heading},${Y_heading},0,400)\\fad(400,0)}${text}\n`;
+          headingEvents += `Dialogue: 10,${formatTime(0.4)},${formatTime(localEnd)},Heading,,0,0,0,,{\\an7\\pos(${X_heading},${Y_heading})}${text}\n`;
+        }
+      }
+      // Case 3: Exit inside this scene, entry is not
+      else if (globalStart > 0.0 && globalEnd >= 3.0) {
+        if (localEnd <= 0.3) {
+          const ms = Math.round(localEnd * 1000);
+          headingEvents += `Dialogue: 10,${formatTime(0.0)},${formatTime(localEnd)},Heading,,0,0,0,,{\\an7\\move(${X_heading},${Y_heading},${-300},${Y_heading},0,${ms})\\fad(0,${ms})}${text}\n`;
+        } else {
+          headingEvents += `Dialogue: 10,${formatTime(0.0)},${formatTime(localEnd - 0.3)},Heading,,0,0,0,,{\\an7\\pos(${X_heading},${Y_heading})}${text}\n`;
+          headingEvents += `Dialogue: 10,${formatTime(localEnd - 0.3)},${formatTime(localEnd)},Heading,,0,0,0,,{\\an7\\move(${X_heading},${Y_heading},${-300},${Y_heading},0,300)\\fad(0,300)}${text}\n`;
+        }
+      }
+      // Case 4: Sustained throughout scene
+      else {
+        headingEvents += `Dialogue: 10,${formatTime(localStart)},${formatTime(localEnd)},Heading,,0,0,0,,{\\an7\\pos(${X_heading},${Y_heading})}${text}\n`;
+      }
+    }
+  }
+
   const header = `[Script Info]
 Title: Styled Subtitles
 ScriptType: v4.00+
@@ -779,7 +842,7 @@ ScaledBorderAndShadow: yes
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: Default,${fontName},${fontSize},${primaryColor},&H000000FF,${outlineColor},${shadowColor},${isBold ? -1 : 0},${style.italic ? -1 : 0},0,0,100,100,0,0,1,${outlineSize},${shadowDepth},${alignment},20,20,${marginV},1
-
+${headingStyleLine}
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 `;
@@ -809,7 +872,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     }
     const events = createDialogueLines(0, 0.0, duration, X_pos, Y_pos, text, hexToAssColor(normalStyle.fontColor || '#FFFFFF'));
     const processedEvents = normalStyle.neonGlow ? applyNeonGlowToEvents(events, normalStyle, primaryColor, outlineColor) : events;
-    return header + processedEvents;
+    return header + headingEvents + processedEvents;
   }
 
   const words = scene.words || [];
@@ -1293,7 +1356,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
   const finalEvents = (mode === 'classic')
     ? (normalStyle.neonGlow ? applyNeonGlowToEvents(events, normalStyle, primaryColor, outlineColor) : events)
     : events;
-  return header + finalEvents;
+  return header + headingEvents + finalEvents;
 }
 
 /**
@@ -1347,6 +1410,14 @@ export async function assembleVideo(options, onProgress) {
       await ensureFontExists(subtitleStyle.fontName);
     } catch (fontErr) {
       console.warn(`Could not verify/download font ${subtitleStyle.fontName}:`, fontErr.message);
+    }
+  }
+  if (subtitleStyle.headingTitle && subtitleStyle.headingTitle.trim().length > 0) {
+    const headingFont = subtitleStyle.headingFontName || 'Montserrat';
+    try {
+      await ensureFontExists(headingFont);
+    } catch (fontErr) {
+      console.warn(`Could not verify/download heading font ${headingFont}:`, fontErr.message);
     }
   }
 

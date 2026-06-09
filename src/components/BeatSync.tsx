@@ -295,6 +295,14 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
   const [highlightTrigger, setHighlightTrigger] = useState<'all' | 'emphasis' | 'emoji'>('all');
   const [pop3d, setPop3d] = useState(false);
   const [pop3dColor, setPop3dColor] = useState('#000000');
+
+  // Heading / Hook state variables
+  const [headingTitle, setHeadingTitle] = useState('');
+  const [headingFontName, setHeadingFontName] = useState('Montserrat');
+  const [headingFontSize, setHeadingFontSize] = useState(18);
+  const [headingFontColor, setHeadingFontColor] = useState('#FFFFFF');
+  const [headingBoxColor, setHeadingBoxColor] = useState('#1A1A1A');
+  const [headingPadding, setHeadingPadding] = useState(6);
   
   const [normalStyle, setNormalStyle] = useState<WordStyle>({
     fontColor: '#FFFFFF',
@@ -525,6 +533,13 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
         setNormalStyle(norm);
         setHighlightStyle(high);
         setEmojiStyle(emoj);
+
+        if (state.headingTitle !== undefined) setHeadingTitle(state.headingTitle);
+        if (state.headingFontName !== undefined) setHeadingFontName(state.headingFontName);
+        if (state.headingFontSize !== undefined) setHeadingFontSize(state.headingFontSize);
+        if (state.headingFontColor !== undefined) setHeadingFontColor(state.headingFontColor);
+        if (state.headingBoxColor !== undefined) setHeadingBoxColor(state.headingBoxColor);
+        if (state.headingPadding !== undefined) setHeadingPadding(state.headingPadding);
       }
     } catch (err) {
       console.error('Failed to load beat sync project state:', err);
@@ -596,7 +611,13 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
               pop3dColor,
               normalStyle,
               highlightStyle,
-              emojiStyle
+              emojiStyle,
+              headingTitle,
+              headingFontName,
+              headingFontSize,
+              headingFontColor,
+              headingBoxColor,
+              headingPadding
             }
           })
         });
@@ -665,7 +686,13 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
     projectId,
     normalStyle,
     highlightStyle,
-    emojiStyle
+    emojiStyle,
+    headingTitle,
+    headingFontName,
+    headingFontSize,
+    headingFontColor,
+    headingBoxColor,
+    headingPadding
   ]);
 
   // Load Google Font style dynamically in the document head
@@ -1529,7 +1556,13 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
             pop3dColor,
             normalStyle,
             highlightStyle,
-            emojiStyle
+            emojiStyle,
+            headingTitle,
+            headingFontName,
+            headingFontSize,
+            headingFontColor,
+            headingBoxColor,
+            headingPadding
           }
         })
       });
@@ -3565,6 +3598,115 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
                   </div>
                 );
               })()}
+
+              {/* Hook Badge / Video Title Card */}
+              <div className="inspector-card" style={{ marginTop: '16px' }}>
+                <div className="inspector-sub-title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ fontSize: '12px' }}>🎯 Hook Badge / Video Title</span>
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--text-gray)', marginBottom: '12px', lineHeight: '1.4' }}>
+                  Add an animated hook heading in the top-left corner for the first 3.0 seconds to boost social media retention.
+                </div>
+
+                <div style={{ marginBottom: '12px' }}>
+                  <label className="label">Hook Title Text</label>
+                  <input
+                    type="text"
+                    className="input-field"
+                    placeholder="e.g. 3 SECRETS TO GROW FAST 🚀"
+                    value={headingTitle}
+                    onChange={(e) => setHeadingTitle(e.target.value)}
+                    style={{ height: '38px', fontSize: '13px' }}
+                  />
+                </div>
+
+                {headingTitle.trim().length > 0 && (
+                  <div style={{ animation: 'fadeIn 0.2s ease-out' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '12px' }}>
+                      <div>
+                        <label className="label">Font Family</label>
+                        <select
+                          value={headingFontName}
+                          onChange={(e) => setHeadingFontName(e.target.value)}
+                          className="input-field"
+                          style={{ height: '34px', fontSize: '12px', background: 'var(--bg-darker)' }}
+                        >
+                          <option value="Montserrat">Montserrat</option>
+                          <option value="Oswald">Oswald</option>
+                          <option value="Arial">Arial</option>
+                          <option value="Kalam Bold">Kalam Bold</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="label">Padding (px)</label>
+                        <input
+                          type="number"
+                          className="input-field"
+                          min={2}
+                          max={20}
+                          value={headingPadding}
+                          onChange={(e) => setHeadingPadding(Math.max(2, parseInt(e.target.value, 10) || 6))}
+                          style={{ height: '34px', fontSize: '12px' }}
+                        />
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '12px' }}>
+                      <div>
+                        <label className="label">Font Size</label>
+                        <input
+                          type="number"
+                          className="input-field"
+                          min={10}
+                          max={48}
+                          value={headingFontSize}
+                          onChange={(e) => setHeadingFontSize(Math.max(10, parseInt(e.target.value, 10) || 18))}
+                          style={{ height: '34px', fontSize: '12px' }}
+                        />
+                      </div>
+                      <div>
+                        <label className="label">Text Color</label>
+                        <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                          <input
+                            type="color"
+                            value={headingFontColor}
+                            onChange={(e) => setHeadingFontColor(e.target.value)}
+                            style={{ width: '28px', height: '28px', border: 'none', borderRadius: '4px', background: 'transparent', cursor: 'pointer', padding: 0 }}
+                          />
+                          <span style={{ fontSize: '11px', fontFamily: 'monospace', opacity: 0.7 }}>{headingFontColor}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style={{ marginBottom: '4px' }}>
+                      <label className="label">Badge Background Color</label>
+                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                        <input
+                          type="color"
+                          value={headingBoxColor}
+                          onChange={(e) => setHeadingBoxColor(e.target.value)}
+                          style={{ width: '28px', height: '28px', border: 'none', borderRadius: '4px', background: 'transparent', cursor: 'pointer', padding: 0 }}
+                        />
+                        <span style={{ fontSize: '11px', fontFamily: 'monospace', opacity: 0.7 }}>{headingBoxColor}</span>
+                        <div style={{ display: 'flex', gap: '4px', marginLeft: 'auto' }}>
+                          {['#1A1A1A', '#8A4BF3', '#FFCC00', '#FF3333'].map(color => (
+                            <button
+                              key={color}
+                              type="button"
+                              onClick={() => setHeadingBoxColor(color)}
+                              style={{
+                                width: '16px', height: '16px', borderRadius: '50%', background: color,
+                                border: headingBoxColor === color ? '1.5px solid var(--text-white)' : 'none', cursor: 'pointer',
+                                padding: 0
+                              }}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
             </section>
           ) : (
             <div className="inspector-card" style={{ padding: '24px', textAlign: 'center', color: 'var(--text-gray)' }}>
