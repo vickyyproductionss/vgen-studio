@@ -1241,45 +1241,73 @@ app.post('/api/align-script', async (req, res) => {
     }
 
     if (useGcpTimings) {
-      // 1. Gather all Hinglish reference words in order
+      // Detect if gcpWords is in Devanagari (Hindi) script
+      const isDevanagari = gcpWords.some(w => /[\u0900-\u097F]/.test(w.word));
+      console.log(`[GCP STT Aligner] Detected transcription script: ${isDevanagari ? 'Devanagari (Hindi)' : 'Latin (Hinglish/English)'}`);
+      
+      // 1. Gather reference words in order
       const allHinglishWords = [];
+      const allHindiWords = [];
       const segmentWordIndices = []; // Maps segment index to its slice of words
       
       for (let sIdx = 0; sIdx < rawSegments.length; sIdx++) {
         const seg = rawSegments[sIdx];
         if (seg.isBeatSyncOnly) continue;
         
-        const text = seg.text_hinglish || seg.text || '';
-        const wordsList = text.trim().split(/\s+/).filter(w => w.length > 0);
+        const textHinglish = seg.text_hinglish || seg.text || '';
+        const hinglishList = textHinglish.trim().split(/\s+/).filter(w => w.length > 0);
+        
+        const textHindi = seg.text_hindi || '';
+        const hindiList = textHindi.trim().split(/\s+/).filter(w => w.length > 0);
         
         segmentWordIndices.push({
           sIdx,
-          wordCount: wordsList.length,
-          hindiWordsText: (seg.text_hindi || '').trim().split(/\s+/).filter(w => w.length > 0)
+          hinglishCount: hinglishList.length,
+          hindiCount: hindiList.length,
+          hindiWordsText: hindiList,
+          hinglishWordsText: hinglishList
         });
         
-        allHinglishWords.push(...wordsList);
+        allHinglishWords.push(...hinglishList);
+        allHindiWords.push(...hindiList);
       }
       
-      // 2. Perform optimal Levenshtein alignment
-      console.log(`[GCP STT Aligner] Aligning ${allHinglishWords.length} script words to ${gcpWords.length} GCP STT words...`);
-      const alignedHinglish = assignTimestampsToWords(allHinglishWords, gcpWords);
+      // 2. Perform optimal alignment based on transcription script
+      let alignedHinglish = [];
+      let alignedHindi = [];
+      
+      if (isDevanagari) {
+        console.log(`[GCP STT Aligner] Aligning ${allHindiWords.length} Hindi script words to ${gcpWords.length} GCP STT words...`);
+        alignedHindi = assignTimestampsToWords(allHindiWords, gcpWords);
+        console.log(`[GCP STT Aligner] Mapping aligned Hindi word timings back to ${allHinglishWords.length} Hinglish script words...`);
+        alignedHinglish = mapTimestamps(alignedHindi, allHinglishWords);
+      } else {
+        console.log(`[GCP STT Aligner] Aligning ${allHinglishWords.length} Hinglish script words to ${gcpWords.length} GCP STT words...`);
+        alignedHinglish = assignTimestampsToWords(allHinglishWords, gcpWords);
+        console.log(`[GCP STT Aligner] Mapping aligned Hinglish word timings back to ${allHindiWords.length} Hindi script words...`);
+        alignedHindi = mapTimestamps(alignedHinglish, allHindiWords);
+      }
       
       // 3. Re-distribute aligned words back to segments and update segment start/end bounds
-      let wordPtr = 0;
+      let hinglishPtr = 0;
+      let hindiPtr = 0;
+      
       for (const info of segmentWordIndices) {
         const seg = rawSegments[info.sIdx];
-        const slice = alignedHinglish.slice(wordPtr, wordPtr + info.wordCount);
-        wordPtr += info.wordCount;
+        const hinglishSlice = alignedHinglish.slice(hinglishPtr, hinglishPtr + info.hinglishCount);
+        const hindiSlice = alignedHindi.slice(hindiPtr, hindiPtr + info.hindiCount);
         
-        seg.words_hinglish = slice;
-        seg.words = slice;
-        seg.words_hindi = mapTimestamps(slice, info.hindiWordsText);
+        hinglishPtr += info.hinglishCount;
+        hindiPtr += info.hindiCount;
+        
+        seg.words_hinglish = hinglishSlice;
+        seg.words = hinglishSlice;
+        seg.words_hindi = hindiSlice;
         
         // Update segment start/end times based on the precise first/last word timings
-        if (slice.length > 0) {
-          const firstWord = slice[0];
-          const lastWord = slice[slice.length - 1];
+        if (hinglishSlice.length > 0) {
+          const firstWord = hinglishSlice[0];
+          const lastWord = hinglishSlice[hinglishSlice.length - 1];
           if (firstWord && lastWord) {
             seg.start_time = firstWord.start_time;
             seg.end_time = lastWord.end_time;
