@@ -193,6 +193,7 @@ interface SubtitlePreset {
   glowColor: string;
   pop3d: boolean;
   pop3dColor: string;
+  brandingTheme?: 'none' | 'fitness-in-chunks';
 }
 
 const SUBTITLE_PRESETS: SubtitlePreset[] = [
@@ -320,6 +321,32 @@ const SUBTITLE_PRESETS: SubtitlePreset[] = [
     glowColor: '#00FFFF',
     pop3d: false,
     pop3dColor: '#000000'
+  },
+  {
+    id: 'fitness-in-chunks',
+    name: 'Fitness In Chunks',
+    description: '🎬 Clean monochrome documentary captions matching the branding system',
+    subtitleMode: 'classic',
+    fontName: 'Montserrat',
+    fontSize: 22,
+    fontColor: '#FFFFFF',
+    outlineColor: '#000000',
+    bold: true,
+    italic: false,
+    shadow: false,
+    highlightColor: '#FFFFFF',
+    showHighlightBox: false,
+    boxColor: '#1A1A1A',
+    boxRounding: 8,
+    activeWordScale: 1.0,
+    showEmojis: false,
+    autoEmphasis: false,
+    emphasisColor: '#FFFFFF',
+    neonGlow: false,
+    glowColor: '#00FFFF',
+    pop3d: false,
+    pop3dColor: '#000000',
+    brandingTheme: 'fitness-in-chunks'
   }
 ];
 
@@ -403,6 +430,10 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
   const [showTimer, setShowTimer] = useState(false);
   const [headingTopOffset, setHeadingTopOffset] = useState(5);
   const [headingLeftOffset, setHeadingLeftOffset] = useState(5);
+  const [brandingTheme, setBrandingTheme] = useState<'none' | 'fitness-in-chunks'>('none');
+  const [seriesName, setSeriesName] = useState('FITNESSINCHUNKS');
+  const [episodeNumber, setEpisodeNumber] = useState('EP 01');
+  const [nextEpisode, setNextEpisode] = useState('EP 02');
   
   const [normalStyle, setNormalStyle] = useState<WordStyle>({
     fontColor: '#FFFFFF',
@@ -651,6 +682,7 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
     setGlowColor(preset.glowColor);
     setPop3d(preset.pop3d);
     setPop3dColor(preset.pop3dColor);
+    setBrandingTheme(preset.brandingTheme || 'none');
 
     try {
       fetch('/api/fonts/ensure', {
@@ -697,7 +729,8 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
             activeWordScale, wordDisplayTime, textPositionX, textPositionY, exportResolution,
             exportFps, showEmojis, autoEmphasis, emphasisColor, neonGlow, glowColor, glowBlur, glowDistance, highlightTrigger, pop3d, pop3dColor,
             normalStyle, highlightStyle, emojiStyle, elevenLabsModel, enhanceWithThoughtfulTags, originalScriptText,
-            headingTitle, headingFontName, headingFontSize, headingFontColor, headingBoxColor, headingPadding, showTimer, headingTopOffset, headingLeftOffset
+            headingTitle, headingFontName, headingFontSize, headingFontColor, headingBoxColor, headingPadding, showTimer, headingTopOffset, headingLeftOffset,
+            brandingTheme, seriesName, episodeNumber, nextEpisode
           }
         } : {
           scriptText, selectedVoice, audioSource, voiceoverPath, voiceoverUrl, scenes,
@@ -708,7 +741,8 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
           activeWordScale, wordDisplayTime, textPositionX, textPositionY, exportResolution,
           exportFps, showEmojis, autoEmphasis, emphasisColor, neonGlow, glowColor, glowBlur, glowDistance, highlightTrigger, pop3d, pop3dColor,
           normalStyle, highlightStyle, emojiStyle, elevenLabsModel, enhanceWithThoughtfulTags, originalScriptText,
-          headingTitle, headingFontName, headingFontSize, headingFontColor, headingBoxColor, headingPadding, showTimer, headingTopOffset, headingLeftOffset
+          headingTitle, headingFontName, headingFontSize, headingFontColor, headingBoxColor, headingPadding, showTimer, headingTopOffset, headingLeftOffset,
+          brandingTheme, seriesName, episodeNumber, nextEpisode
         };
 
         await fetch(endpoint, {
@@ -735,7 +769,8 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
     exportResolution, exportFps, showEmojis, autoEmphasis, emphasisColor, neonGlow, glowColor,
     glowBlur, glowDistance, highlightTrigger, pop3d, pop3dColor, normalStyle, highlightStyle, emojiStyle,
     elevenLabsModel, enhanceWithThoughtfulTags, originalScriptText, hasLoadedProject, projectId,
-    headingTitle, headingFontName, headingFontSize, headingFontColor, headingBoxColor, headingPadding, showTimer, headingTopOffset, headingLeftOffset
+    headingTitle, headingFontName, headingFontSize, headingFontColor, headingBoxColor, headingPadding, showTimer, headingTopOffset, headingLeftOffset,
+    brandingTheme, seriesName, episodeNumber, nextEpisode
   ]);
 
   const fetchProjectState = async () => {
@@ -841,6 +876,10 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
         if (project.showTimer !== undefined) setShowTimer(project.showTimer);
         if (project.headingTopOffset !== undefined) setHeadingTopOffset(project.headingTopOffset);
         if (project.headingLeftOffset !== undefined) setHeadingLeftOffset(project.headingLeftOffset);
+        if (project.brandingTheme !== undefined) setBrandingTheme(project.brandingTheme);
+        if (project.seriesName !== undefined) setSeriesName(project.seriesName);
+        if (project.episodeNumber !== undefined) setEpisodeNumber(project.episodeNumber);
+        if (project.nextEpisode !== undefined) setNextEpisode(project.nextEpisode);
       }
     } catch (err) {
       console.error('Failed to load project state:', err);
@@ -1334,7 +1373,8 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
             autoEmphasis, emphasisColor, neonGlow, glowColor, glowBlur, glowDistance, highlightTrigger, pop3d, pop3dColor,
             normalStyle, highlightStyle, emojiStyle,
             headingTitle, headingFontName, headingFontSize, headingFontColor, headingBoxColor, headingPadding,
-            showTimer, headingTopOffset, headingLeftOffset
+            showTimer, headingTopOffset, headingLeftOffset,
+            brandingTheme, seriesName, episodeNumber, nextEpisode
           }
         })
       });
@@ -2597,6 +2637,78 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                           style={{ width: '100%', accentColor: 'var(--accent-color)' }}
                         />
                       </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Reel Branding System Card */}
+              <div className="inspector-card" style={{ background: 'var(--bg-darker)', border: '1px solid var(--border-medium)', borderRadius: '8px', padding: '12px', marginBottom: '14px' }}>
+                <div className="inspector-sub-title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ fontSize: '12px' }}>🎬 Reel Branding System</span>
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--text-gray)', marginBottom: '12px', lineHeight: '1.4' }}>
+                  Overlays premium monochrome branding signatures matching Instagram Reels UI safe zones.
+                </div>
+
+                <div style={{ marginBottom: '12px' }}>
+                  <label className="label">Branding Theme</label>
+                  <select
+                    value={brandingTheme}
+                    onChange={(e) => setBrandingTheme(e.target.value as 'none' | 'fitness-in-chunks')}
+                    className="input-field"
+                    style={{ height: '34px', fontSize: '12.5px', background: 'var(--bg-darker)' }}
+                  >
+                    <option value="none">None (Disabled)</option>
+                    <option value="fitness-in-chunks">FitnessInChunks (v1.0)</option>
+                  </select>
+                </div>
+
+                {brandingTheme === 'fitness-in-chunks' && (
+                  <div style={{ animation: 'fadeIn 0.2s ease-out', display: 'flex', flexDirection: 'column', gap: '12px', borderTop: '1px solid var(--border-light)', paddingTop: '12px' }}>
+                    <div>
+                      <label className="label">Series Name Signature</label>
+                      <input
+                        type="text"
+                        className="input-field"
+                        placeholder="e.g. FITNESSINCHUNKS"
+                        value={seriesName}
+                        onChange={(e) => setSeriesName(e.target.value)}
+                        style={{ height: '34px', fontSize: '12.5px' }}
+                      />
+                    </div>
+                    
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                      <div>
+                        <label className="label">Episode Number</label>
+                        <input
+                          type="text"
+                          className="input-field"
+                          placeholder="e.g. EP 02"
+                          value={episodeNumber}
+                          onChange={(e) => setEpisodeNumber(e.target.value)}
+                          style={{ height: '34px', fontSize: '12.5px' }}
+                        />
+                      </div>
+                      <div>
+                        <label className="label">Next Episode CTA</label>
+                        <input
+                          type="text"
+                          className="input-field"
+                          placeholder="e.g. EP 03"
+                          value={nextEpisode}
+                          onChange={(e) => setNextEpisode(e.target.value)}
+                          style={{ height: '34px', fontSize: '12.5px' }}
+                        />
+                      </div>
+                    </div>
+
+                    <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-light)', borderRadius: '6px', padding: '10px', fontSize: '10.5px', color: 'var(--text-gray)', lineHeight: '1.4' }}>
+                      <strong style={{ color: 'var(--text-white)', display: 'block', marginBottom: '4px' }}>Theme Specifications Enforced:</strong>
+                      • Typography: Montserrat (ExtraBold topic, Bold episode, Medium series)<br />
+                      • Opacity: Topic 100%, Episode 100%, Series 60%, vertical line 80%<br />
+                      • Layout: Topic card (top-left, 0s-2s), Episode block (bottom-left, persistent), Progress bar (extreme right, vertical line shrinks over time)<br />
+                      • End Screen: Signature visibility increases; introduces centered follow CTA.
                     </div>
                   </div>
                 )}

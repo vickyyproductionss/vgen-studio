@@ -306,6 +306,10 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
   const [showTimer, setShowTimer] = useState(false);
   const [headingTopOffset, setHeadingTopOffset] = useState(5);
   const [headingLeftOffset, setHeadingLeftOffset] = useState(5);
+  const [brandingTheme, setBrandingTheme] = useState<'none' | 'fitness-in-chunks'>('none');
+  const [seriesName, setSeriesName] = useState('FITNESSINCHUNKS');
+  const [episodeNumber, setEpisodeNumber] = useState('EP 01');
+  const [nextEpisode, setNextEpisode] = useState('EP 02');
   
   const [normalStyle, setNormalStyle] = useState<WordStyle>({
     fontColor: '#FFFFFF',
@@ -546,6 +550,10 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
         if (state.showTimer !== undefined) setShowTimer(state.showTimer);
         if (state.headingTopOffset !== undefined) setHeadingTopOffset(state.headingTopOffset);
         if (state.headingLeftOffset !== undefined) setHeadingLeftOffset(state.headingLeftOffset);
+        if (state.brandingTheme !== undefined) setBrandingTheme(state.brandingTheme);
+        if (state.seriesName !== undefined) setSeriesName(state.seriesName);
+        if (state.episodeNumber !== undefined) setEpisodeNumber(state.episodeNumber);
+        if (state.nextEpisode !== undefined) setNextEpisode(state.nextEpisode);
       }
     } catch (err) {
       console.error('Failed to load beat sync project state:', err);
@@ -626,7 +634,11 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
               headingPadding,
               showTimer,
               headingTopOffset,
-              headingLeftOffset
+              headingLeftOffset,
+              brandingTheme,
+              seriesName,
+              episodeNumber,
+              nextEpisode
             }
           })
         });
@@ -704,7 +716,11 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
     headingPadding,
     showTimer,
     headingTopOffset,
-    headingLeftOffset
+    headingLeftOffset,
+    brandingTheme,
+    seriesName,
+    episodeNumber,
+    nextEpisode
   ]);
 
   // Load Google Font style dynamically in the document head
@@ -1577,7 +1593,11 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
             headingPadding,
             showTimer,
             headingTopOffset,
-            headingLeftOffset
+            headingLeftOffset,
+            brandingTheme,
+            seriesName,
+            episodeNumber,
+            nextEpisode
           }
         })
       });
@@ -3764,6 +3784,78 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
                           style={{ width: '100%', accentColor: 'var(--accent-color)' }}
                         />
                       </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Reel Branding System Card */}
+              <div className="inspector-card" style={{ marginTop: '16px' }}>
+                <div className="inspector-sub-title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ fontSize: '12px' }}>🎬 Reel Branding System</span>
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--text-gray)', marginBottom: '12px', lineHeight: '1.4' }}>
+                  Overlays premium monochrome branding signatures matching Instagram Reels UI safe zones.
+                </div>
+
+                <div style={{ marginBottom: '12px' }}>
+                  <label className="label">Branding Theme</label>
+                  <select
+                    value={brandingTheme}
+                    onChange={(e) => setBrandingTheme(e.target.value as 'none' | 'fitness-in-chunks')}
+                    className="input-field"
+                    style={{ height: '34px', fontSize: '12.5px', background: 'var(--bg-darker)' }}
+                  >
+                    <option value="none">None (Disabled)</option>
+                    <option value="fitness-in-chunks">FitnessInChunks (v1.0)</option>
+                  </select>
+                </div>
+
+                {brandingTheme === 'fitness-in-chunks' && (
+                  <div style={{ animation: 'fadeIn 0.2s ease-out', display: 'flex', flexDirection: 'column', gap: '12px', borderTop: '1px solid var(--border-light)', paddingTop: '12px' }}>
+                    <div>
+                      <label className="label">Series Name Signature</label>
+                      <input
+                        type="text"
+                        className="input-field"
+                        placeholder="e.g. FITNESSINCHUNKS"
+                        value={seriesName}
+                        onChange={(e) => setSeriesName(e.target.value)}
+                        style={{ height: '34px', fontSize: '12.5px' }}
+                      />
+                    </div>
+                    
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                      <div>
+                        <label className="label">Episode Number</label>
+                        <input
+                          type="text"
+                          className="input-field"
+                          placeholder="e.g. EP 02"
+                          value={episodeNumber}
+                          onChange={(e) => setEpisodeNumber(e.target.value)}
+                          style={{ height: '34px', fontSize: '12.5px' }}
+                        />
+                      </div>
+                      <div>
+                        <label className="label">Next Episode CTA</label>
+                        <input
+                          type="text"
+                          className="input-field"
+                          placeholder="e.g. EP 03"
+                          value={nextEpisode}
+                          onChange={(e) => setNextEpisode(e.target.value)}
+                          style={{ height: '34px', fontSize: '12.5px' }}
+                        />
+                      </div>
+                    </div>
+
+                    <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-light)', borderRadius: '6px', padding: '10px', fontSize: '10.5px', color: 'var(--text-gray)', lineHeight: '1.4' }}>
+                      <strong style={{ color: 'var(--text-white)', display: 'block', marginBottom: '4px' }}>Theme Specifications Enforced:</strong>
+                      • Typography: Montserrat (ExtraBold topic, Bold episode, Medium series)<br />
+                      • Opacity: Topic 100%, Episode 100%, Series 60%, vertical line 80%<br />
+                      • Layout: Topic card (top-left, 0s-2s), Episode block (bottom-left, persistent), Progress bar (extreme right, vertical line shrinks over time)<br />
+                      • End Screen: Signature visibility increases; introduces centered follow CTA.
                     </div>
                   </div>
                 )}

@@ -774,7 +774,7 @@ export function createAssFileContent(originalScene, duration, style, width, heig
   const headingTopPct = style.headingTopOffset !== undefined ? parseFloat(style.headingTopOffset) : 5;
   const headingLeftPct = style.headingLeftOffset !== undefined ? parseFloat(style.headingLeftOffset) : 5;
 
-  if (style.headingTitle && style.headingTitle.trim().length > 0) {
+  if (style.headingTitle && style.headingTitle.trim().length > 0 && style.brandingTheme !== 'fitness-in-chunks') {
     const headingFont = style.headingFontName || 'Montserrat';
     const headingFontSize = Math.round((style.headingFontSize || 18) * (height / 640));
     const headingFontColor = hexToAssColor(style.headingFontColor || '#FFFFFF', '00');
@@ -837,7 +837,7 @@ export function createAssFileContent(originalScene, duration, style, width, heig
 
   let timerStyleLine = '';
   let timerEvents = '';
-  if (style.showTimer && totalDuration > 0) {
+  if (style.showTimer && totalDuration > 0 && style.brandingTheme !== 'fitness-in-chunks') {
     const timerFont = style.headingFontName || 'Montserrat';
     const timerFontSize = Math.round((style.headingFontSize || 18) * (height / 640) * 0.9);
     const timerFontColor = hexToAssColor(style.headingFontColor || '#FFFFFF', '00');
@@ -883,6 +883,140 @@ export function createAssFileContent(originalScene, duration, style, width, heig
     }
   }
 
+  let brandingStyleLine = '';
+  let brandingEvents = '';
+  if (style.brandingTheme === 'fitness-in-chunks') {
+    const headingFont = 'Montserrat';
+    const headingFontSize = Math.round(24 * (height / 640)); // Large
+    const headingBoxColor = '&H24000000'; // ~85% opacity black
+    const headingOutline = Math.max(6, Math.round(8 * (height / 640))); // Padding
+    const marginL = Math.round(width * 0.06);
+    const marginR = Math.round(width * 0.4);
+    const marginV_heading = Math.round(height * 0.15);
+
+    brandingStyleLine += `Style: FIC_Topic,${headingFont},${headingFontSize},&H00FFFFFF,&H000000FF,&H00000000,${headingBoxColor},-1,0,0,0,100,100,0,0,3,${headingOutline},0,7,${marginL},${marginR},${marginV_heading},1\n`;
+
+    const epFontSize = Math.round(18 * (height / 640));
+    const seriesFontSize = Math.round(12 * (height / 640));
+    const blockMarginL = Math.round(width * 0.06) + 15;
+    const blockMarginV = Math.round(height * 0.10);
+
+    brandingStyleLine += `Style: FIC_Episode,${headingFont},${epFontSize},&H00FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,0,0,1,${blockMarginL},20,${blockMarginV + Math.round(18 * (height / 640))},1\n`;
+    brandingStyleLine += `Style: FIC_Series,${headingFont},${seriesFontSize},&H66FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,0,0,1,${blockMarginL},20,${blockMarginV},1\n`;
+    brandingStyleLine += `Style: FIC_Line,${headingFont},10,&H33FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,0,0,1,0,0,0,1\n`;
+    brandingStyleLine += `Style: FIC_Progress,${headingFont},10,&HA6FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,0,0,1,0,0,0,1\n`;
+
+    const globalStart = scene.start_time || 0.0;
+    const globalEnd = scene.end_time || (globalStart + duration);
+
+    // Topic Card: Display for first 2s of playback
+    const headingStartGlobal = 0.0;
+    const headingEndGlobal = 2.0;
+    const overlapStartGlobal_topic = Math.max(globalStart, headingStartGlobal);
+    const overlapEndGlobal_topic = Math.min(globalEnd, headingEndGlobal);
+    
+    if (overlapStartGlobal_topic < overlapEndGlobal_topic && style.headingTitle && style.headingTitle.trim().length > 0) {
+      const localStart = overlapStartGlobal_topic - globalStart;
+      const localEnd = overlapEndGlobal_topic - globalStart;
+      const X_heading = Math.round(width * 0.06);
+      const Y_heading = Math.round(height * 0.15);
+      const text = shapeDevanagari(style.headingTitle.trim());
+
+      if (globalStart === 0.0 && globalEnd >= 2.0) {
+        brandingEvents += `Dialogue: 10,${formatTime(0.0)},${formatTime(0.4)},FIC_Topic,,0,0,0,,{\\an7\\move(${-500},${Y_heading},${X_heading},${Y_heading},0,400)\\fad(400,0)}${text}\n`;
+        brandingEvents += `Dialogue: 10,${formatTime(0.4)},${formatTime(1.7)},FIC_Topic,,0,0,0,,{\\an7\\pos(${X_heading},${Y_heading})}${text}\n`;
+        brandingEvents += `Dialogue: 10,${formatTime(1.7)},${formatTime(2.0)},FIC_Topic,,0,0,0,,{\\an7\\move(${X_heading},${Y_heading},${-500},${Y_heading},0,300)\\fad(0,300)}${text}\n`;
+      } else if (globalStart === 0.0 && globalEnd < 2.0) {
+        if (localEnd <= 0.4) {
+          const ms = Math.round(localEnd * 1000);
+          brandingEvents += `Dialogue: 10,${formatTime(0.0)},${formatTime(localEnd)},FIC_Topic,,0,0,0,,{\\an7\\move(${-500},${Y_heading},${X_heading},${Y_heading},0,${ms})\\fad(${ms},0)}${text}\n`;
+        } else {
+          brandingEvents += `Dialogue: 10,${formatTime(0.0)},${formatTime(0.4)},FIC_Topic,,0,0,0,,{\\an7\\move(${-500},${Y_heading},${X_heading},${Y_heading},0,400)\\fad(400,0)}${text}\n`;
+          brandingEvents += `Dialogue: 10,${formatTime(0.4)},${formatTime(localEnd)},FIC_Topic,,0,0,0,,{\\an7\\pos(${X_heading},${Y_heading})}${text}\n`;
+        }
+      } else if (globalStart > 0.0 && globalEnd >= 2.0) {
+        if (localEnd <= 0.3) {
+          const ms = Math.round(localEnd * 1000);
+          brandingEvents += `Dialogue: 10,${formatTime(0.0)},${formatTime(localEnd)},FIC_Topic,,0,0,0,,{\\an7\\move(${X_heading},${Y_heading},${-500},${Y_heading},0,${ms})\\fad(0,${ms})}${text}\n`;
+        } else {
+          brandingEvents += `Dialogue: 10,${formatTime(0.0)},${formatTime(localEnd - 0.3)},FIC_Topic,,0,0,0,,{\\an7\\pos(${X_heading},${Y_heading})}${text}\n`;
+          brandingEvents += `Dialogue: 10,${formatTime(localEnd - 0.3)},${formatTime(localEnd)},FIC_Topic,,0,0,0,,{\\an7\\move(${X_heading},${Y_heading},${-500},${Y_heading},0,300)\\fad(0,300)}${text}\n`;
+        }
+      } else {
+        brandingEvents += `Dialogue: 10,${formatTime(localStart)},${formatTime(localEnd)},FIC_Topic,,0,0,0,,{\\an7\\pos(${X_heading},${Y_heading})}${text}\n`;
+      }
+    }
+
+    // Episode + Series signature block (persistent)
+    const overlapStartGlobal_block = Math.max(globalStart, 0.0);
+    const overlapEndGlobal_block = Math.min(globalEnd, totalDuration);
+    
+    if (overlapStartGlobal_block < overlapEndGlobal_block) {
+      const epText = (style.episodeNumber || 'EP 01').trim();
+      const seriesText = (style.seriesName || 'FITNESSINCHUNKS').trim().toUpperCase();
+      
+      const endScreenThreshold = Math.max(0, totalDuration - 2.0);
+      const segments = [];
+      if (overlapStartGlobal_block < endScreenThreshold && overlapEndGlobal_block <= endScreenThreshold) {
+        segments.push({ start: overlapStartGlobal_block, end: overlapEndGlobal_block, isEndScreen: false });
+      } else if (overlapStartGlobal_block >= endScreenThreshold) {
+        segments.push({ start: overlapStartGlobal_block, end: overlapEndGlobal_block, isEndScreen: true });
+      } else {
+        segments.push({ start: overlapStartGlobal_block, end: endScreenThreshold, isEndScreen: false });
+        segments.push({ start: endScreenThreshold, end: overlapEndGlobal_block, isEndScreen: true });
+      }
+      
+      for (const seg of segments) {
+        const segLocalStart = seg.start - globalStart;
+        const segLocalEnd = seg.end - globalStart;
+        
+        const epFontSize = Math.round(18 * (height / 640));
+        const seriesFontSize = Math.round(12 * (height / 640));
+        const epHeight = Math.round(20 * (height / 640));
+        const seriesHeight = Math.round(14 * (height / 640));
+        const lineHeight = epHeight + seriesHeight + 6;
+        
+        const lineX = Math.round(width * 0.06);
+        const lineY = height - blockMarginV - lineHeight + Math.round(4 * (height / 640));
+        
+        const seriesStyle = seg.isEndScreen ? 'FIC_Episode' : 'FIC_Series';
+        const isEntry = (globalStart === 0.0 && seg.start === 0.0);
+        const animTag = isEntry ? '{\\fad(400,0)}' : '';
+        
+        brandingEvents += `Dialogue: 11,${formatTime(segLocalStart)},${formatTime(segLocalEnd)},FIC_Episode,,0,0,0,,${animTag}${epText}\n`;
+        brandingEvents += `Dialogue: 11,${formatTime(segLocalStart)},${formatTime(segLocalEnd)},${seriesStyle},,0,0,0,,${animTag}${seriesText}\n`;
+        brandingEvents += `Dialogue: 11,${formatTime(segLocalStart)},${formatTime(segLocalEnd)},FIC_Line,,0,0,0,,${animTag}{\\pos(${lineX},${lineY})\\p1}m 0 0 l 2 0 l 2 ${lineHeight} l 0 ${lineHeight}{\\p0}\n`;
+        
+        if (seg.isEndScreen && style.nextEpisode && style.nextEpisode.trim().length > 0) {
+          const X_center = Math.round(width / 2);
+          const Y_center = Math.round(height * 0.55);
+          brandingEvents += `Dialogue: 12,${formatTime(segLocalStart)},${formatTime(segLocalEnd)},FIC_Episode,,0,0,0,,{\\an5\\pos(${X_center},${Y_center})\\fad(300,300)}Follow for ${style.nextEpisode.trim()}\n`;
+        }
+      }
+    }
+
+    // Progress Bar: centered vertically on extreme right edge
+    const X_progress = width - 8;
+    const Y_start = Math.round(height * 0.3);
+    const maxHeight = Math.round(height * 0.4);
+    const step = 0.2;
+    
+    for (let t = globalStart; t < globalEnd; t += step) {
+      const t_start = t;
+      const t_end = Math.min(globalEnd, t + step);
+      const segLocalStart = t_start - globalStart;
+      const segLocalEnd = t_end - globalStart;
+      
+      const t_mid = (t_start + t_end) / 2;
+      const pctRemaining = Math.max(0, 1 - (t_mid / totalDuration));
+      const currentHeight = Math.round(maxHeight * pctRemaining);
+      
+      if (currentHeight > 0) {
+        brandingEvents += `Dialogue: 15,${formatTime(segLocalStart)},${formatTime(segLocalEnd)},FIC_Progress,,0,0,0,,{\\pos(${X_progress},${Y_start})\\p1}m 0 0 l 3 0 l 3 ${currentHeight} l 0 ${currentHeight}{\\p0}\n`;
+      }
+    }
+  }
+
   const header = `[Script Info]
 Title: Styled Subtitles
 ScriptType: v4.00+
@@ -893,7 +1027,7 @@ ScaledBorderAndShadow: yes
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: Default,${fontName},${fontSize},${primaryColor},&H000000FF,${outlineColor},${shadowColor},${isBold ? -1 : 0},${style.italic ? -1 : 0},0,0,100,100,0,0,1,${outlineSize},${shadowDepth},${alignment},20,20,${marginV},1
-${headingStyleLine}${timerStyleLine}
+${headingStyleLine}${timerStyleLine}${brandingStyleLine}
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 `;
@@ -923,14 +1057,14 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     }
     const events = createDialogueLines(0, 0.0, duration, X_pos, Y_pos, text, hexToAssColor(normalStyle.fontColor || '#FFFFFF'));
     const processedEvents = normalStyle.neonGlow ? applyNeonGlowToEvents(events, normalStyle, primaryColor, outlineColor) : events;
-    return header + headingEvents + timerEvents + processedEvents;
+    return header + headingEvents + timerEvents + brandingEvents + processedEvents;
   }
 
   const words = scene.words || [];
   if (words.length === 0) {
     const events = createDialogueLines(0, 0.0, duration, X_pos, Y_pos, scene.text, hexToAssColor(normalStyle.fontColor || '#FFFFFF'));
     const processedEvents = normalStyle.neonGlow ? applyNeonGlowToEvents(events, normalStyle, primaryColor, outlineColor) : events;
-    return header + headingEvents + timerEvents + processedEvents;
+    return header + headingEvents + timerEvents + brandingEvents + processedEvents;
   }
 
   // Localize word timings relative to scene start
@@ -1407,7 +1541,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
   const finalEvents = (mode === 'classic')
     ? (normalStyle.neonGlow ? applyNeonGlowToEvents(events, normalStyle, primaryColor, outlineColor) : events)
     : events;
-  return header + headingEvents + timerEvents + finalEvents;
+  return header + headingEvents + timerEvents + brandingEvents + finalEvents;
 }
 
 /**
@@ -1461,6 +1595,13 @@ export async function assembleVideo(options, onProgress) {
       await ensureFontExists(subtitleStyle.fontName);
     } catch (fontErr) {
       console.warn(`Could not verify/download font ${subtitleStyle.fontName}:`, fontErr.message);
+    }
+  }
+  if (subtitleStyle.brandingTheme === 'fitness-in-chunks') {
+    try {
+      await ensureFontExists('Montserrat');
+    } catch (fontErr) {
+      console.warn(`Could not verify/download Montserrat font for branding theme:`, fontErr.message);
     }
   }
   if (subtitleStyle.headingTitle && subtitleStyle.headingTitle.trim().length > 0) {
