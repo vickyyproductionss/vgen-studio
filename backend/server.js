@@ -13,6 +13,7 @@ import { analyzeVideo, alignScriptAndAudio, matchClipsToScenes, enhanceScriptWit
 import { getVoices, generateSpeech } from './services/elevenlabs.js';
 import { getVideoDuration, generateThumbnail, assembleVideo, ensureFontExists, extractAudioFromVideo, getLocalWordTimings } from './services/video.js';
 import { detectBeats } from './services/beats.js';
+import { getGcpWordTimings, assignTimestampsToWords, mapTimestamps } from './services/speech.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1222,6 +1223,85 @@ app.post('/api/align-script', async (req, res) => {
   try {
     const resolved = resolvePath(audioPath);
     const rawSegments = await alignScriptAndAudio(scriptText || '', resolved, apiKey);
+    
+    // Try using Google Cloud Speech-to-Text for near-perfect 99% word timings (with automatic fallback to Gemini)
+    let gcpWords = null;
+    let useGcpTimings = false;
+    if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+      try {
+        console.log(`[GCP STT Aligner] Attempting GCP Speech-to-Text forced alignment...`);
+        gcpWords = await getGcpWordTimings(resolved);
+        if (gcpWords && gcpWords.length > 0) {
+          useGcpTimings = true;
+          console.log(`[GCP STT Aligner] Successfully retrieved ${gcpWords.length} precise word timings from GCP.`);
+        }
+      } catch (sttErr) {
+        console.warn(`[GCP STT Aligner] GCP STT failed or is disabled. Falling back to Gemini timings. Reason:`, sttErr.message);
+      }
+    }
+
+    if (useGcpTimings) {
+      // 1. Gather all Hinglish reference words in order
+      const allHinglishWords = [];
+      const segmentWordIndices = []; // Maps segment index to its slice of words
+      
+      for (let sIdx = 0; sIdx < rawSegments.length; sIdx++) {
+        const seg = rawSegments[sIdx];
+        if (seg.isBeatSyncOnly) continue;
+        
+        const text = seg.text_hinglish || seg.text || '';
+        const wordsList = text.trim().split(/\s+/).filter(w => w.length > 0);
+        
+        segmentWordIndices.push({
+          sIdx,
+          wordCount: wordsList.length,
+          hindiWordsText: (seg.text_hindi || '').trim().split(/\s+/).filter(w => w.length > 0)
+        });
+        
+        allHinglishWords.push(...wordsList);
+      }
+      
+      // 2. Perform optimal Levenshtein alignment
+      console.log(`[GCP STT Aligner] Aligning ${allHinglishWords.length} script words to ${gcpWords.length} GCP STT words...`);
+      const alignedHinglish = assignTimestampsToWords(allHinglishWords, gcpWords);
+      
+      // 3. Re-distribute aligned words back to segments and update segment start/end bounds
+      let wordPtr = 0;
+      for (const info of segmentWordIndices) {
+        const seg = rawSegments[info.sIdx];
+        const slice = alignedHinglish.slice(wordPtr, wordPtr + info.wordCount);
+        wordPtr += info.wordCount;
+        
+        seg.words_hinglish = slice;
+        seg.words = slice;
+        seg.words_hindi = mapTimestamps(slice, info.hindiWordsText);
+        
+        // Update segment start/end times based on the precise first/last word timings
+        if (slice.length > 0) {
+          const firstWord = slice[0];
+          const lastWord = slice[slice.length - 1];
+          if (firstWord && lastWord) {
+            seg.start_time = firstWord.start_time;
+            seg.end_time = lastWord.end_time;
+          }
+        }
+      }
+      
+      // 4. Ensure no gaps or negative durations on the timeline
+      for (let i = 0; i < rawSegments.length; i++) {
+        const current = rawSegments[i];
+        if (i === 0) {
+          current.start_time = 0.0;
+        } else {
+          current.start_time = rawSegments[i - 1].end_time;
+        }
+        
+        if (current.end_time <= current.start_time) {
+          current.end_time = current.start_time + 2.0; // minimum duration fallback
+        }
+      }
+      console.log(`[GCP STT Aligner] Segment boundaries successfully adjusted to fit STT word timings.`);
+    }
     
     // Check audio duration and fallback to beat sync at the end of dialogue
     let audioDuration = 0;
