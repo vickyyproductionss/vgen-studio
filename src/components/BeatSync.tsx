@@ -306,6 +306,8 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
   const [showTimer, setShowTimer] = useState(false);
   const [headingTopOffset, setHeadingTopOffset] = useState(5);
   const [headingLeftOffset, setHeadingLeftOffset] = useState(5);
+  const [headingBoxOpacity, setHeadingBoxOpacity] = useState(85);
+  const [headingTextOpacity, setHeadingTextOpacity] = useState(100);
   const [brandingTheme, setBrandingTheme] = useState<'none' | 'fitness-in-chunks'>('none');
   const [seriesName, setSeriesName] = useState('FITNESSINCHUNKS');
   const [episodeNumber, setEpisodeNumber] = useState('EP 01');
@@ -550,6 +552,8 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
         if (state.showTimer !== undefined) setShowTimer(state.showTimer);
         if (state.headingTopOffset !== undefined) setHeadingTopOffset(state.headingTopOffset);
         if (state.headingLeftOffset !== undefined) setHeadingLeftOffset(state.headingLeftOffset);
+        if (state.headingBoxOpacity !== undefined) setHeadingBoxOpacity(state.headingBoxOpacity);
+        if (state.headingTextOpacity !== undefined) setHeadingTextOpacity(state.headingTextOpacity);
         if (state.brandingTheme !== undefined) setBrandingTheme(state.brandingTheme);
         if (state.seriesName !== undefined) setSeriesName(state.seriesName);
         if (state.episodeNumber !== undefined) setEpisodeNumber(state.episodeNumber);
@@ -635,6 +639,8 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
               showTimer,
               headingTopOffset,
               headingLeftOffset,
+              headingBoxOpacity,
+              headingTextOpacity,
               brandingTheme,
               seriesName,
               episodeNumber,
@@ -717,6 +723,8 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
     showTimer,
     headingTopOffset,
     headingLeftOffset,
+    headingBoxOpacity,
+    headingTextOpacity,
     brandingTheme,
     seriesName,
     episodeNumber,
@@ -1594,6 +1602,8 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
             showTimer,
             headingTopOffset,
             headingLeftOffset,
+            headingBoxOpacity,
+            headingTextOpacity,
             brandingTheme,
             seriesName,
             episodeNumber,
@@ -3750,6 +3760,39 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
                             />
                           ))}
                         </div>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                          <span style={{ fontSize: '11px', color: 'var(--text-gray)', fontFamily: 'Inter' }}>Bg Opacity</span>
+                          <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{headingBoxOpacity}%</span>
+                        </div>
+                        <input
+                          type="range"
+                          min={0}
+                          max={100}
+                          step={1}
+                          value={headingBoxOpacity}
+                          onChange={(e) => setHeadingBoxOpacity(parseInt(e.target.value, 10))}
+                          style={{ width: '100%', accentColor: 'var(--accent-color)' }}
+                        />
+                      </div>
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                          <span style={{ fontSize: '11px', color: 'var(--text-gray)', fontFamily: 'Inter' }}>Text Opacity</span>
+                          <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{headingTextOpacity}%</span>
+                        </div>
+                        <input
+                          type="range"
+                          min={0}
+                          max={100}
+                          step={1}
+                          value={headingTextOpacity}
+                          onChange={(e) => setHeadingTextOpacity(parseInt(e.target.value, 10))}
+                          style={{ width: '100%', accentColor: 'var(--accent-color)' }}
+                        />
                       </div>
                     </div>
 

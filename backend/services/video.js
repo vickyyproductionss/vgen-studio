@@ -165,6 +165,13 @@ export async function generateThumbnail(videoPath, thumbnailPath) {
   return thumbnailPath;
 }
 
+function pctToAssAlpha(pct) {
+  if (pct === undefined || pct === null) return '00';
+  const opacity = Math.max(0, Math.min(100, parseFloat(pct)));
+  const alphaVal = Math.round((1 - opacity / 100) * 255);
+  return alphaVal.toString(16).toUpperCase().padStart(2, '0');
+}
+
 /**
  * Helper to convert standard hex color (e.g. #FF5733) to ASS format (&H00BBGGRR)
  */
@@ -777,8 +784,14 @@ export function createAssFileContent(originalScene, duration, style, width, heig
   if (style.headingTitle && style.headingTitle.trim().length > 0 && style.brandingTheme !== 'fitness-in-chunks') {
     const headingFont = style.headingFontName || 'Montserrat';
     const headingFontSize = Math.round((style.headingFontSize || 18) * (height / 640));
-    const headingFontColor = hexToAssColor(style.headingFontColor || '#FFFFFF', '00');
-    const headingBoxColor = hexToAssColor(style.headingBoxColor || '#1A1A1A', 'B0'); // 70% opacity charcoal
+    
+    const boxOpacity = style.headingBoxOpacity !== undefined ? style.headingBoxOpacity : 85;
+    const textOpacity = style.headingTextOpacity !== undefined ? style.headingTextOpacity : 100;
+    const boxAlpha = pctToAssAlpha(boxOpacity);
+    const textAlpha = pctToAssAlpha(textOpacity);
+    
+    const headingFontColor = hexToAssColor(style.headingFontColor || '#FFFFFF', textAlpha);
+    const headingBoxColor = hexToAssColor(style.headingBoxColor || '#1A1A1A', boxAlpha);
     const headingOutline = Math.max(4, Math.round((style.headingPadding || 6) * (height / 640)));
     const marginL = Math.round(width * (headingLeftPct / 100));
     const marginR = Math.round(width * 0.5);
@@ -838,23 +851,23 @@ export function createAssFileContent(originalScene, duration, style, width, heig
   let timerStyleLine = '';
   let timerEvents = '';
   if (style.showTimer && totalDuration > 0) {
-    let timerFont, timerFontSize, timerFontColor, timerBoxColor, timerBoxOutlineColor, timerOutline, marginL, marginR, marginV_timer, X_timer, Y_timer;
-    
+    let timerFont, timerFontSize, timerFontColor, timerBoxColor, timerBoxOutlineColor, timerOutline, marginL, marginR, marginV_timer, X_timer, Y_timer, borderStyle = 3;
     if (style.brandingTheme === 'fitness-in-chunks') {
       timerFont = style.headingFontName || 'Montserrat';
-      timerFontSize = Math.round((style.headingFontSize || 24) * (height / 640) * 0.8);
+      timerFontSize = Math.round((style.headingFontSize || 24) * (height / 640) * 0.8 * 1.3);
       timerFontColor = hexToAssColor(style.headingFontColor || '#FFFFFF', '00');
-      timerBoxColor = hexToAssColor(style.headingBoxColor || '#000000', '24'); // ~85% opacity
-      timerBoxOutlineColor = timerBoxColor;
-      timerOutline = Math.max(6, Math.round((style.headingPadding || 8) * (height / 640)));
+      timerBoxColor = '&H00000000'; // transparent back color
+      timerBoxOutlineColor = hexToAssColor('#000000', '00'); // black outline
+      timerOutline = Math.max(1, Math.round(1 * (height / 640)));
       marginL = Math.round(width * 0.5);
       marginR = Math.round(width * (headingLeftPct / 100));
       marginV_timer = Math.round(height * (headingTopPct / 100));
       X_timer = width - marginR;
       Y_timer = marginV_timer;
+      borderStyle = 1;
     } else {
       timerFont = style.headingFontName || 'Montserrat';
-      timerFontSize = Math.round((style.headingFontSize || 18) * (height / 640) * 0.9);
+      timerFontSize = Math.round((style.headingFontSize || 18) * (height / 640) * 0.9 * 1.3);
       timerFontColor = hexToAssColor(style.headingFontColor || '#FFFFFF', '00');
       timerBoxColor = hexToAssColor(style.headingBoxColor || '#1A1A1A', 'B0');
       timerBoxOutlineColor = '&H00000000';
@@ -866,7 +879,7 @@ export function createAssFileContent(originalScene, duration, style, width, heig
       Y_timer = Math.round(height * (headingTopPct / 100));
     }
     
-    timerStyleLine = `Style: Timer,${timerFont},${timerFontSize},${timerFontColor},&H000000FF,${timerBoxOutlineColor},${timerBoxColor},-1,0,0,0,100,100,0,0,3,${timerOutline},0,9,${marginL},${marginR},${marginV_timer},1\n`;
+    timerStyleLine = `Style: Timer,${timerFont},${timerFontSize},${timerFontColor},&H000000FF,${timerBoxOutlineColor},${timerBoxColor},-1,0,0,0,100,100,0,0,${borderStyle},${timerOutline},0,9,${marginL},${marginR},${marginV_timer},1\n`;
     
     const globalStart = scene.start_time || 0.0;
     const globalEnd = scene.end_time || (globalStart + duration);
@@ -914,14 +927,19 @@ export function createAssFileContent(originalScene, duration, style, width, heig
   if (style.brandingTheme === 'fitness-in-chunks') {
     const headingFont = style.headingFontName || 'Montserrat';
     const headingFontSize = Math.round((style.headingFontSize || 24) * (height / 640));
-    const headingFontColor = hexToAssColor(style.headingFontColor || '#FFFFFF', '00');
-    const headingBoxColor = hexToAssColor(style.headingBoxColor || '#000000', '24'); // ~85% opacity
+    
+    const boxOpacity = style.headingBoxOpacity !== undefined ? style.headingBoxOpacity : 85;
+    const textOpacity = style.headingTextOpacity !== undefined ? style.headingTextOpacity : 100;
+    const boxAlpha = pctToAssAlpha(boxOpacity);
+    const textAlpha = pctToAssAlpha(textOpacity);
+
+    const headingFontColor = hexToAssColor(style.headingFontColor || '#FFFFFF', textAlpha);
+    const headingBoxColor = hexToAssColor(style.headingBoxColor || '#000000', boxAlpha);
     const headingOutline = Math.max(6, Math.round((style.headingPadding || 8) * (height / 640)));
     
-    const headingLeftPct = style.headingLeftOffset !== undefined ? parseFloat(style.headingLeftOffset) : 6;
-    const headingTopPct = style.headingTopOffset !== undefined ? parseFloat(style.headingTopOffset) : 15;
+    const ficLeftPct = style.headingLeftOffset !== undefined ? parseFloat(style.headingLeftOffset) : 6;
     
-    const marginL = Math.round(width * (headingLeftPct / 100));
+    const marginL = Math.round(width * (ficLeftPct / 100));
     const marginR = Math.round(width * 0.4);
     const marginV_heading = Math.round(height * (headingTopPct / 100));
 
@@ -930,9 +948,10 @@ export function createAssFileContent(originalScene, duration, style, width, heig
     const epFontSize = Math.round(18 * (height / 640));
     const seriesFontSize = Math.round(12 * (height / 640));
     const blockMarginL = Math.round(width * 0.06) + 15;
-    const blockMarginV = Math.round(height * 0.10);
+    const blockMarginV = height - Math.round(1100 * (height / 1280));
+    const spacingOffset = Math.round(9 * (height / 640));
 
-    brandingStyleLine += `Style: FIC_Episode,${headingFont},${epFontSize},&H00FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,0,0,1,${blockMarginL},20,${blockMarginV + Math.round(26 * (height / 640))},1\n`;
+    brandingStyleLine += `Style: FIC_Episode,${headingFont},${epFontSize},&H00FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,0,0,1,${blockMarginL},20,${blockMarginV + spacingOffset},1\n`;
     brandingStyleLine += `Style: FIC_Series,${headingFont},${seriesFontSize},&H66FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,1,${blockMarginL},20,${blockMarginV},1\n`;
     brandingStyleLine += `Style: FIC_Line,${headingFont},10,&H33FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1\n`;
     brandingStyleLine += `Style: FIC_Progress,${headingFont},10,&HA6FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1\n`;
@@ -949,8 +968,8 @@ export function createAssFileContent(originalScene, duration, style, width, heig
     if (overlapStartGlobal_topic < overlapEndGlobal_topic && style.headingTitle && style.headingTitle.trim().length > 0) {
       const localStart = overlapStartGlobal_topic - globalStart;
       const localEnd = overlapEndGlobal_topic - globalStart;
-      const X_heading = Math.round(width * 0.06);
-      const Y_heading = Math.round(height * 0.15);
+      const X_heading = Math.round(width * (ficLeftPct / 100));
+      const Y_heading = Math.round(height * (headingTopPct / 100));
       const text = shapeDevanagari(style.headingTitle.trim().toUpperCase());
 
       if (globalStart === 0.0 && globalEnd >= 2.0) {
@@ -1002,8 +1021,10 @@ export function createAssFileContent(originalScene, duration, style, width, heig
         const segLocalEnd = seg.end - globalStart;
         
         const lineX = Math.round(width * 0.06);
-        const lineY = height - blockMarginV - Math.round(48 * (height / 640));
-        const lineHeight = Math.round(52 * (height / 640));
+        const lineOffset = Math.round(5 * (height / 640)); // 10px scaled at 1280
+        const lineExtraOffset = Math.round(25 * (height / 1280)); // shift line 25px up independently of texts
+        const lineY = height - blockMarginV - spacingOffset - Math.round(epFontSize * 0.75) - lineOffset - lineExtraOffset;
+        const lineHeight = spacingOffset + Math.round(epFontSize * 0.75) + 2 * lineOffset;
         
         const opacityTag = seg.isEndScreen ? '{\\alpha&H00&}' : '';
         const isEntry = (globalStart === 0.0 && seg.start === 0.0);
@@ -1021,10 +1042,10 @@ export function createAssFileContent(originalScene, duration, style, width, heig
       }
     }
 
-    // Progress Bar: centered vertically on extreme right edge
-    const X_progress = width - 8;
-    const Y_start = Math.round(height * 0.3);
-    const maxHeight = Math.round(height * 0.4);
+    // Progress Bar: aligned horizontally with the timer to prevent overlapping Instagram UIs
+    const X_progress = Math.round(width * (700 / 720));
+    const Y_start = Math.round(height * (headingTopPct / 100));
+    const maxHeight = Math.round(height * 0.5);
     const step = 0.2;
     
     for (let t = globalStart; t < globalEnd; t += step) {

@@ -430,6 +430,8 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
   const [showTimer, setShowTimer] = useState(false);
   const [headingTopOffset, setHeadingTopOffset] = useState(5);
   const [headingLeftOffset, setHeadingLeftOffset] = useState(5);
+  const [headingBoxOpacity, setHeadingBoxOpacity] = useState(85);
+  const [headingTextOpacity, setHeadingTextOpacity] = useState(100);
   const [brandingTheme, setBrandingTheme] = useState<'none' | 'fitness-in-chunks'>('none');
   const [seriesName, setSeriesName] = useState('FITNESSINCHUNKS');
   const [episodeNumber, setEpisodeNumber] = useState('EP 01');
@@ -730,6 +732,7 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
             exportFps, showEmojis, autoEmphasis, emphasisColor, neonGlow, glowColor, glowBlur, glowDistance, highlightTrigger, pop3d, pop3dColor,
             normalStyle, highlightStyle, emojiStyle, elevenLabsModel, enhanceWithThoughtfulTags, originalScriptText,
             headingTitle, headingFontName, headingFontSize, headingFontColor, headingBoxColor, headingPadding, showTimer, headingTopOffset, headingLeftOffset,
+            headingBoxOpacity, headingTextOpacity,
             brandingTheme, seriesName, episodeNumber, nextEpisode
           }
         } : {
@@ -742,6 +745,7 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
           exportFps, showEmojis, autoEmphasis, emphasisColor, neonGlow, glowColor, glowBlur, glowDistance, highlightTrigger, pop3d, pop3dColor,
           normalStyle, highlightStyle, emojiStyle, elevenLabsModel, enhanceWithThoughtfulTags, originalScriptText,
           headingTitle, headingFontName, headingFontSize, headingFontColor, headingBoxColor, headingPadding, showTimer, headingTopOffset, headingLeftOffset,
+          headingBoxOpacity, headingTextOpacity,
           brandingTheme, seriesName, episodeNumber, nextEpisode
         };
 
@@ -770,6 +774,7 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
     glowBlur, glowDistance, highlightTrigger, pop3d, pop3dColor, normalStyle, highlightStyle, emojiStyle,
     elevenLabsModel, enhanceWithThoughtfulTags, originalScriptText, hasLoadedProject, projectId,
     headingTitle, headingFontName, headingFontSize, headingFontColor, headingBoxColor, headingPadding, showTimer, headingTopOffset, headingLeftOffset,
+    headingBoxOpacity, headingTextOpacity,
     brandingTheme, seriesName, episodeNumber, nextEpisode
   ]);
 
@@ -876,6 +881,8 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
         if (project.showTimer !== undefined) setShowTimer(project.showTimer);
         if (project.headingTopOffset !== undefined) setHeadingTopOffset(project.headingTopOffset);
         if (project.headingLeftOffset !== undefined) setHeadingLeftOffset(project.headingLeftOffset);
+        if (project.headingBoxOpacity !== undefined) setHeadingBoxOpacity(project.headingBoxOpacity);
+        if (project.headingTextOpacity !== undefined) setHeadingTextOpacity(project.headingTextOpacity);
         if (project.brandingTheme !== undefined) setBrandingTheme(project.brandingTheme);
         if (project.seriesName !== undefined) setSeriesName(project.seriesName);
         if (project.episodeNumber !== undefined) setEpisodeNumber(project.episodeNumber);
@@ -1374,6 +1381,7 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
             normalStyle, highlightStyle, emojiStyle,
             headingTitle, headingFontName, headingFontSize, headingFontColor, headingBoxColor, headingPadding,
             showTimer, headingTopOffset, headingLeftOffset,
+            headingBoxOpacity, headingTextOpacity,
             brandingTheme, seriesName, episodeNumber, nextEpisode
           }
         })
@@ -2603,6 +2611,39 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                             />
                           ))}
                         </div>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                          <span style={{ fontSize: '11px', color: 'var(--text-gray)', fontFamily: 'Inter' }}>Bg Opacity</span>
+                          <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{headingBoxOpacity}%</span>
+                        </div>
+                        <input
+                          type="range"
+                          min={0}
+                          max={100}
+                          step={1}
+                          value={headingBoxOpacity}
+                          onChange={(e) => setHeadingBoxOpacity(parseInt(e.target.value, 10))}
+                          style={{ width: '100%', accentColor: 'var(--accent-purple)' }}
+                        />
+                      </div>
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                          <span style={{ fontSize: '11px', color: 'var(--text-gray)', fontFamily: 'Inter' }}>Text Opacity</span>
+                          <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{headingTextOpacity}%</span>
+                        </div>
+                        <input
+                          type="range"
+                          min={0}
+                          max={100}
+                          step={1}
+                          value={headingTextOpacity}
+                          onChange={(e) => setHeadingTextOpacity(parseInt(e.target.value, 10))}
+                          style={{ width: '100%', accentColor: 'var(--accent-purple)' }}
+                        />
                       </div>
                     </div>
 

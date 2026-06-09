@@ -1,0 +1,292 @@
+
+/Volumes/1TB/WebProjects/VideoGenerator/src/components/BeatSync.tsx
+   263:35  error    Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                @typescript-eslint/no-explicit-any
+   283:13  error    Error: Cannot access variable before it is declared
+
+`fetchClips` is accessed before it is declared, which prevents the earlier access from updating when this value changes over time.
+
+/Volumes/1TB/WebProjects/VideoGenerator/src/components/BeatSync.tsx:283:13
+  281 |     const init = async () => {
+  282 |       setHasLoadedProject(false);
+> 283 |       await fetchClips();
+      |             ^^^^^^^^^^ `fetchClips` accessed before it is declared
+  284 |       await fetchBgms();
+  285 |       await checkSettings();
+  286 |       await fetchProjectState();
+
+/Volumes/1TB/WebProjects/VideoGenerator/src/components/BeatSync.tsx:570:3
+  568 |   );
+  569 |
+> 570 |   async function fetchClips() {
+      |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 571 |     try {
+      | ^^^^^^^^^
+> 572 |       const res = await fetch('/api/clips');
+      …
+      | ^^^^^^^^^
+> 579 |     }
+      | ^^^^^^^^^
+> 580 |   };
+      | ^^^^ `fetchClips` is declared here
+  581 |
+  582 |   async function fetchBgms() {
+  583 |     try {                                            react-hooks/immutability
+   284:13  error    Error: Cannot access variable before it is declared
+
+`fetchBgms` is accessed before it is declared, which prevents the earlier access from updating when this value changes over time.
+
+/Volumes/1TB/WebProjects/VideoGenerator/src/components/BeatSync.tsx:284:13
+  282 |       setHasLoadedProject(false);
+  283 |       await fetchClips();
+> 284 |       await fetchBgms();
+      |             ^^^^^^^^^ `fetchBgms` accessed before it is declared
+  285 |       await checkSettings();
+  286 |       await fetchProjectState();
+  287 |     };
+
+/Volumes/1TB/WebProjects/VideoGenerator/src/components/BeatSync.tsx:582:3
+  580 |   };
+  581 |
+> 582 |   async function fetchBgms() {
+      |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 583 |     try {
+      | ^^^^^^^^^
+> 584 |       const res = await fetch('/api/bgms');
+      …
+      | ^^^^^^^^^
+> 591 |     }
+      | ^^^^^^^^^
+> 592 |   };
+      | ^^^^ `fetchBgms` is declared here
+  593 |
+  594 |   async function checkSettings() {
+  595 |     try {                                                                       react-hooks/immutability
+   285:13  error    Error: Cannot access variable before it is declared
+
+`checkSettings` is accessed before it is declared, which prevents the earlier access from updating when this value changes over time.
+
+/Volumes/1TB/WebProjects/VideoGenerator/src/components/BeatSync.tsx:285:13
+  283 |       await fetchClips();
+  284 |       await fetchBgms();
+> 285 |       await checkSettings();
+      |             ^^^^^^^^^^^^^ `checkSettings` accessed before it is declared
+  286 |       await fetchProjectState();
+  287 |     };
+  288 |     init();
+
+/Volumes/1TB/WebProjects/VideoGenerator/src/components/BeatSync.tsx:594:3
+  592 |   };
+  593 |
+> 594 |   async function checkSettings() {
+      |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 595 |     try {
+      | ^^^^^^^^^
+> 596 |       const res = await fetch('/api/settings');
+      …
+      | ^^^^^^^^^
+> 603 |     }
+      | ^^^^^^^^^
+> 604 |   };
+      | ^^^^ `checkSettings` is declared here
+  605 |
+  606 |   // Audio Previews control
+  607 |   const togglePlayAudio = () => {                                                react-hooks/immutability
+   286:13  error    Error: Cannot access variable before it is declared
+
+`fetchProjectState` is accessed before it is declared, which prevents the earlier access from updating when this value changes over time.
+
+/Volumes/1TB/WebProjects/VideoGenerator/src/components/BeatSync.tsx:286:13
+  284 |       await fetchBgms();
+  285 |       await checkSettings();
+> 286 |       await fetchProjectState();
+      |             ^^^^^^^^^^^^^^^^^ `fetchProjectState` accessed before it is declared
+  287 |     };
+  288 |     init();
+  289 |     return () => {
+
+/Volumes/1TB/WebProjects/VideoGenerator/src/components/BeatSync.tsx:305:3
+  303 |   }, [audioUrl]);
+  304 |
+> 305 |   async function fetchProjectState() {
+      |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 306 |     if (!projectId) {
+      | ^^^^^^^^^^^^^^^^^^^^^
+> 307 |       setHasLoadedProject(true);
+      …
+      | ^^^^^^^^^^^^^^^^^^^^^
+> 371 |     }
+      | ^^^^^^^^^^^^^^^^^^^^^
+> 372 |   };
+      | ^^^^ `fetchProjectState` is declared here
+  373 |
+  374 |   // Debounced auto-save
+  375 |   useEffect(() => {  react-hooks/immutability
+   294:6   warning  React Hook useEffect has a missing dependency: 'fetchProjectState'. Either include it or remove the dependency array                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    react-hooks/exhaustive-deps
+   558:19  error    Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                @typescript-eslint/no-explicit-any
+   665:19  error    Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                @typescript-eslint/no-explicit-any
+   734:19  error    Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                @typescript-eslint/no-explicit-any
+   795:32  error    Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                @typescript-eslint/no-explicit-any
+   804:62  error    Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                @typescript-eslint/no-explicit-any
+   822:19  error    Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                @typescript-eslint/no-explicit-any
+   869:11  error    The value assigned to 'text' is not used in subsequent statements                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       no-useless-assignment
+   880:11  error    The value assigned to 'text_hindi' is not used in subsequent statements                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 no-useless-assignment
+   890:11  error    The value assigned to 'text_hinglish' is not used in subsequent statements                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              no-useless-assignment
+  1030:11  error    The value assigned to 'transition' is not used in subsequent statements                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 no-useless-assignment
+  1031:11  error    The value assigned to 'sfx' is not used in subsequent statements                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        no-useless-assignment
+  1082:38  error    Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                @typescript-eslint/no-explicit-any
+  1103:29  error    Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                @typescript-eslint/no-explicit-any
+  1105:32  error    Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                @typescript-eslint/no-explicit-any
+  1166:15  error    The value assigned to 'clipStart' is not used in subsequent statements                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  no-useless-assignment
+  1210:19  error    Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                @typescript-eslint/no-explicit-any
+  1288:19  error    Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                @typescript-eslint/no-explicit-any
+  1753:56  error    Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                @typescript-eslint/no-explicit-any
+  2056:31  error    Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                @typescript-eslint/no-explicit-any
+  2148:31  error    Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                @typescript-eslint/no-explicit-any
+
+/Volumes/1TB/WebProjects/VideoGenerator/src/components/CreateProject.tsx
+   103:11  error    Empty block statement                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               no-empty
+   304:36  error    Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            @typescript-eslint/no-explicit-any
+   501:19  error    Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            @typescript-eslint/no-explicit-any
+   551:13  error    Error: Cannot access variable before it is declared
+
+`checkSettings` is accessed before it is declared, which prevents the earlier access from updating when this value changes over time.
+
+/Volumes/1TB/WebProjects/VideoGenerator/src/components/CreateProject.tsx:551:13
+  549 |     const init = async () => {
+  550 |       setHasLoadedProject(false);
+> 551 |       await checkSettings();
+      |             ^^^^^^^^^^^^^ `checkSettings` accessed before it is declared
+  552 |       await fetchClips();
+  553 |       await fetchBgms();
+  554 |       await fetchProjectState();
+
+/Volumes/1TB/WebProjects/VideoGenerator/src/components/CreateProject.tsx:683:3
+  681 |   };
+  682 |
+> 683 |   async function checkSettings() {
+      |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 684 |     try {
+      | ^^^^^^^^^
+> 685 |       const res = await fetch('/api/settings');
+      …
+      | ^^^^^^^^^
+> 697 |     }
+      | ^^^^^^^^^
+> 698 |   };
+      | ^^^^ `checkSettings` is declared here
+  699 |
+  700 |   async function fetchClips() {
+  701 |     try {        react-hooks/immutability
+   552:13  error    Error: Cannot access variable before it is declared
+
+`fetchClips` is accessed before it is declared, which prevents the earlier access from updating when this value changes over time.
+
+/Volumes/1TB/WebProjects/VideoGenerator/src/components/CreateProject.tsx:552:13
+  550 |       setHasLoadedProject(false);
+  551 |       await checkSettings();
+> 552 |       await fetchClips();
+      |             ^^^^^^^^^^ `fetchClips` accessed before it is declared
+  553 |       await fetchBgms();
+  554 |       await fetchProjectState();
+  555 |     };
+
+/Volumes/1TB/WebProjects/VideoGenerator/src/components/CreateProject.tsx:700:3
+  698 |   };
+  699 |
+> 700 |   async function fetchClips() {
+      |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 701 |     try {
+      | ^^^^^^^^^
+> 702 |       const res = await fetch('/api/clips');
+      …
+      | ^^^^^^^^^
+> 709 |     }
+      | ^^^^^^^^^
+> 710 |   };
+      | ^^^^ `fetchClips` is declared here
+  711 |
+  712 |   async function fetchBgms() {
+  713 |     try {                                                      react-hooks/immutability
+   553:13  error    Error: Cannot access variable before it is declared
+
+`fetchBgms` is accessed before it is declared, which prevents the earlier access from updating when this value changes over time.
+
+/Volumes/1TB/WebProjects/VideoGenerator/src/components/CreateProject.tsx:553:13
+  551 |       await checkSettings();
+  552 |       await fetchClips();
+> 553 |       await fetchBgms();
+      |             ^^^^^^^^^ `fetchBgms` accessed before it is declared
+  554 |       await fetchProjectState();
+  555 |     };
+  556 |     init();
+
+/Volumes/1TB/WebProjects/VideoGenerator/src/components/CreateProject.tsx:712:3
+  710 |   };
+  711 |
+> 712 |   async function fetchBgms() {
+      |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 713 |     try {
+      | ^^^^^^^^^
+> 714 |       const res = await fetch('/api/bgms');
+      …
+      | ^^^^^^^^^
+> 721 |     }
+      | ^^^^^^^^^
+> 722 |   };
+      | ^^^^ `fetchBgms` is declared here
+  723 |
+  724 |   async function fetchVoices(apiKey: string, lastSelectedVoice?: string) {
+  725 |     try {                                       react-hooks/immutability
+   554:13  error    Error: Cannot access variable before it is declared
+
+`fetchProjectState` is accessed before it is declared, which prevents the earlier access from updating when this value changes over time.
+
+/Volumes/1TB/WebProjects/VideoGenerator/src/components/CreateProject.tsx:554:13
+  552 |       await fetchClips();
+  553 |       await fetchBgms();
+> 554 |       await fetchProjectState();
+      |             ^^^^^^^^^^^^^^^^^ `fetchProjectState` accessed before it is declared
+  555 |     };
+  556 |     init();
+  557 |   }, [projectId]);
+
+/Volumes/1TB/WebProjects/VideoGenerator/src/components/CreateProject.tsx:613:3
+  611 |   ]);
+  612 |
+> 613 |   async function fetchProjectState() {
+      |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 614 |     try {
+      | ^^^^^^^^^
+> 615 |       const endpoint = projectId ? `/api/projects/${projectId}` : '/api/project';
+      …
+      | ^^^^^^^^^
+> 680 |     }
+      | ^^^^^^^^^
+> 681 |   };
+      | ^^^^ `fetchProjectState` is declared here
+  682 |
+  683 |   async function checkSettings() {
+  684 |     try {  react-hooks/immutability
+   557:6   warning  React Hook useEffect has missing dependencies: 'checkSettings' and 'fetchProjectState'. Either include them or remove the dependency array                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          react-hooks/exhaustive-deps
+   705:34  error    Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            @typescript-eslint/no-explicit-any
+   758:19  error    Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            @typescript-eslint/no-explicit-any
+   807:19  error    Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            @typescript-eslint/no-explicit-any
+   840:19  error    Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            @typescript-eslint/no-explicit-any
+   874:19  error    Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            @typescript-eslint/no-explicit-any
+   908:36  error    Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            @typescript-eslint/no-explicit-any
+   918:19  error    Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            @typescript-eslint/no-explicit-any
+   966:11  error    The value assigned to 'transition' is not used in subsequent statements                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             no-useless-assignment
+   967:11  error    The value assigned to 'sfx' is not used in subsequent statements                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    no-useless-assignment
+  1132:19  error    Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            @typescript-eslint/no-explicit-any
+  1170:19  error    Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            @typescript-eslint/no-explicit-any
+  1850:81  error    Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            @typescript-eslint/no-explicit-any
+  1930:95  error    Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            @typescript-eslint/no-explicit-any
+  2089:40  error    '_' is defined but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       @typescript-eslint/no-unused-vars
+  2089:43  error    Empty block statement                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               no-empty
+  2187:31  error    'val' is never reassigned. Use 'const' instead                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      prefer-const
+  2218:35  error    'val' is never reassigned. Use 'const' instead                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      prefer-const
+  2376:63  error    Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            @typescript-eslint/no-explicit-any
+
+✖ 52 problems (50 errors, 2 warnings)
+  2 errors and 0 warnings potentially fixable with the `--fix` option.
+

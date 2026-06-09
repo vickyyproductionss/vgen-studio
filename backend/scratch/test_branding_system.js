@@ -40,7 +40,8 @@ const style = {
   brandingTheme: 'fitness-in-chunks',
   seriesName: 'FITNESSINCHUNKS',
   episodeNumber: 'EP 02',
-  nextEpisode: 'EP 03'
+  nextEpisode: 'EP 03',
+  showTimer: true
 };
 
 // Test Scene 1 (starts at 0.0s, ends at 4.0s. Total duration = 6.0s)
@@ -60,13 +61,13 @@ console.log('✅ Style declarations verified.');
 // Topic Card (starts at 0.0, ends at 2.0)
 // MarginL = 720 * 0.06 = 43
 // MarginV = 1280 * 0.15 = 192
-if (!ass1.includes('Dialogue: 10,0:00:00.00,0:00:00.40,FIC_Topic,,0,0,0,,{\\an7\\move(-500,192,43,192,0,400)\\fad(400,0)}')) {
+if (!ass1.includes('Dialogue: 10,0:00:00.00,0:00:00.40,FIC_Topic,,0,0,0,,{\\an7\\move(-500,64,43,64,0,400)\\fad(400,0)}')) {
   throw new Error('FAIL: Scene 1 Topic Card entry (slide-in) not found');
 }
-if (!ass1.includes('Dialogue: 10,0:00:00.40,0:00:01.70,FIC_Topic,,0,0,0,,{\\an7\\pos(43,192)}')) {
+if (!ass1.includes('Dialogue: 10,0:00:00.40,0:00:01.70,FIC_Topic,,0,0,0,,{\\an7\\pos(43,64)}')) {
   throw new Error('FAIL: Scene 1 Topic Card static state not found');
 }
-if (!ass1.includes('Dialogue: 10,0:00:01.70,0:00:02.00,FIC_Topic,,0,0,0,,{\\an7\\move(43,192,-500,192,0,300)\\fad(0,300)}')) {
+if (!ass1.includes('Dialogue: 10,0:00:01.70,0:00:02.00,FIC_Topic,,0,0,0,,{\\an7\\move(43,64,-500,64,0,300)\\fad(0,300)}')) {
   throw new Error('FAIL: Scene 1 Topic Card exit (slide-out) not found');
 }
 console.log('✅ Topic Card dialogue events verified.');
@@ -74,23 +75,22 @@ console.log('✅ Topic Card dialogue events verified.');
 // Episode Block & Vertical Line (starts at 0.0, persistent)
 // Margins: bottom-left safe zone: X = 6% from left, Y = 10% from bottom
 // Ep/Series MarginL = width * 0.06 + 15 = 43 + 15 = 58
-// LineX = 43. LineY = height - marginV - lineHeight + offset
-// LineHeight = 40 (epHeight) + 28 (seriesHeight) + 6 = 74
-// blockMarginV = 128. lineY = 1280 - 128 - 74 + 8 = 1086
+// blockMarginV = 180 (at Y=1100). lineY = 1280 - 180 - 18 - 27 - 10 - 25(extra) = 1020
 if (!ass1.includes('Dialogue: 11,0:00:00.00,0:00:04.00,FIC_Episode,,0,0,0,,{\\fad(400,0)}EP 02')) {
   throw new Error('FAIL: Scene 1 persistent Episode dialogue not found');
 }
 if (!ass1.includes('Dialogue: 11,0:00:00.00,0:00:04.00,FIC_Series,,0,0,0,,{\\fad(400,0)}FITNESSINCHUNKS')) {
   throw new Error('FAIL: Scene 1 persistent Series dialogue not found');
 }
-if (!ass1.includes('Dialogue: 11,0:00:00.00,0:00:04.00,FIC_Line,,0,0,0,,{\\fad(400,0)}{\\pos(43,1056)\\p1}m 0 0 l 2 0 l 2 104 l 0 104{\\p0}')) {
+if (!ass1.includes('Dialogue: 11,0:00:00.00,0:00:04.00,FIC_Line,,0,0,0,,{\\fad(400,0)}{\\pos(43,1020)\\p1}m 0 0 l 2 0 l 2 65 l 0 65{\\p0}')) {
   throw new Error('FAIL: Scene 1 persistent Line drawing not found or coordinates incorrect');
 }
 console.log('✅ Persistent signature block verified.');
 
+
 // Progress bar events (time step 0.2s)
 // Check first and last progress bar events in scene 1
-if (!ass1.includes('Dialogue: 15,0:00:00.00,0:00:00.20,FIC_Progress,,0,0,0,,{\\pos(712,384)\\p1}')) {
+if (!ass1.includes('Dialogue: 15,0:00:00.00,0:00:00.20,FIC_Progress,,0,0,0,,{\\pos(700,64)\\p1}')) {
   throw new Error('FAIL: Progress bar first frame event not found');
 }
 console.log('✅ Progress bar increments verified.');
