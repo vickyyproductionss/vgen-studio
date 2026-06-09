@@ -303,6 +303,9 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
   const [headingFontColor, setHeadingFontColor] = useState('#FFFFFF');
   const [headingBoxColor, setHeadingBoxColor] = useState('#1A1A1A');
   const [headingPadding, setHeadingPadding] = useState(6);
+  const [showTimer, setShowTimer] = useState(false);
+  const [headingTopOffset, setHeadingTopOffset] = useState(5);
+  const [headingLeftOffset, setHeadingLeftOffset] = useState(5);
   
   const [normalStyle, setNormalStyle] = useState<WordStyle>({
     fontColor: '#FFFFFF',
@@ -540,6 +543,9 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
         if (state.headingFontColor !== undefined) setHeadingFontColor(state.headingFontColor);
         if (state.headingBoxColor !== undefined) setHeadingBoxColor(state.headingBoxColor);
         if (state.headingPadding !== undefined) setHeadingPadding(state.headingPadding);
+        if (state.showTimer !== undefined) setShowTimer(state.showTimer);
+        if (state.headingTopOffset !== undefined) setHeadingTopOffset(state.headingTopOffset);
+        if (state.headingLeftOffset !== undefined) setHeadingLeftOffset(state.headingLeftOffset);
       }
     } catch (err) {
       console.error('Failed to load beat sync project state:', err);
@@ -617,7 +623,10 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
               headingFontSize,
               headingFontColor,
               headingBoxColor,
-              headingPadding
+              headingPadding,
+              showTimer,
+              headingTopOffset,
+              headingLeftOffset
             }
           })
         });
@@ -692,7 +701,10 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
     headingFontSize,
     headingFontColor,
     headingBoxColor,
-    headingPadding
+    headingPadding,
+    showTimer,
+    headingTopOffset,
+    headingLeftOffset
   ]);
 
   // Load Google Font style dynamically in the document head
@@ -1562,7 +1574,10 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
             headingFontSize,
             headingFontColor,
             headingBoxColor,
-            headingPadding
+            headingPadding,
+            showTimer,
+            headingTopOffset,
+            headingLeftOffset
           }
         })
       });
@@ -3620,7 +3635,20 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
                   />
                 </div>
 
-                {headingTitle.trim().length > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                  <input 
+                    type="checkbox" 
+                    id="show-timer-beatsync" 
+                    checked={showTimer} 
+                    onChange={(e) => setShowTimer(e.target.checked)} 
+                    style={{ cursor: 'pointer' }}
+                  />
+                  <label htmlFor="show-timer-beatsync" style={{ fontSize: '12.5px', cursor: 'pointer', userSelect: 'none', fontWeight: 500, color: 'var(--text-white)' }}>
+                    Show Countdown Timer
+                  </label>
+                </div>
+
+                {(headingTitle.trim().length > 0 || showTimer) && (
                   <div style={{ animation: 'fadeIn 0.2s ease-out' }}>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '12px' }}>
                       <div>
@@ -3678,7 +3706,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
                       </div>
                     </div>
 
-                    <div style={{ marginBottom: '4px' }}>
+                    <div style={{ marginBottom: '12px' }}>
                       <label className="label">Badge Background Color</label>
                       <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                         <input
@@ -3702,6 +3730,39 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
                             />
                           ))}
                         </div>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', borderTop: '1px solid var(--border-light)', paddingTop: '12px', marginTop: '12px' }}>
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                          <span style={{ fontSize: '11px', color: 'var(--text-gray)', fontFamily: 'Inter' }}>Top Margin (Y)</span>
+                          <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{headingTopOffset}%</span>
+                        </div>
+                        <input
+                          type="range" 
+                          min={2} 
+                          max={30} 
+                          step={1} 
+                          value={headingTopOffset}
+                          onChange={(e) => setHeadingTopOffset(parseInt(e.target.value, 10))}
+                          style={{ width: '100%', accentColor: 'var(--accent-color)' }}
+                        />
+                      </div>
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                          <span style={{ fontSize: '11px', color: 'var(--text-gray)', fontFamily: 'Inter' }}>Side Margin (X)</span>
+                          <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{headingLeftOffset}%</span>
+                        </div>
+                        <input
+                          type="range" 
+                          min={2} 
+                          max={20} 
+                          step={1} 
+                          value={headingLeftOffset}
+                          onChange={(e) => setHeadingLeftOffset(parseInt(e.target.value, 10))}
+                          style={{ width: '100%', accentColor: 'var(--accent-color)' }}
+                        />
                       </div>
                     </div>
                   </div>

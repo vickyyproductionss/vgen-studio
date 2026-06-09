@@ -34,6 +34,8 @@ interface Scene {
   words?: WordTiming[];
   words_hindi?: WordTiming[];
   words_hinglish?: WordTiming[];
+  transition?: string;
+  sfx?: string;
   speedRamp?: {
     enabled: boolean;
     v0: number;
@@ -398,6 +400,9 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
   const [headingFontColor, setHeadingFontColor] = useState('#FFFFFF');
   const [headingBoxColor, setHeadingBoxColor] = useState('#1A1A1A');
   const [headingPadding, setHeadingPadding] = useState(6);
+  const [showTimer, setShowTimer] = useState(false);
+  const [headingTopOffset, setHeadingTopOffset] = useState(5);
+  const [headingLeftOffset, setHeadingLeftOffset] = useState(5);
   
   const [normalStyle, setNormalStyle] = useState<WordStyle>({
     fontColor: '#FFFFFF',
@@ -692,7 +697,7 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
             activeWordScale, wordDisplayTime, textPositionX, textPositionY, exportResolution,
             exportFps, showEmojis, autoEmphasis, emphasisColor, neonGlow, glowColor, glowBlur, glowDistance, highlightTrigger, pop3d, pop3dColor,
             normalStyle, highlightStyle, emojiStyle, elevenLabsModel, enhanceWithThoughtfulTags, originalScriptText,
-            headingTitle, headingFontName, headingFontSize, headingFontColor, headingBoxColor, headingPadding
+            headingTitle, headingFontName, headingFontSize, headingFontColor, headingBoxColor, headingPadding, showTimer, headingTopOffset, headingLeftOffset
           }
         } : {
           scriptText, selectedVoice, audioSource, voiceoverPath, voiceoverUrl, scenes,
@@ -703,7 +708,7 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
           activeWordScale, wordDisplayTime, textPositionX, textPositionY, exportResolution,
           exportFps, showEmojis, autoEmphasis, emphasisColor, neonGlow, glowColor, glowBlur, glowDistance, highlightTrigger, pop3d, pop3dColor,
           normalStyle, highlightStyle, emojiStyle, elevenLabsModel, enhanceWithThoughtfulTags, originalScriptText,
-          headingTitle, headingFontName, headingFontSize, headingFontColor, headingBoxColor, headingPadding
+          headingTitle, headingFontName, headingFontSize, headingFontColor, headingBoxColor, headingPadding, showTimer, headingTopOffset, headingLeftOffset
         };
 
         await fetch(endpoint, {
@@ -730,7 +735,7 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
     exportResolution, exportFps, showEmojis, autoEmphasis, emphasisColor, neonGlow, glowColor,
     glowBlur, glowDistance, highlightTrigger, pop3d, pop3dColor, normalStyle, highlightStyle, emojiStyle,
     elevenLabsModel, enhanceWithThoughtfulTags, originalScriptText, hasLoadedProject, projectId,
-    headingTitle, headingFontName, headingFontSize, headingFontColor, headingBoxColor, headingPadding
+    headingTitle, headingFontName, headingFontSize, headingFontColor, headingBoxColor, headingPadding, showTimer, headingTopOffset, headingLeftOffset
   ]);
 
   const fetchProjectState = async () => {
@@ -833,6 +838,9 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
         if (project.headingFontColor !== undefined) setHeadingFontColor(project.headingFontColor);
         if (project.headingBoxColor !== undefined) setHeadingBoxColor(project.headingBoxColor);
         if (project.headingPadding !== undefined) setHeadingPadding(project.headingPadding);
+        if (project.showTimer !== undefined) setShowTimer(project.showTimer);
+        if (project.headingTopOffset !== undefined) setHeadingTopOffset(project.headingTopOffset);
+        if (project.headingLeftOffset !== undefined) setHeadingLeftOffset(project.headingLeftOffset);
       }
     } catch (err) {
       console.error('Failed to load project state:', err);
@@ -1325,7 +1333,8 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
             textMotion, activeWordScale, wordDisplayTime, textPositionX, textPositionY, showEmojis,
             autoEmphasis, emphasisColor, neonGlow, glowColor, glowBlur, glowDistance, highlightTrigger, pop3d, pop3dColor,
             normalStyle, highlightStyle, emojiStyle,
-            headingTitle, headingFontName, headingFontSize, headingFontColor, headingBoxColor, headingPadding
+            headingTitle, headingFontName, headingFontSize, headingFontColor, headingBoxColor, headingPadding,
+            showTimer, headingTopOffset, headingLeftOffset
           }
         })
       });
@@ -2459,7 +2468,20 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                   />
                 </div>
 
-                {headingTitle.trim().length > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                  <input 
+                    type="checkbox" 
+                    id="show-timer" 
+                    checked={showTimer} 
+                    onChange={(e) => setShowTimer(e.target.checked)} 
+                    style={{ cursor: 'pointer' }}
+                  />
+                  <label htmlFor="show-timer" style={{ fontSize: '12.5px', cursor: 'pointer', userSelect: 'none', fontWeight: 500, color: 'var(--text-white)' }}>
+                    Show Countdown Timer
+                  </label>
+                </div>
+
+                {(headingTitle.trim().length > 0 || showTimer) && (
                   <div style={{ animation: 'fadeIn 0.2s ease-out' }}>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '12px' }}>
                       <div>
@@ -2517,7 +2539,7 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                       </div>
                     </div>
 
-                    <div style={{ marginBottom: '4px' }}>
+                    <div style={{ marginBottom: '12px' }}>
                       <label className="label">Badge Background Color</label>
                       <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                         <input
@@ -2541,6 +2563,39 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                             />
                           ))}
                         </div>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', borderTop: '1px solid var(--border-light)', paddingTop: '12px', marginTop: '12px' }}>
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                          <span style={{ fontSize: '11px', color: 'var(--text-gray)', fontFamily: 'Inter' }}>Top Margin (Y)</span>
+                          <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{headingTopOffset}%</span>
+                        </div>
+                        <input
+                          type="range" 
+                          min={2} 
+                          max={30} 
+                          step={1} 
+                          value={headingTopOffset}
+                          onChange={(e) => setHeadingTopOffset(parseInt(e.target.value, 10))}
+                          style={{ width: '100%', accentColor: 'var(--accent-color)' }}
+                        />
+                      </div>
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                          <span style={{ fontSize: '11px', color: 'var(--text-gray)', fontFamily: 'Inter' }}>Side Margin (X)</span>
+                          <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{headingLeftOffset}%</span>
+                        </div>
+                        <input
+                          type="range" 
+                          min={2} 
+                          max={20} 
+                          step={1} 
+                          value={headingLeftOffset}
+                          onChange={(e) => setHeadingLeftOffset(parseInt(e.target.value, 10))}
+                          style={{ width: '100%', accentColor: 'var(--accent-color)' }}
+                        />
                       </div>
                     </div>
                   </div>

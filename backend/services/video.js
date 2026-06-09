@@ -582,7 +582,7 @@ export function getLocalWordTimings(words, sceneStartTime, duration) {
 /**
  * Generates an ASS subtitle file content
  */
-export function createAssFileContent(originalScene, duration, style, width, height) {
+export function createAssFileContent(originalScene, duration, style, width, height, totalDuration = 0) {
   const scene = {
     ...originalScene,
     text: shapeDevanagari(originalScene.text),
@@ -771,15 +771,18 @@ export function createAssFileContent(originalScene, duration, style, width, heig
 
   let headingStyleLine = '';
   let headingEvents = '';
+  const headingTopPct = style.headingTopOffset !== undefined ? parseFloat(style.headingTopOffset) : 5;
+  const headingLeftPct = style.headingLeftOffset !== undefined ? parseFloat(style.headingLeftOffset) : 5;
+
   if (style.headingTitle && style.headingTitle.trim().length > 0) {
     const headingFont = style.headingFontName || 'Montserrat';
     const headingFontSize = Math.round((style.headingFontSize || 18) * (height / 640));
     const headingFontColor = hexToAssColor(style.headingFontColor || '#FFFFFF', '00');
     const headingBoxColor = hexToAssColor(style.headingBoxColor || '#1A1A1A', 'B0'); // 70% opacity charcoal
     const headingOutline = Math.max(4, Math.round((style.headingPadding || 6) * (height / 640)));
-    const marginL = Math.round(width * 0.05);
+    const marginL = Math.round(width * (headingLeftPct / 100));
     const marginR = Math.round(width * 0.5);
-    const marginV_heading = Math.round(height * 0.05);
+    const marginV_heading = Math.round(height * (headingTopPct / 100));
     
     headingStyleLine = `Style: Heading,${headingFont},${headingFontSize},${headingFontColor},&H000000FF,&H00000000,${headingBoxColor},-1,0,0,0,100,100,0,0,3,${headingOutline},0,7,${marginL},${marginR},${marginV_heading},1\n`;
     
@@ -795,8 +798,8 @@ export function createAssFileContent(originalScene, duration, style, width, heig
       const localStart = overlapStartGlobal - globalStart;
       const localEnd = overlapEndGlobal - globalStart;
       
-      const X_heading = Math.round(width * 0.05);
-      const Y_heading = Math.round(height * 0.05);
+      const X_heading = Math.round(width * (headingLeftPct / 100));
+      const Y_heading = Math.round(height * (headingTopPct / 100));
       const text = shapeDevanagari(style.headingTitle.trim());
       
       // Case 1: Both entry and exit inside this scene
@@ -832,6 +835,54 @@ export function createAssFileContent(originalScene, duration, style, width, heig
     }
   }
 
+  let timerStyleLine = '';
+  let timerEvents = '';
+  if (style.showTimer && totalDuration > 0) {
+    const timerFont = style.headingFontName || 'Montserrat';
+    const timerFontSize = Math.round((style.headingFontSize || 18) * (height / 640) * 0.9);
+    const timerFontColor = hexToAssColor(style.headingFontColor || '#FFFFFF', '00');
+    const timerBoxColor = hexToAssColor(style.headingBoxColor || '#1A1A1A', 'B0');
+    const timerOutline = Math.max(4, Math.round((style.headingPadding || 6) * (height / 640)));
+    const marginL = Math.round(width * 0.5);
+    const marginR = Math.round(width * (headingLeftPct / 100));
+    const marginV_timer = Math.round(height * (headingTopPct / 100));
+    
+    timerStyleLine = `Style: Timer,${timerFont},${timerFontSize},${timerFontColor},&H000000FF,&H00000000,${timerBoxColor},-1,0,0,0,100,100,0,0,3,${timerOutline},0,9,${marginL},${marginR},${marginV_timer},1\n`;
+    
+    const globalStart = scene.start_time || 0.0;
+    const globalEnd = scene.end_time || (globalStart + duration);
+    const X_timer = width - Math.round(width * (headingLeftPct / 100));
+    const Y_timer = Math.round(height * (headingTopPct / 100));
+    
+    const totalSecs = Math.floor(totalDuration);
+    for (let sec = 0; sec <= totalSecs; sec++) {
+      const secStart = sec;
+      const secEnd = (sec === totalSecs) ? totalDuration : sec + 1.0;
+      
+      const overlapStartGlobal = Math.max(globalStart, secStart);
+      const overlapEndGlobal = Math.min(globalEnd, secEnd);
+      
+      if (overlapStartGlobal < overlapEndGlobal) {
+        const localStart = overlapStartGlobal - globalStart;
+        const localEnd = overlapEndGlobal - globalStart;
+        const text = `${Math.max(1, Math.ceil(totalDuration - sec))}s`;
+        
+        if (sec === 0 && globalStart === 0.0) {
+          timerEvents += `Dialogue: 10,${formatTime(localStart)},${formatTime(localEnd)},Timer,,0,0,0,,{\\an9\\move(${width + 100},${Y_timer},${X_timer},${Y_timer},0,400)\\fad(400,0)}${text}\n`;
+        }
+        else if (overlapEndGlobal >= totalDuration - 0.01) {
+          const lineDur = localEnd - localStart;
+          const startMs = Math.round(Math.max(0, lineDur - 0.3) * 1000);
+          const endMs = Math.round(lineDur * 1000);
+          timerEvents += `Dialogue: 10,${formatTime(localStart)},${formatTime(localEnd)},Timer,,0,0,0,,{\\an9\\move(${X_timer},${Y_timer},${width + 100},${Y_timer},${startMs},${endMs})\\fad(0,300)}${text}\n`;
+        }
+        else {
+          timerEvents += `Dialogue: 10,${formatTime(localStart)},${formatTime(localEnd)},Timer,,0,0,0,,{\\an9\\pos(${X_timer},${Y_timer})}${text}\n`;
+        }
+      }
+    }
+  }
+
   const header = `[Script Info]
 Title: Styled Subtitles
 ScriptType: v4.00+
@@ -842,7 +893,7 @@ ScaledBorderAndShadow: yes
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: Default,${fontName},${fontSize},${primaryColor},&H000000FF,${outlineColor},${shadowColor},${isBold ? -1 : 0},${style.italic ? -1 : 0},0,0,100,100,0,0,1,${outlineSize},${shadowDepth},${alignment},20,20,${marginV},1
-${headingStyleLine}
+${headingStyleLine}${timerStyleLine}
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 `;
@@ -872,14 +923,14 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     }
     const events = createDialogueLines(0, 0.0, duration, X_pos, Y_pos, text, hexToAssColor(normalStyle.fontColor || '#FFFFFF'));
     const processedEvents = normalStyle.neonGlow ? applyNeonGlowToEvents(events, normalStyle, primaryColor, outlineColor) : events;
-    return header + headingEvents + processedEvents;
+    return header + headingEvents + timerEvents + processedEvents;
   }
 
   const words = scene.words || [];
   if (words.length === 0) {
     const events = createDialogueLines(0, 0.0, duration, X_pos, Y_pos, scene.text, hexToAssColor(normalStyle.fontColor || '#FFFFFF'));
     const processedEvents = normalStyle.neonGlow ? applyNeonGlowToEvents(events, normalStyle, primaryColor, outlineColor) : events;
-    return header + processedEvents;
+    return header + headingEvents + timerEvents + processedEvents;
   }
 
   // Localize word timings relative to scene start
@@ -1356,7 +1407,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
   const finalEvents = (mode === 'classic')
     ? (normalStyle.neonGlow ? applyNeonGlowToEvents(events, normalStyle, primaryColor, outlineColor) : events)
     : events;
-  return header + headingEvents + finalEvents;
+  return header + headingEvents + timerEvents + finalEvents;
 }
 
 /**
@@ -1580,7 +1631,8 @@ export async function assembleVideo(options, onProgress) {
     onProgress(Math.round((i / adjustedScenes.length) * 75), `Formatting & subtitle burning for scene ${i + 1}/${adjustedScenes.length}...`);
 
     // Write temporary ASS file
-    const assContent = createAssFileContent(scene, sceneDuration, subtitleStyle, targetWidth, targetHeight);
+    const totalVideoDuration = voiceoverDuration || Math.max(...adjustedScenes.map(s => s.end_time || s.start_time));
+    const assContent = createAssFileContent(scene, sceneDuration, subtitleStyle, targetWidth, targetHeight, totalVideoDuration);
     await fs.writeFile(tempAssPath, assContent, 'utf-8');
 
     const targetFps = Number(exportFps) || 30;
