@@ -11,7 +11,7 @@ import { fileURLToPath } from 'url';
 // Import services
 import { analyzeVideo, alignScriptAndAudio, matchClipsToScenes, enhanceScriptWithTags } from './services/gemini.js';
 import { getVoices, generateSpeech } from './services/elevenlabs.js';
-import { getVideoDuration, generateThumbnail, assembleVideo, ensureFontExists, extractAudioFromVideo } from './services/video.js';
+import { getVideoDuration, generateThumbnail, assembleVideo, ensureFontExists, extractAudioFromVideo, getLocalWordTimings } from './services/video.js';
 import { detectBeats } from './services/beats.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -554,8 +554,8 @@ app.post('/api/clips/add-path', async (req, res) => {
   const userId = getUserId(req);
   const db = getDb();
   const apiKey = process.env.GEMINI_API_KEY || db.settings.geminiApiKey;
-  if (!apiKey) {
-    return res.status(400).json({ error: 'Gemini API key is required to analyze clips. Please set it in Settings.' });
+  if (!apiKey && !process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+    return res.status(400).json({ error: 'Gemini API key or Vertex AI credentials are required.' });
   }
 
   const clipId = uuidv4();
@@ -604,8 +604,8 @@ app.post('/api/clips/upload', upload.array('videos', 20), async (req, res) => {
   const userId = getUserId(req);
   const db = getDb();
   const apiKey = process.env.GEMINI_API_KEY || db.settings.geminiApiKey;
-  if (!apiKey) {
-    return res.status(400).json({ error: 'Gemini API key is required to analyze clips. Please set it in Settings.' });
+  if (!apiKey && !process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+    return res.status(400).json({ error: 'Gemini API key or Vertex AI credentials are required.' });
   }
 
   const importedClips = [];
@@ -661,8 +661,8 @@ app.post('/api/clips/add-folder', async (req, res) => {
     const userId = getUserId(req);
     const db = getDb();
     const apiKey = process.env.GEMINI_API_KEY || db.settings.geminiApiKey;
-    if (!apiKey) {
-      return res.status(400).json({ error: 'Gemini API key is required to analyze clips. Please set it in Settings.' });
+    if (!apiKey && !process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+      return res.status(400).json({ error: 'Gemini API key or Vertex AI credentials are required.' });
     }
 
     const files = await fs.readdir(absolutePath);
@@ -784,8 +784,8 @@ app.post('/api/clips/reanalyze-all', (req, res) => {
   const userId = getUserId(req);
   const db = getDb();
   const apiKey = db.settings.geminiApiKey;
-  if (!apiKey) {
-    return res.status(400).json({ error: 'Gemini API key is required. Please set it in Settings.' });
+  if (!apiKey && !process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+    return res.status(400).json({ error: 'Gemini API key or Vertex AI credentials are required.' });
   }
 
   // Only select clips that do NOT have segment analysis populated yet
@@ -832,6 +832,37 @@ async function analyzeVideoInBackground(clipId, filePath, apiKey) {
     }
   }
 }
+
+// ==========================================
+// SFX Library API
+// ==========================================
+app.get('/api/sfx', async (req, res) => {
+  try {
+    const sfxDir = path.join(UPLOADS_DIR, 'sfx');
+    if (!existsSync(sfxDir)) {
+      return res.json([]);
+    }
+    const files = await fs.readdir(sfxDir);
+    const sfxList = files
+      .filter(f => f.endsWith('.mp3'))
+      .map(f => {
+        const id = path.basename(f, '.mp3');
+        const name = id
+          .split('_')
+          .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+          .join(' ');
+        return {
+          id,
+          name,
+          filename: f,
+          url: `/uploads/sfx/${f}`
+        };
+      });
+    res.json(sfxList);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
 // ==========================================
 // Music Library API (No Analysis)
@@ -1161,8 +1192,8 @@ app.post('/api/enhance-script', async (req, res) => {
 
   const db = getDb();
   const apiKey = process.env.GEMINI_API_KEY || db.settings.geminiApiKey;
-  if (!apiKey) {
-    return res.status(400).json({ error: 'Gemini API key is missing. Please configure it in Settings.' });
+  if (!apiKey && !process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+    return res.status(400).json({ error: 'Gemini API key or Vertex AI credentials are required.' });
   }
 
   try {
@@ -1184,8 +1215,8 @@ app.post('/api/align-script', async (req, res) => {
 
   const db = getDb();
   const apiKey = process.env.GEMINI_API_KEY || db.settings.geminiApiKey;
-  if (!apiKey) {
-    return res.status(400).json({ error: 'Gemini API key is missing. Please configure it in Settings.' });
+  if (!apiKey && !process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+    return res.status(400).json({ error: 'Gemini API key or Vertex AI credentials are required.' });
   }
 
   try {
@@ -1202,7 +1233,15 @@ app.post('/api/align-script', async (req, res) => {
 
     if (audioDuration > 0 && rawSegments && rawSegments.length > 0) {
       const lastSpeechEndTime = Math.max(...rawSegments.map(s => s.end_time));
-      if (audioDuration - lastSpeechEndTime > 2.0) {
+      const hasScript = scriptText && scriptText.trim().length > 0;
+
+      if (hasScript) {
+        const lastSeg = rawSegments[rawSegments.length - 1];
+        if (lastSeg && audioDuration > lastSeg.end_time) {
+          console.log(`[Aligner] Extending last scene end_time from ${lastSeg.end_time}s to ${audioDuration}s to cover audio outro.`);
+          lastSeg.end_time = Number(audioDuration.toFixed(3));
+        }
+      } else if (audioDuration - lastSpeechEndTime > 2.0) {
         console.log(`[Aligner] Dialogue ends at ${lastSpeechEndTime}s, but audio runs until ${audioDuration}s. Appending beat-sync segments.`);
         try {
           // Detect beats for the remaining duration
@@ -1279,30 +1318,142 @@ app.post('/api/align-script', async (req, res) => {
       return words;
     };
     
+    // Helper to clamp and adjust word timings strictly within segment start/end times
+    const clampWordTimings = (words, start_time, end_time) => {
+      if (!words || words.length === 0) return [];
+      const duration = end_time - start_time;
+      const adjustedLocal = getLocalWordTimings(words, start_time, duration);
+      return words.map((w, idx) => ({
+        ...w,
+        start_time: Number((start_time + adjustedLocal[idx].start).toFixed(3)),
+        end_time: Number((start_time + adjustedLocal[idx].end).toFixed(3))
+      }));
+    };
+
+    // Helper to merge segments shorter than 2.0s to ensure a minimum scene length
+    const enforceMinimumSegmentDuration = (segs) => {
+      if (!segs || segs.length <= 1) return segs;
+      
+      const minDuration = 2.0;
+      const result = [];
+      const segsCopy = segs.map(s => ({ ...s }));
+      
+      // First pass: merge short segments
+      for (let i = 0; i < segsCopy.length; i++) {
+        const current = segsCopy[i];
+        const dur = current.end_time - current.start_time;
+        
+        if (dur < minDuration) {
+          if (result.length > 0) {
+            const prev = result[result.length - 1];
+            console.log(`[Post-processing Aligner] Merging short segment ${i} (${dur.toFixed(2)}s) into previous segment (${(prev.end_time - prev.start_time).toFixed(2)}s)`);
+            
+            prev.end_time = Number(current.end_time.toFixed(3));
+            prev.text = ((prev.text || '') + ' ' + (current.text || '')).trim();
+            prev.text_hindi = ((prev.text_hindi || '') + ' ' + (current.text_hindi || '')).trim();
+            prev.text_hinglish = ((prev.text_hinglish || '') + ' ' + (current.text_hinglish || '')).trim();
+            
+            prev.words = [...(prev.words || []), ...(current.words || [])];
+            prev.words_hindi = [...(prev.words_hindi || []), ...(current.words_hindi || [])];
+            prev.words_hinglish = [...(prev.words_hinglish || []), ...(current.words_hinglish || [])];
+            
+            if (current.isBeatSyncOnly && prev.isBeatSyncOnly) {
+              prev.isBeatSyncOnly = true;
+            } else {
+              delete prev.isBeatSyncOnly;
+            }
+          } else if (i + 1 < segsCopy.length) {
+            const next = segsCopy[i + 1];
+            console.log(`[Post-processing Aligner] Merging short segment ${i} (${dur.toFixed(2)}s) forward into next segment (${(next.end_time - next.start_time).toFixed(2)}s)`);
+            
+            next.start_time = Number(current.start_time.toFixed(3));
+            next.text = ((current.text || '') + ' ' + (next.text || '')).trim();
+            next.text_hindi = ((current.text_hindi || '') + ' ' + (next.text_hindi || '')).trim();
+            next.text_hinglish = ((current.text_hinglish || '') + ' ' + (next.text_hinglish || '')).trim();
+            
+            next.words = [...(current.words || []), ...(next.words || [])];
+            next.words_hindi = [...(current.words_hindi || []), ...(next.words_hindi || [])];
+            next.words_hinglish = [...(current.words_hinglish || []), ...(next.words_hinglish || [])];
+            
+            if (current.isBeatSyncOnly && next.isBeatSyncOnly) {
+              next.isBeatSyncOnly = true;
+            } else {
+              delete next.isBeatSyncOnly;
+            }
+          } else {
+            result.push(current);
+          }
+        } else {
+          result.push(current);
+        }
+      }
+      
+      // Clean up pass: check if the last segment is too short and merge it back
+      if (result.length > 1) {
+        const lastIdx = result.length - 1;
+        const last = result[lastIdx];
+        const lastDur = last.end_time - last.start_time;
+        if (lastDur < minDuration) {
+          const prev = result[lastIdx - 1];
+          console.log(`[Post-processing Aligner] Clean up merge: Merging last segment (${lastDur.toFixed(2)}s) into previous segment`);
+          
+          prev.end_time = Number(last.end_time.toFixed(3));
+          prev.text = ((prev.text || '') + ' ' + (last.text || '')).trim();
+          prev.text_hindi = ((prev.text_hindi || '') + ' ' + (last.text_hindi || '')).trim();
+          prev.text_hinglish = ((prev.text_hinglish || '') + ' ' + (last.text_hinglish || '')).trim();
+          
+          prev.words = [...(prev.words || []), ...(last.words || [])];
+          prev.words_hindi = [...(prev.words_hindi || []), ...(last.words_hindi || [])];
+          prev.words_hinglish = [...(prev.words_hinglish || []), ...(last.words_hinglish || [])];
+          
+          if (last.isBeatSyncOnly && prev.isBeatSyncOnly) {
+            prev.isBeatSyncOnly = true;
+          } else {
+            delete prev.isBeatSyncOnly;
+          }
+          result.pop();
+        }
+      }
+      
+      return result;
+    };
+
+    const mergedSegments = enforceMinimumSegmentDuration(rawSegments);
+
     // Process and interpolate word timings if they are missing
-    const segments = rawSegments.map(seg => {
+    const segments = mergedSegments.map(seg => {
       if (seg.isBeatSyncOnly) {
         return seg;
       }
 
-      // Populate text if missing (fallback)
-      if (!seg.text && (seg.text_hinglish || seg.text_hindi)) {
-        seg.text = seg.text_hinglish || seg.text_hindi;
+      // Always prioritize Hinglish text and words for standard display
+      if (seg.text_hinglish && seg.text_hinglish.trim() !== '') {
+        seg.text = seg.text_hinglish;
+      } else if (!seg.text && seg.text_hindi) {
+        seg.text = seg.text_hindi;
       }
 
-      // 1. Process standard words if missing
-      if (!seg.words || !Array.isArray(seg.words) || seg.words.length === 0) {
-        seg.words = interpolateWords(seg.text || '', seg.start_time, seg.end_time);
+      // 1. Process words_hinglish if missing
+      if (!seg.words_hinglish || !Array.isArray(seg.words_hinglish) || seg.words_hinglish.length === 0) {
+        seg.words_hinglish = interpolateWords(seg.text_hinglish || '', seg.start_time, seg.end_time);
+      } else {
+        seg.words_hinglish = clampWordTimings(seg.words_hinglish, seg.start_time, seg.end_time);
       }
 
       // 2. Process words_hindi if missing
       if (!seg.words_hindi || !Array.isArray(seg.words_hindi) || seg.words_hindi.length === 0) {
         seg.words_hindi = interpolateWords(seg.text_hindi || '', seg.start_time, seg.end_time);
+      } else {
+        seg.words_hindi = clampWordTimings(seg.words_hindi, seg.start_time, seg.end_time);
       }
 
-      // 3. Process words_hinglish if missing
-      if (!seg.words_hinglish || !Array.isArray(seg.words_hinglish) || seg.words_hinglish.length === 0) {
-        seg.words_hinglish = interpolateWords(seg.text_hinglish || '', seg.start_time, seg.end_time);
+      // 3. Process standard words (always map to Hinglish)
+      if (seg.words_hinglish && seg.words_hinglish.length > 0) {
+        seg.words = seg.words_hinglish;
+      } else if (!seg.words || !Array.isArray(seg.words) || seg.words.length === 0) {
+        seg.words = interpolateWords(seg.text || '', seg.start_time, seg.end_time);
+      } else {
+        seg.words = clampWordTimings(seg.words, seg.start_time, seg.end_time);
       }
       
       return seg;
@@ -1354,8 +1505,8 @@ app.post('/api/match-clips', async (req, res) => {
 
   const db = getDb();
   const apiKey = process.env.GEMINI_API_KEY || db.settings.geminiApiKey;
-  if (!apiKey) {
-    return res.status(400).json({ error: 'Gemini API key is missing. Please configure it in Settings.' });
+  if (!apiKey && !process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+    return res.status(400).json({ error: 'Gemini API key or Vertex AI credentials are required.' });
   }
 
   // Only match against "ready" status clips
@@ -1629,7 +1780,7 @@ app.listen(PORT, () => {
     const db = getDb();
     const interruptedClips = db.clips.filter(c => c.status === 'analyzing');
     const apiKey = process.env.GEMINI_API_KEY || db.settings.geminiApiKey;
-    if (interruptedClips.length > 0 && apiKey) {
+    if (interruptedClips.length > 0 && (apiKey || process.env.GOOGLE_APPLICATION_CREDENTIALS)) {
       console.log(`[Startup Recovery] Found ${interruptedClips.length} interrupted analysis tasks. Resuming background analysis...`);
       interruptedClips.forEach(clip => {
         analyzeVideoInBackground(clip.id, clip.path, apiKey);

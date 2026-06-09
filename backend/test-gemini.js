@@ -1,3 +1,4 @@
+import dotenv from 'dotenv';
 import { analyzeVideo } from './services/gemini.js';
 import { readFileSync } from 'fs';
 import path from 'path';
@@ -6,6 +7,9 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+dotenv.config({ path: path.join(__dirname, '.env') });
+
+
 async function testGemini() {
   console.log('=== GEMINI API DIAGNOSTIC TEST ===');
   
@@ -13,14 +17,17 @@ async function testGemini() {
     const dbPath = path.join(__dirname, 'db.json');
     const db = JSON.parse(readFileSync(dbPath, 'utf-8'));
     const apiKey = db.settings.geminiApiKey;
+    const hasGcpCreds = process.env.GOOGLE_APPLICATION_CREDENTIALS;
     
     console.log(`Configured Gemini API Key: "${apiKey}"`);
-    if (!apiKey) {
-      console.error('Error: Gemini API key is empty in db.json!');
+    console.log(`Configured GOOGLE_APPLICATION_CREDENTIALS: "${hasGcpCreds || ''}"`);
+    
+    if (!apiKey && !hasGcpCreds) {
+      console.error('Error: Neither Gemini API key in db.json nor GOOGLE_APPLICATION_CREDENTIALS in environment is configured!');
       return;
     }
     
-    if (!apiKey.startsWith('AIzaSy')) {
+    if (apiKey && !apiKey.startsWith('AIzaSy') && !hasGcpCreds) {
       console.warn('WARNING: Your Gemini API Key does not start with "AIzaSy". Standard Google Gemini keys always start with "AIzaSy".');
     }
     

@@ -28,6 +28,7 @@ interface WordTiming {
   word: string;
   start_time: number;
   end_time: number;
+  sfx?: string;
 }
 
 interface BeatScene {
@@ -44,6 +45,17 @@ interface BeatScene {
   words_hinglish?: WordTiming[];
   pingPong?: boolean;
   isBeatSyncOnly?: boolean;
+  transition?: string;
+  sfx?: string;
+}
+
+interface WordStyle {
+  fontColor: string;
+  activeWordScale: number;
+  neonGlow: boolean;
+  glowColor: string;
+  glowBlur: number;
+  glowDistance: number;
 }
 
 const CURATED_FONTS = [
@@ -79,6 +91,49 @@ const CURATED_FONTS = [
   'Impact',
   'Courier New',
   'Times New Roman'
+];
+
+const SFX_CATEGORIES = [
+  {
+    name: 'Video Transitions',
+    items: [
+      { id: 'trans_swoosh_fast', name: 'Snappy Swoosh', desc: 'Clean, high-frequency whip/swish.' },
+      { id: 'trans_swoosh_deep', name: 'Cinematic Whoosh', desc: 'Low-end heavy, sub-bass air rush.' },
+      { id: 'trans_glitch_digital', name: 'Glitch / Static', desc: 'Digital stutter, pixelation hiss.' },
+      { id: 'trans_shutter_click', name: 'Shutter & Flash', desc: 'Crisp mechanical camera shutter click.' },
+      { id: 'trans_vhs_rewind', name: 'Tape Rewind', desc: 'Vintage tape reverse spooling.' },
+      { id: 'trans_paper_slide', name: 'Page Slide / Turn', desc: 'Dry paper friction slide or page flip.' }
+    ]
+  },
+  {
+    name: 'Subtitles & Reveals',
+    items: [
+      { id: 'reveal_pop_bubble', name: 'Bubble Pop', desc: 'Light, organic, high-pitched plop.' },
+      { id: 'reveal_kb_click', name: 'Keyboard Tap', desc: 'Mechanical keyboard switch click.' },
+      { id: 'reveal_ding_bell', name: 'Snappy Ding', desc: 'Desk bell ding or chime.' },
+      { id: 'reveal_swoosh_zip', name: 'Micro Zip', desc: 'Tiny, high-pitched air zip.' },
+      { id: 'reveal_chime_sweet', name: 'Synth Chime', desc: 'Gentle, ascending synth chime.' }
+    ]
+  },
+  {
+    name: 'Dramatic Hooks',
+    items: [
+      { id: 'hook_bass_drop', name: 'Sub Bass Rumble', desc: 'Massive, clean sub-octave boom.' },
+      { id: 'hook_vinyl_scratch', name: 'Record Scratch', desc: 'Sharp DJ vinyl stop/scratch.' },
+      { id: 'hook_metal_hit', name: 'Cinematic Metal Hit', desc: 'Heavy metallic hit with deep resonance.' },
+      { id: 'hook_woosh_hit', name: 'Whoosh To Hit', desc: 'Rising whoosh to drum/impact hit.' },
+      { id: 'hook_cymbal_swell', name: 'Reversed Cymbal', desc: 'Soft air hiss rising to a sharp cutoff.' }
+    ]
+  },
+  {
+    name: 'UI & Interactive',
+    items: [
+      { id: 'ui_button_click', name: 'Snappy Click', desc: 'Subtle, hollow click.' },
+      { id: 'ui_success_chime', name: 'Happy Ping', desc: 'Optimistic double-tone chime.' },
+      { id: 'ui_error_buzz', name: 'Error Buzz', desc: 'Soft, double-pulse warning buzzer.' },
+      { id: 'ui_trash_crumple', name: 'Paper Crumple', desc: 'Quick trash bin paper crunch.' }
+    ]
+  }
 ];
 
 interface VideoPreviewProps {
@@ -125,6 +180,39 @@ const VideoPreview: React.FC<VideoPreviewProps> = ({ clipId, thumbnail, clipStar
   );
 };
 
+const emojiMap: Record<string, string> = {
+  // Fitness
+  'gym': '🏋️‍♂️', 'workout': '🏋️‍♂️', 'fitness': '💪', 'strong': '💪', 'training': '🏋️‍♂️', 'athlete': '🏃‍♂️', 'exercise': '🏋️‍♂️',
+  'run': '🏃‍♂️', 'walk': '🏃‍♂️', 'jump': '🦘', 'swim': '🏊‍♂️', 'climb': '🧗‍♂️', 'wrestling': '🤼‍♂️', 'martial': '🥋', 'karate': '🥋', 'judo': '🥋', 'gymnastics': '🤸‍♂️', 'boxing': '🥊', 'punch': '🥊', 'fight': '🥊',
+  // Money
+  'money': '💰', 'rich': '💰', 'million': '💵', 'billion': '💵', 'cash': '💵', 'dollar': '💵', 'wealth': '💰', 'broke': '💸', 'poor': '💸', 'bank': '🏦', 'card': '💳', 'credit': '💳', 'pay': '💵', 'buy': '🛒', 'sell': '📈', 'price': '🏷️', 'cost': '🏷️', 'bill': '💵', 'tax': '💸', 'gold': '🪙', 'coin': '🪙', 'diamond': '💎', 'gem': '💎', 'ring': '💍',
+  // Power
+  'fire': '🔥', 'hot': '🔥', 'burn': '🔥', 'flame': '🔥',
+  'danger': '⚠️', 'warn': '⚠️', 'warning': '⚠️', 'alert': '⚠️', 'stop': '🛑', 'go': '🟢', 'power': '⚡', 'energy': '⚡', 'speed': '⚡', 'fast': '⚡', 'lightning': '⚡', 'thunder': '⛈️', 'storm': '⛈️', 'bomb': '💣', 'explode': '💥', 'explosion': '💥', 'destroy': '💥', 'crash': '💥',
+  // Mind
+  'mind': '🧠', 'brain': '🧠', 'think': '🧠', 'smart': '🧠', 'idea': '💡', 'thought': '🤔', 'secret': '🤫', 'quiet': '🤫', 'genius': '🧠', 'truth': '🗣️', 'speak': '🗣️', 'talk': '🗣️', 'listen': '👂', 'hear': '👂',
+  // Goals
+  'time': '⏱️', 'clock': '⏰', 'watch': '⌚', 'target': '🎯', 'goal': '🎯', 'success': '🏆', 'win': '🏆', 'winner': '🏆', 'victory': '🏆', 'trophy': '🏆', 'medal': '🏅', 'first': '🥇', 'crown': '👑', 'king': '👑', 'queen': '👑',
+  // Emotions
+  'love': '❤️', 'heart': '❤️', 'broken': '💔', 'hate': '💔', 'scream': '😱', 'scared': '😱', 'shock': '😱', 'fear': '😨', 'ghost': '👻', 'monster': '👹', 'alien': '👽', 'happy': '😊', 'smile': '😊', 'excited': '🤩', 'wow': '😮', 'shocked': '😲', 'surprised': '😲', 'confused': '😕', 'laugh': '😂', 'funny': '😂', 'joke': '😂', 'cry': '😭', 'sad': '😭', 'crap': '💩', 'shit': '💩',
+  // Tech
+  'phone': '📱', 'mobile': '📱', 'computer': '💻', 'laptop': '💻', 'code': '💻', 'software': '💻', 'program': '💻', 'gift': '🎁', 'party': '🎉', 'celebrate': '🎉', 'key': '🔑', 'lock': '🔒', 'unlock': '🔓', 'door': '🚪', 'bed': '🛏️', 'tv': '📺', 'camera': '📷', 'photo': '📷', 'video': '🎥', 'movie': '🎬', 'film': '🎬', 'music': '🎵', 'song': '🎶', 'sing': '🎤', 'dance': '💃', 'book': '📖', 'read': '📖', 'write': '✍️',
+  // Travel
+  'car': '🏎️', 'bus': '🚌', 'truck': '🚚', 'bike': '🚲', 'travel': '✈️', 'trip': '✈️', 'plane': '✈️', 'train': '🚆', 'rocket': '🚀', 'fly': '🚀',
+  // Nature
+  'earth': '🌍', 'world': '🌎', 'nature': '🌿', 'sun': '☀️', 'moon': '🌙', 'star': '⭐', 'sky': '🌌', 'cloud': '☁️', 'rain': '🌧️', 'snow': '❄️', 'wind': '💨', 'ice': '❄️', 'water': '💧', 'ocean': '🌊', 'sea': '🌊', 'mountain': '⛰️', 'forest': '🌲', 'flower': '🌸', 'rose': '🌹', 'tree': '🌳',
+  // Animals
+  'dog': '🐶', 'cat': '🐱', 'bird': '🐦', 'fish': '🐟', 'shark': '🦈', 'lion': '🦁', 'tiger': '🐯', 'bear': '🐻', 'wolf': '🐺', 'fox': '🦊',
+  // Food
+  'food': '🍔', 'pizza': '🍕', 'burger': '🍔', 'fries': '🍟', 'coffee': '☕', 'drink': '🍹'
+};
+
+function getWordEmoji(word: string) {
+  if (!word) return '';
+  const clean = word.toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g, "");
+  return emojiMap[clean] || '';
+}
+
 interface BeatSyncProps {
   projectId: string | null;
   onStartRender: (jobId: string) => void;
@@ -153,6 +241,23 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
   // Editor boundaries & scenes list
   const [boundaries, setBoundaries] = useState<number[]>([]);
   const [scenes, setScenes] = useState<BeatScene[]>([]);
+  const [sfxList, setSfxList] = useState<{ id: string; name: string }[]>([]);
+
+  useEffect(() => {
+    const fetchSfxs = async () => {
+      try {
+        const res = await fetch('/api/sfx');
+        if (res.ok) {
+          const data = await res.json();
+          setSfxList(data);
+        }
+      } catch (err) {
+        console.warn('Failed to fetch SFXs:', err);
+      }
+    };
+    fetchSfxs();
+  }, []);
+
   const [miniBeats, setMiniBeats] = useState<number[]>([]);
   const [miniBeatEffect, setMiniBeatEffect] = useState<'none' | 'blink' | 'shake' | 'both'>('none');
   
@@ -185,8 +290,37 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
   const [emphasisColor, setEmphasisColor] = useState('#FFFF00');
   const [neonGlow, setNeonGlow] = useState(false);
   const [glowColor, setGlowColor] = useState('#00FFFF');
+  const [glowBlur, setGlowBlur] = useState(6);
+  const [glowDistance, setGlowDistance] = useState(3);
+  const [highlightTrigger, setHighlightTrigger] = useState<'all' | 'emphasis' | 'emoji'>('all');
   const [pop3d, setPop3d] = useState(false);
   const [pop3dColor, setPop3dColor] = useState('#000000');
+  
+  const [normalStyle, setNormalStyle] = useState<WordStyle>({
+    fontColor: '#FFFFFF',
+    activeWordScale: 1.0,
+    neonGlow: false,
+    glowColor: '#00FFFF',
+    glowBlur: 6,
+    glowDistance: 3
+  });
+  const [highlightStyle, setHighlightStyle] = useState<WordStyle>({
+    fontColor: '#FFFF00',
+    activeWordScale: 1.15,
+    neonGlow: false,
+    glowColor: '#00FFFF',
+    glowBlur: 6,
+    glowDistance: 3
+  });
+  const [emojiStyle, setEmojiStyle] = useState<WordStyle>({
+    fontColor: '#FFFF00',
+    activeWordScale: 1.15,
+    neonGlow: false,
+    glowColor: '#00FFFF',
+    glowBlur: 6,
+    glowDistance: 3
+  });
+  const [styleTab, setStyleTab] = useState<'normal' | 'highlight' | 'emoji'>('normal');
   
   // UI states
   const [uploading, setUploading] = useState(false);
@@ -218,6 +352,38 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [previewingSfx, setPreviewingSfx] = useState<string | null>(null);
+  const sfxAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  const handlePlaySfx = (sfxId: string) => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      setIsPlaying(false);
+    }
+    if (sfxAudioRef.current) {
+      sfxAudioRef.current.pause();
+      sfxAudioRef.current = null;
+    }
+
+    if (previewingSfx === sfxId) {
+      setPreviewingSfx(null);
+      return;
+    }
+
+    const cleanSfx = sfxId.endsWith('.mp3') ? sfxId : `${sfxId}.mp3`;
+    const url = `/uploads/sfx/${cleanSfx}`;
+    const audio = new Audio(url);
+    sfxAudioRef.current = audio;
+    setPreviewingSfx(sfxId);
+    audio.play().catch(err => {
+      console.warn('Failed to play SFX:', err);
+      setPreviewingSfx(null);
+    });
+
+    audio.onended = () => {
+      setPreviewingSfx(null);
+    };
+  };
 
   // Formatting settings (Right Column)
   const [aspectRatio, setAspectRatio] = useState<'9:16' | '16:9' | '1:1'>('9:16');
@@ -257,22 +423,6 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
   const [exportResolution, setExportResolution] = useState<'1080p' | '2k' | '4k'>('1080p');
   const [exportFps, setExportFps] = useState<24 | 30 | 60>(30);
 
-  // Fetch initial data & project state
-  useEffect(() => {
-    const init = async () => {
-      setHasLoadedProject(false);
-      await fetchClips();
-      await fetchBgms();
-      await checkSettings();
-      await fetchProjectState();
-    };
-    init();
-    return () => {
-      if (audioRef.current) {
-        audioRef.current.pause();
-      }
-    };
-  }, [projectId]);
 
   // Reset audio preview when audioUrl changes
   useEffect(() => {
@@ -283,7 +433,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
     }
   }, [audioUrl]);
 
-  const fetchProjectState = async () => {
+  async function fetchProjectState() {
     if (!projectId) {
       setHasLoadedProject(true);
       return;
@@ -342,8 +492,39 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
         if (state.emphasisColor !== undefined) setEmphasisColor(state.emphasisColor);
         if (state.neonGlow !== undefined) setNeonGlow(state.neonGlow);
         if (state.glowColor !== undefined) setGlowColor(state.glowColor);
+        if (state.glowBlur !== undefined) setGlowBlur(state.glowBlur);
+        if (state.glowDistance !== undefined) setGlowDistance(state.glowDistance);
+        if (state.highlightTrigger !== undefined) setHighlightTrigger(state.highlightTrigger);
         if (state.pop3d !== undefined) setPop3d(state.pop3d);
         if (state.pop3dColor !== undefined) setPop3dColor(state.pop3dColor);
+
+        const norm = state.normalStyle || {
+          fontColor: state.fontColor || '#FFFFFF',
+          activeWordScale: 1.0,
+          neonGlow: !!state.neonGlow,
+          glowColor: state.glowColor || '#00FFFF',
+          glowBlur: state.glowBlur !== undefined ? state.glowBlur : 6,
+          glowDistance: state.glowDistance !== undefined ? state.glowDistance : 3
+        };
+        const high = state.highlightStyle || {
+          fontColor: state.highlightColor || '#FFFF00',
+          activeWordScale: state.activeWordScale !== undefined ? state.activeWordScale : 1.15,
+          neonGlow: !!state.neonGlow,
+          glowColor: state.glowColor || '#00FFFF',
+          glowBlur: state.glowBlur !== undefined ? state.glowBlur : 6,
+          glowDistance: state.glowDistance !== undefined ? state.glowDistance : 3
+        };
+        const emoj = state.emojiStyle || {
+          fontColor: state.highlightColor || '#FFFF00',
+          activeWordScale: state.activeWordScale !== undefined ? state.activeWordScale : 1.15,
+          neonGlow: !!state.neonGlow,
+          glowColor: state.glowColor || '#00FFFF',
+          glowBlur: state.glowBlur !== undefined ? state.glowBlur : 6,
+          glowDistance: state.glowDistance !== undefined ? state.glowDistance : 3
+        };
+        setNormalStyle(norm);
+        setHighlightStyle(high);
+        setEmojiStyle(emoj);
       }
     } catch (err) {
       console.error('Failed to load beat sync project state:', err);
@@ -408,8 +589,14 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
               emphasisColor,
               neonGlow,
               glowColor,
+              glowBlur,
+              glowDistance,
+              highlightTrigger,
               pop3d,
-              pop3dColor
+              pop3dColor,
+              normalStyle,
+              highlightStyle,
+              emojiStyle
             }
           })
         });
@@ -469,10 +656,16 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
     emphasisColor,
     neonGlow,
     glowColor,
+    glowBlur,
+    glowDistance,
+    highlightTrigger,
     pop3d,
     pop3dColor,
     hasLoadedProject,
-    projectId
+    projectId,
+    normalStyle,
+    highlightStyle,
+    emojiStyle
   ]);
 
   // Load Google Font style dynamically in the document head
@@ -548,7 +741,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
     font.toLowerCase().includes(fontSearchQuery.toLowerCase())
   );
 
-  const fetchClips = async () => {
+  async function fetchClips() {
     try {
       const res = await fetch('/api/clips');
       if (res.ok) {
@@ -560,7 +753,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
     }
   };
 
-  const fetchBgms = async () => {
+  async function fetchBgms() {
     try {
       const res = await fetch('/api/bgms');
       if (res.ok) {
@@ -572,7 +765,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
     }
   };
 
-  const checkSettings = async () => {
+  async function checkSettings() {
     try {
       const res = await fetch('/api/settings');
       if (res.ok) {
@@ -584,9 +777,36 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
     }
   };
 
+  // Fetch initial data & project state
+  useEffect(() => {
+    const init = async () => {
+      setHasLoadedProject(false);
+      await fetchClips();
+      await fetchBgms();
+      await checkSettings();
+      await fetchProjectState();
+    };
+    init();
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+      if (sfxAudioRef.current) {
+        sfxAudioRef.current.pause();
+      }
+    };
+  }, [projectId]);
+
+
   // Audio Previews control
   const togglePlayAudio = () => {
     if (!audioUrl) return;
+    
+    if (sfxAudioRef.current) {
+      sfxAudioRef.current.pause();
+      setPreviewingSfx(null);
+    }
+    
     if (!audioRef.current) {
       audioRef.current = new Audio(audioUrl);
       audioRef.current.addEventListener('ended', () => setIsPlaying(false));
@@ -807,6 +1027,51 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
     }
   };
 
+  // Helper to clamp and adjust word timings strictly within segment start/end times
+  const clampWordTimings = (wordsList: WordTiming[], start: number, end: number): WordTiming[] => {
+    if (!wordsList || wordsList.length === 0) return [];
+    const duration = end - start;
+    
+    // 1. Initial localization relative to start
+    const localWords = wordsList.map(w => ({
+      word: w.word,
+      start: w.start_time - start,
+      end: w.end_time - start,
+      sfx: w.sfx
+    }));
+
+    const N = localWords.length;
+    const safeDuration = Math.max(0.01, duration);
+    const W = Math.max(0.001, Math.min(0.08, safeDuration / N));
+
+    // 2. Adjust starts to fit in [0, duration] with minimum spacing W
+    const starts: number[] = [];
+    for (let i = 0; i < N; i++) {
+      const idealStart = localWords[i].start;
+      const minStart = i * W;
+      const maxStart = safeDuration - (N - i) * W;
+      const clampedStart = Math.max(minStart, Math.min(maxStart, idealStart));
+      starts.push(clampedStart);
+    }
+
+    // 3. Compute ends
+    const adjustedWords: WordTiming[] = [];
+    for (let i = 0; i < N; i++) {
+      const originalDur = Math.max(W, localWords[i].end - localWords[i].start);
+      const startVal = starts[i];
+      const nextStart = (i < N - 1) ? starts[i + 1] : safeDuration;
+      const endVal = Math.min(nextStart, startVal + originalDur);
+      adjustedWords.push({
+        word: localWords[i].word,
+        start_time: Number((start + startVal).toFixed(3)),
+        end_time: Number((start + endVal).toFixed(3)),
+        sfx: localWords[i].sfx
+      });
+    }
+
+    return adjustedWords;
+  };
+
   // Rebuild scenes list from sorted boundaries list
   const rebuildScenes = (bounds: number[], currentScenes: BeatScene[] = []) => {
     const sorted = [...bounds].sort((a, b) => a - b);
@@ -841,13 +1106,17 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
         }
       }
       
-      // Filter words for this time range
-      const sceneWords = allWords.filter(w => w.start_time >= start && w.start_time < end);
-      const sceneWordsHindi = allWordsHindi.filter(w => w.start_time >= start && w.start_time < end);
-      const sceneWordsHinglish = allWordsHinglish.filter(w => w.start_time >= start && w.start_time < end);
+      // Filter words for this time range and clamp them strictly to new scene bounds
+      const filteredWords = allWords.filter(w => w.start_time >= start && w.start_time < end);
+      const filteredWordsHindi = allWordsHindi.filter(w => w.start_time >= start && w.start_time < end);
+      const filteredWordsHinglish = allWordsHinglish.filter(w => w.start_time >= start && w.start_time < end);
+
+      const sceneWords = clampWordTimings(filteredWords, start, end);
+      const sceneWordsHindi = clampWordTimings(filteredWordsHindi, start, end);
+      const sceneWordsHinglish = clampWordTimings(filteredWordsHinglish, start, end);
       
       // Determine text
-      let text = '';
+      let text: string;
       if (sceneWords.length > 0) {
         text = sceneWords.map(w => w.word).join(' ');
       } else if (overlappingScenes.length > 0) {
@@ -858,7 +1127,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
       }
 
       // Determine text_hindi
-      let text_hindi = '';
+      let text_hindi: string;
       if (sceneWordsHindi.length > 0) {
         text_hindi = sceneWordsHindi.map(w => w.word).join(' ');
       } else if (overlappingScenes.length > 0) {
@@ -868,7 +1137,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
       }
 
       // Determine text_hinglish
-      let text_hinglish = '';
+      let text_hinglish: string;
       if (sceneWordsHinglish.length > 0) {
         text_hinglish = sceneWordsHinglish.map(w => w.word).join(' ');
       } else if (overlappingScenes.length > 0) {
@@ -978,6 +1247,59 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
     const updated = [...scenes];
     updated[idx].clipStart = val;
     setScenes(updated);
+  };
+
+  const updateSceneTransition = (idx: number, transition: string) => {
+    const updated = [...scenes];
+    updated[idx].transition = transition;
+    setScenes(updated);
+  };
+
+  const updateSceneSfx = (idx: number, sfx: string) => {
+    const updated = [...scenes];
+    updated[idx].sfx = sfx;
+    setScenes(updated);
+  };
+
+  const handleRecommendTransitionsAndSfx = () => {
+    const transitionSfxMap: { [key: string]: string } = {
+      'slide-left': 'trans_swoosh_fast',
+      'slide-right': 'trans_swoosh_fast',
+      'zoom-in': 'trans_swoosh_deep',
+      'zoom-out': 'trans_swoosh_deep',
+      'fade': 'trans_swoosh_fast',
+      'blur-zoom-in': 'trans_swoosh_deep'
+    };
+
+    const updated = scenes.map((scene, idx) => {
+      if (idx === scenes.length - 1) {
+        return { ...scene, transition: 'none', sfx: 'none' };
+      }
+
+      const text = (scene.text || '').toLowerCase();
+      let transition: string;
+      let sfx: string;
+
+      if (text.includes('gym') || text.includes('workout') || text.includes('strong') || text.includes('heavy') || text.includes('beast') || text.includes('lift') || text.includes('deadlift')) {
+        transition = 'zoom-in';
+        sfx = 'trans_swoosh_deep';
+      } else if (text.includes('money') || text.includes('rich') || text.includes('wealth') || text.includes('success') || text.includes('target')) {
+        transition = 'fade';
+        sfx = 'trans_swoosh_fast';
+      } else if (text.includes('danger') || text.includes('warning') || text.includes('stop') || text.includes('never') || text.includes('secret')) {
+        transition = 'zoom-out';
+        sfx = 'trans_swoosh_deep';
+      } else {
+        const pool = ['slide-left', 'slide-right', 'fade', 'zoom-in'];
+        transition = pool[idx % pool.length];
+        sfx = transitionSfxMap[transition] || 'trans_swoosh_fast';
+      }
+
+      return { ...scene, transition, sfx };
+    });
+
+    setScenes(updated);
+    setSuccess('Transitions & SFXs recommended successfully!');
   };
 
   const updateSceneText = (idx: number, text: string) => {
@@ -1091,7 +1413,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
           usedSegments.add(`${selectedClip.id}_${selectedSegIdx}`);
 
           // Calculate clipStart within the selected segment
-          let clipStart = 0;
+          let clipStart: number;
           let pickedSegmentDesc = '';
 
           if (selectedSegment) {
@@ -1200,8 +1522,14 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
             emphasisColor,
             neonGlow,
             glowColor,
+            glowBlur,
+            glowDistance,
+            highlightTrigger,
             pop3d,
-            pop3dColor
+            pop3dColor,
+            normalStyle,
+            highlightStyle,
+            emojiStyle
           }
         })
       });
@@ -1346,12 +1674,23 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
                 )}
 
                 <button
+                  type="button"
+                  onClick={handleRecommendTransitionsAndSfx}
+                  className="btn-secondary"
+                  disabled={clips.length === 0}
+                  style={{ fontSize: '12px', height: '32px', padding: '0 12px', borderColor: 'var(--accent-purple)', color: 'var(--accent-purple)' }}
+                >
+                  <Sparkles size={12} />
+                  Auto-Recommend SFX & Transition
+                </button>
+                <button
+                  type="button"
                   onClick={handleAutoMatchClips}
                   className="btn-secondary"
                   disabled={matching || clips.length === 0}
                   style={{ fontSize: '12px', height: '32px', padding: '0 12px' }}
                 >
-                  <Sparkles size={12} style={{ marginRight: '4px' }} />
+                  <Sparkles size={12} />
                   {matching ? 'Matching...' : 'Auto-Match Video Clips'}
                 </button>
               </div>
@@ -1582,6 +1921,78 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
                         Play-and-Reverse (Beat Bounce)
                       </label>
                     </div>
+
+                    {idx < scenes.length - 1 && (
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', borderTop: '1px solid var(--border-light)', paddingTop: '10px', marginTop: '4px' }}>
+                        <div>
+                          <label className="label" style={{ fontSize: '10px', marginBottom: '4px' }}>Transition Out</label>
+                          <select
+                            className="input-field"
+                            value={scene.transition || 'none'}
+                            onChange={(e) => updateSceneTransition(idx, e.target.value)}
+                            style={{ margin: 0, fontSize: '11px', height: '28px', padding: '0 8px' }}
+                          >
+                            <option value="none">None</option>
+                            <option value="fade">Fade</option>
+                            <option value="slide-left">Slide Left</option>
+                            <option value="slide-right">Slide Right</option>
+                            <option value="slide-up">Slide Up</option>
+                            <option value="slide-down">Slide Down</option>
+                            <option value="zoom-in">Zoom In</option>
+                            <option value="zoom-out">Zoom Out</option>
+                            <option value="random">Random</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="label" style={{ fontSize: '10px', marginBottom: '4px' }}>Transition SFX</label>
+                          <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                            <select
+                              className="input-field"
+                              value={scene.sfx || 'none'}
+                              onChange={(e) => updateSceneSfx(idx, e.target.value)}
+                              style={{ margin: 0, fontSize: '11px', height: '28px', padding: '0 8px', flex: 1, minWidth: 0 }}
+                            >
+                              <option value="none">None</option>
+                              {(sfxList.length > 0 ? sfxList : [
+                                { id: 'trans_swoosh_fast', name: 'Snappy Swoosh' },
+                                { id: 'trans_swoosh_deep', name: 'Cinematic Whoosh' },
+                                { id: 'trans_glitch_digital', name: 'Glitch / Static' },
+                                { id: 'trans_shutter_click', name: 'Shutter & Flash' },
+                                { id: 'trans_vhs_rewind', name: 'Tape Rewind' },
+                                { id: 'trans_paper_slide', name: 'Page Slide' },
+                                { id: 'reveal_pop_bubble', name: 'Bubble Pop' },
+                                { id: 'reveal_kb_click', name: 'Keyboard Tap' },
+                                { id: 'reveal_ding_bell', name: 'Snappy Ding' },
+                                { id: 'reveal_swoosh_zip', name: 'Micro Zip' },
+                                { id: 'reveal_chime_sweet', name: 'Synth Chime' },
+                                { id: 'hook_bass_drop', name: 'Sub Bass Rumble' },
+                                { id: 'hook_vinyl_scratch', name: 'Record Scratch' },
+                                { id: 'hook_metal_hit', name: 'Cinematic Metal Hit' },
+                                { id: 'hook_woosh_hit', name: 'Whoosh To Hit' },
+                                { id: 'hook_cymbal_swell', name: 'Reversed Cymbal' }
+                              ]).map(sfx => (
+                                <option key={sfx.id} value={sfx.id}>{sfx.name}</option>
+                              ))}
+                            </select>
+                            {scene.sfx && scene.sfx !== 'none' && (
+                              <button
+                                type="button"
+                                onClick={() => handlePlaySfx(scene.sfx!)}
+                                style={{
+                                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                  width: '28px', height: '28px', borderRadius: '4px', border: '1px solid var(--border-light)',
+                                  background: 'var(--bg-card)', color: 'var(--text-white)', cursor: 'pointer',
+                                  transition: 'all 0.2s', flexShrink: 0
+                                }}
+                                title="Preview SFX"
+                              >
+                                {previewingSfx === scene.sfx ? <Pause size={12} /> : <Play size={12} />}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
 
                     {scene.reason && (
                       <div style={{ fontSize: '10px', color: 'var(--text-muted)', borderLeft: '2px solid var(--accent-purple)', paddingLeft: '6px' }}>
@@ -1847,6 +2258,44 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
                   </button>
                 </section>
               )}
+
+              {/* Sound Effects Library */}
+              <section className="glass-panel" style={{ padding: '20px', maxHeight: '420px', overflowY: 'auto', marginBottom: '24px' }}>
+                <h4 style={{ fontSize: '13px', marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '6px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  <Music size={15} style={{ color: 'var(--accent-purple)' }} />
+                  Sound Effects Library
+                </h4>
+
+                {SFX_CATEGORIES.map(cat => (
+                  <div key={cat.name} style={{ marginBottom: '16px' }}>
+                    <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--accent-purple)', marginBottom: '8px', borderBottom: '1px solid var(--border-light)', paddingBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      {cat.name}
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      {cat.items.map(item => (
+                        <div key={item.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 8px', background: 'rgba(255, 255, 255, 0.02)', borderRadius: '6px', border: '1px solid rgba(255, 255, 255, 0.04)' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '1px', flex: 1, marginRight: '8px', minWidth: 0 }}>
+                            <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-white)' }}>{item.name}</span>
+                            <span style={{ fontSize: '9px', color: 'var(--text-gray)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={item.desc}>{item.desc}</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handlePlaySfx(item.id)}
+                            style={{
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              width: '24px', height: '24px', borderRadius: '4px', border: 'none',
+                              background: previewingSfx === item.id ? 'var(--accent-purple)' : 'rgba(255, 255, 255, 0.08)',
+                              color: 'var(--text-white)', cursor: 'pointer', transition: 'all 0.2s', flexShrink: 0
+                            }}
+                          >
+                            {previewingSfx === item.id ? <Pause size={10} /> : <Play size={10} />}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </section>
             </div>
           )}
 
@@ -2410,14 +2859,8 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
                 />
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '14px' }}>
-                <div>
-                  <label className="label">Font Color</label>
-                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                    <input type="color" value={fontColor} onChange={(e) => setFontColor(e.target.value)} style={{ width: '28px', height: '28px', padding: 0, border: 'none', background: 'none', cursor: 'pointer' }} />
-                    <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{fontColor.toUpperCase()}</span>
-                  </div>
-                </div>
+              {/* Outline Color & Formatting */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '14px', alignItems: 'center' }}>
                 <div>
                   <label className="label">Outline Color</label>
                   <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -2425,67 +2868,359 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
                     <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{outlineColor.toUpperCase()}</span>
                   </div>
                 </div>
+                <div>
+                  <label className="label">Formatting</label>
+                  <div style={{ display: 'flex', gap: '10px' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={bold} onChange={(e) => setBold(e.target.checked)} />
+                      B
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={italic} onChange={(e) => setItalic(e.target.checked)} />
+                      I
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={shadow} onChange={(e) => setShadow(e.target.checked)} />
+                      S
+                    </label>
+                  </div>
+                </div>
               </div>
 
-              <div style={{ display: 'flex', gap: '14px', marginBottom: '14px' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer' }}>
-                  <input type="checkbox" checked={bold} onChange={(e) => setBold(e.target.checked)} />
-                  Bold
-                </label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer' }}>
-                  <input type="checkbox" checked={italic} onChange={(e) => setItalic(e.target.checked)} />
-                  Italic
-                </label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer' }}>
-                  <input type="checkbox" checked={shadow} onChange={(e) => setShadow(e.target.checked)} />
-                  Shadow
-                </label>
-              </div>
+              {/* Word-Specific Styles Section */}
+              <div className="inspector-card" style={{ background: 'var(--bg-darker)', border: '1px solid var(--border-medium)', borderRadius: '8px', padding: '12px', marginBottom: '14px' }}>
+                <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-white)', marginBottom: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span>Word styling (Normal, Highlight, Emoji)</span>
+                </div>
+                
+                {/* Tab Headers */}
+                <div style={{ display: 'flex', gap: '4px', background: 'rgba(0,0,0,0.2)', padding: '4px', borderRadius: '6px', marginBottom: '12px' }}>
+                  {(['normal', 'highlight', 'emoji'] as const).map(tab => (
+                    <button
+                      key={tab}
+                      type="button"
+                      onClick={() => setStyleTab(tab)}
+                      style={{
+                        flex: 1,
+                        padding: '6px 0',
+                        borderRadius: '4px',
+                        border: 'none',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        textTransform: 'capitalize',
+                        cursor: 'pointer',
+                        background: styleTab === tab ? 'var(--primary)' : 'transparent',
+                        color: styleTab === tab ? 'var(--text-white)' : 'var(--text-gray)',
+                        transition: 'all 0.2s'
+                      }}
+                    >
+                      {tab}
+                    </button>
+                  ))}
+                </div>
 
-              {(subtitleMode === 'pop' || subtitleMode === 'centered-word' || subtitleMode === 'smart-highlight') && (
-                <div style={{ borderTop: '1px solid var(--border-light)', paddingTop: '14px', marginTop: '14px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                  <div>
-                    <label className="label">Highlight Word Color</label>
-                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                      <input type="color" value={highlightColor} onChange={(e) => setHighlightColor(e.target.value)} style={{ width: '28px', height: '28px', padding: 0, border: 'none', background: 'none', cursor: 'pointer' }} />
-                      <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{highlightColor.toUpperCase()}</span>
+                {/* Toolbar for copy-sync buttons */}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '12px', borderBottom: '1px solid var(--border-light)', paddingBottom: '10px' }}>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() => {
+                      setHighlightStyle({ ...normalStyle });
+                      setEmojiStyle({ ...normalStyle });
+                    }}
+                    style={{ fontSize: '10px', padding: '4px 8px', height: 'auto' }}
+                  >
+                    Copy Normal to All
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() => {
+                      setEmojiStyle({ ...highlightStyle });
+                    }}
+                    style={{ fontSize: '10px', padding: '4px 8px', height: 'auto' }}
+                  >
+                    Copy Highlight to Emoji
+                  </button>
+                </div>
+
+                {/* Tab Contents */}
+                <div>
+                  {/* 1. Text Color */}
+                  <div style={{ marginBottom: '12px' }}>
+                    <label className="label" style={{ marginBottom: '4px', fontSize: '11px' }}>Text Color</label>
+                    <div style={{ 
+                      background: 'rgba(0,0,0,0.15)', border: '1px solid var(--border-medium)', 
+                      borderRadius: '4px', padding: '4px 8px', display: 'flex', alignItems: 'center', 
+                      gap: '6px', height: '34px' 
+                    }}>
+                      <div style={{ position: 'relative', width: '20px', height: '20px', borderRadius: '4px', overflow: 'hidden', border: '1px solid var(--border-medium)', cursor: 'pointer' }}>
+                        <input 
+                          type="color" 
+                          value={styleTab === 'normal' ? normalStyle.fontColor : styleTab === 'highlight' ? highlightStyle.fontColor : emojiStyle.fontColor} 
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (styleTab === 'normal') {
+                              setNormalStyle({ ...normalStyle, fontColor: val });
+                              setFontColor(val);
+                            } else if (styleTab === 'highlight') {
+                              setHighlightStyle({ ...highlightStyle, fontColor: val });
+                              setHighlightColor(val);
+                            } else {
+                              setEmojiStyle({ ...emojiStyle, fontColor: val });
+                            }
+                          }} 
+                          style={{ position: 'absolute', top: '-4px', left: '-4px', width: '28px', height: '28px', padding: 0, border: 'none', background: 'none', cursor: 'pointer' }} 
+                        />
+                      </div>
+                      <input 
+                        type="text" 
+                        value={(styleTab === 'normal' ? normalStyle.fontColor : styleTab === 'highlight' ? highlightStyle.fontColor : emojiStyle.fontColor).toUpperCase()} 
+                        onChange={(e) => {
+                          let val = e.target.value;
+                          if (!val.startsWith('#') && val.length > 0) val = '#' + val;
+                          if (styleTab === 'normal') {
+                            setNormalStyle({ ...normalStyle, fontColor: val });
+                            setFontColor(val);
+                          } else if (styleTab === 'highlight') {
+                            setHighlightStyle({ ...highlightStyle, fontColor: val });
+                            setHighlightColor(val);
+                          } else {
+                            setEmojiStyle({ ...emojiStyle, fontColor: val });
+                          }
+                        }} 
+                        style={{ 
+                          background: 'none', border: 'none', color: 'var(--text-white)', 
+                          fontFamily: 'monospace', fontSize: '11px', width: '100%', outline: 'none',
+                          padding: 0
+                        }} 
+                        placeholder="#FFFFFF"
+                      />
                     </div>
                   </div>
 
+                  {/* 2. Active Word Scale */}
+                  <div style={{ marginBottom: '12px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                      <label className="label" style={{ margin: 0, fontSize: '11px' }}>Active Scale Zoom</label>
+                      <span style={{ fontSize: '10px', fontFamily: 'monospace' }}>
+                        {(styleTab === 'normal' ? normalStyle.activeWordScale : styleTab === 'highlight' ? highlightStyle.activeWordScale : emojiStyle.activeWordScale).toFixed(2)}x
+                      </span>
+                    </div>
+                    <input 
+                      type="range" min={1.00} max={1.60} step={0.05} 
+                      value={styleTab === 'normal' ? normalStyle.activeWordScale : styleTab === 'highlight' ? highlightStyle.activeWordScale : emojiStyle.activeWordScale}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value);
+                        if (styleTab === 'normal') {
+                          setNormalStyle({ ...normalStyle, activeWordScale: val });
+                        } else if (styleTab === 'highlight') {
+                          setHighlightStyle({ ...highlightStyle, activeWordScale: val });
+                          setActiveWordScale(val);
+                        } else {
+                          setEmojiStyle({ ...emojiStyle, activeWordScale: val });
+                        }
+                      }}
+                      style={{ width: '100%', accentColor: 'var(--primary)', cursor: 'pointer' }}
+                    />
+                  </div>
+
+                  {/* 3. Neon Glow */}
+                  <div style={{ borderTop: '1px solid var(--border-light)', paddingTop: '10px', marginTop: '10px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span>💡</span>
+                        <span style={{ fontSize: '11px', fontWeight: 500 }}>Glow Enabled</span>
+                      </div>
+                      <div 
+                        className={`stitch-switch ${(styleTab === 'normal' ? normalStyle.neonGlow : styleTab === 'highlight' ? highlightStyle.neonGlow : emojiStyle.neonGlow) ? 'active' : ''}`} 
+                        onClick={() => {
+                          if (styleTab === 'normal') {
+                            const target = !normalStyle.neonGlow;
+                            setNormalStyle({ ...normalStyle, neonGlow: target });
+                            setNeonGlow(target);
+                          } else if (styleTab === 'highlight') {
+                            const target = !highlightStyle.neonGlow;
+                            setHighlightStyle({ ...highlightStyle, neonGlow: target });
+                          } else {
+                            const target = !emojiStyle.neonGlow;
+                            setEmojiStyle({ ...emojiStyle, neonGlow: target });
+                          }
+                        }}
+                      >
+                        <div className="stitch-switch-handle" />
+                      </div>
+                    </div>
+
+                    {(styleTab === 'normal' ? normalStyle.neonGlow : styleTab === 'highlight' ? highlightStyle.neonGlow : emojiStyle.neonGlow) && (
+                      <div style={{ 
+                        padding: '8px', background: 'rgba(0,0,0,0.2)', 
+                        borderRadius: '6px', border: '1px solid var(--border-medium)',
+                        display: 'flex', flexDirection: 'column', gap: '8px'
+                      }}>
+                        {/* Glow Color */}
+                        <div>
+                          <label className="label" style={{ marginBottom: '2px', fontSize: '10px' }}>Glow Color</label>
+                          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                            <div style={{ position: 'relative', width: '18px', height: '18px', borderRadius: '4px', overflow: 'hidden', border: '1px solid var(--border-medium)', cursor: 'pointer' }}>
+                              <input 
+                                type="color" 
+                                value={styleTab === 'normal' ? normalStyle.glowColor : styleTab === 'highlight' ? highlightStyle.glowColor : emojiStyle.glowColor} 
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  if (styleTab === 'normal') {
+                                    setNormalStyle({ ...normalStyle, glowColor: val });
+                                    setGlowColor(val);
+                                  } else if (styleTab === 'highlight') {
+                                    setHighlightStyle({ ...highlightStyle, glowColor: val });
+                                  } else {
+                                    setEmojiStyle({ ...emojiStyle, glowColor: val });
+                                  }
+                                }} 
+                                style={{ position: 'absolute', top: '-4px', left: '-4px', width: '26px', height: '26px', padding: 0, border: 'none', background: 'none', cursor: 'pointer' }} 
+                              />
+                            </div>
+                            <input 
+                              type="text" 
+                              value={(styleTab === 'normal' ? normalStyle.glowColor : styleTab === 'highlight' ? highlightStyle.glowColor : emojiStyle.glowColor).toUpperCase()} 
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                let hex = val;
+                                if (!hex.startsWith('#') && hex.length > 0) hex = '#' + hex;
+                                if (styleTab === 'normal') {
+                                  setNormalStyle({ ...normalStyle, glowColor: hex });
+                                  setGlowColor(hex);
+                                } else if (styleTab === 'highlight') {
+                                  setHighlightStyle({ ...highlightStyle, glowColor: hex });
+                                } else {
+                                  setEmojiStyle({ ...emojiStyle, glowColor: hex });
+                                }
+                              }}
+                              className="input-field"
+                              style={{ flex: 1, height: '24px', padding: '2px 6px', fontSize: '10px', fontFamily: 'monospace' }}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Glow Blur */}
+                        <div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1px' }}>
+                            <label className="label" style={{ fontSize: '10px', margin: 0 }}>Glow Strength (Blur)</label>
+                            <span style={{ fontSize: '9px', color: 'var(--text-muted)' }}>
+                              {styleTab === 'normal' ? normalStyle.glowBlur : styleTab === 'highlight' ? highlightStyle.glowBlur : emojiStyle.glowBlur}px
+                            </span>
+                          </div>
+                          <input 
+                            type="range" min={1} max={15} step={1} 
+                            value={styleTab === 'normal' ? normalStyle.glowBlur : styleTab === 'highlight' ? highlightStyle.glowBlur : emojiStyle.glowBlur} 
+                            onChange={(e) => {
+                              const val = parseInt(e.target.value, 10);
+                              if (styleTab === 'normal') {
+                                  setNormalStyle({ ...normalStyle, glowBlur: val });
+                                  setGlowBlur(val);
+                              } else if (styleTab === 'highlight') {
+                                  setHighlightStyle({ ...highlightStyle, glowBlur: val });
+                              } else {
+                                  setEmojiStyle({ ...emojiStyle, glowBlur: val });
+                              }
+                            }}
+                            style={{ width: '100%', accentColor: 'var(--primary)', cursor: 'pointer' }}
+                          />
+                        </div>
+
+                        {/* Glow Distance */}
+                        <div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1px' }}>
+                            <label className="label" style={{ fontSize: '10px', margin: 0 }}>Glow Distance</label>
+                            <span style={{ fontSize: '9px', color: 'var(--text-muted)' }}>
+                              {styleTab === 'normal' ? normalStyle.glowDistance : styleTab === 'highlight' ? highlightStyle.glowDistance : emojiStyle.glowDistance}px
+                            </span>
+                          </div>
+                          <input 
+                            type="range" min={1} max={20} step={1} 
+                            value={styleTab === 'normal' ? normalStyle.glowDistance : styleTab === 'highlight' ? highlightStyle.glowDistance : emojiStyle.glowDistance} 
+                            onChange={(e) => {
+                              const val = parseInt(e.target.value, 10);
+                              if (styleTab === 'normal') {
+                                  setNormalStyle({ ...normalStyle, glowDistance: val });
+                                  setGlowDistance(val);
+                              } else if (styleTab === 'highlight') {
+                                  setHighlightStyle({ ...highlightStyle, glowDistance: val });
+                              } else {
+                                  setEmojiStyle({ ...emojiStyle, glowDistance: val });
+                              }
+                            }}
+                            style={{ width: '100%', accentColor: 'var(--primary)', cursor: 'pointer' }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Highlight Style Settings (Conditional) */}
+              {(subtitleMode === 'pop' || subtitleMode === 'centered-word' || subtitleMode === 'smart-highlight') && (
+                <div className="inspector-card" style={{ background: 'var(--bg-darker)', border: '1px solid var(--border-medium)', borderRadius: '8px', padding: '12px', marginBottom: '14px' }}>
+                  <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-white)', marginBottom: '10px' }}>Highlight Word Style</div>
+
+                  <div style={{ marginBottom: '10px' }}>
+                    <label className="label">Highlight Trigger Mode</label>
+                    <select
+                      value={highlightTrigger}
+                      onChange={(e) => setHighlightTrigger(e.target.value as any)}
+                      className="input-field"
+                      style={{ width: '100%', height: '34px', fontSize: '12px', background: 'var(--bg-surface)' }}
+                    >
+                      <option value="all">Highlight Every Word (Standard)</option>
+                      <option value="emphasis">Highlight Emphasis/Highlight Words Only</option>
+                      <option value="emoji">Highlight Emoji Words Only</option>
+                    </select>
+                  </div>
+
                   {(subtitleMode === 'pop' || subtitleMode === 'centered-word') && (
-                    <div>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer', marginBottom: '4px' }}>
-                        <input type="checkbox" checked={showHighlightBox} onChange={(e) => setShowHighlightBox(e.target.checked)} />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
+                      <input 
+                        type="checkbox" id="show-bg-box" checked={showHighlightBox} 
+                        onChange={(e) => setShowHighlightBox(e.target.checked)} 
+                      />
+                      <label htmlFor="show-bg-box" style={{ fontSize: '12px', cursor: 'pointer', userSelect: 'none' }}>
                         Show Word Background Box
                       </label>
                     </div>
                   )}
 
                   {(subtitleMode === 'pop' || subtitleMode === 'centered-word') && showHighlightBox && (
-                    <>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', borderTop: '1px solid var(--border-light)', paddingTop: '10px', marginTop: '8px' }}>
                       <div>
                         <label className="label">Background Box Color</label>
                         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                          <input type="color" value={boxColor} onChange={(e) => setBoxColor(e.target.value)} style={{ width: '28px', height: '28px', padding: 0, border: 'none', background: 'none', cursor: 'pointer' }} />
-                          <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{boxColor.toUpperCase()}</span>
+                          <input type="color" value={boxColor} onChange={(e) => setBoxColor(e.target.value)} />
+                          <input 
+                            type="text" value={boxColor.toUpperCase()} 
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              if (val.startsWith('#') && val.length <= 7) setBoxColor(val);
+                              else if (val.length <= 6 && !val.startsWith('#')) setBoxColor('#' + val);
+                            }}
+                            className="input-field"
+                            style={{ width: '90px', height: '28px', padding: '2px 6px', fontSize: '11px', fontFamily: 'monospace', textAlign: 'center' }}
+                          />
                         </div>
                       </div>
 
                       <div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                          <label className="label">Box Corner Rounding</label>
-                          <span style={{ fontSize: '12px' }}>{boxRounding}px</span>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                          <label className="label" style={{ margin: 0 }}>Box Corner Rounding</label>
+                          <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{boxRounding}px</span>
                         </div>
-                        <input
-                          type="range"
-                          min={0}
-                          max={24}
-                          value={boxRounding}
+                        <input 
+                          type="range" min={0} max={24} value={boxRounding} 
                           onChange={(e) => setBoxRounding(parseInt(e.target.value, 10))}
                           style={{ width: '100%' }}
                         />
                       </div>
-                    </>
+                    </div>
                   )}
                 </div>
               )}
@@ -2717,23 +3452,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
                     )}
                   </div>
 
-                  {/* Cyberpunk Neon Glow */}
-                  <div style={{ marginBottom: '10px' }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer' }}>
-                      <input type="checkbox" checked={neonGlow} onChange={(e) => setNeonGlow(e.target.checked)} />
-                      Cyberpunk Neon Glow (Modern Vibe)
-                    </label>
-                    <div style={{ fontSize: '11px', color: 'var(--text-gray)', marginLeft: '20px', marginTop: '2px', marginBottom: '6px' }}>
-                      Injects a dual-layered soft glowing neon aura behind a sharp white core.
-                    </div>
-                    {neonGlow && (
-                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginLeft: '20px' }}>
-                        <span style={{ fontSize: '12px' }}>Glow Aura Color:</span>
-                        <input type="color" value={glowColor} onChange={(e) => setGlowColor(e.target.value)} style={{ width: '28px', height: '28px', padding: 0, border: 'none', background: 'none', cursor: 'pointer' }} />
-                        <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{glowColor.toUpperCase()}</span>
-                      </div>
-                    )}
-                  </div>
+
 
                   {/* 3D Pop Extrusion */}
                   <div style={{ marginBottom: '10px' }}>
@@ -2754,6 +3473,98 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
                   </div>
                 </div>
               </div>
+
+              {/* Emoji Word SFX Mappings */}
+              {(() => {
+                const emojiWordsList: {
+                  sceneIdx: number;
+                  wordIdx: number;
+                  wordObj: WordTiming;
+                  emoji: string;
+                }[] = [];
+                scenes.forEach((scene, sceneIdx) => {
+                  if (scene.words && Array.isArray(scene.words)) {
+                    scene.words.forEach((wordObj, wordIdx) => {
+                      const emoji = getWordEmoji(wordObj.word);
+                      if (emoji) {
+                        emojiWordsList.push({
+                          sceneIdx,
+                          wordIdx,
+                          wordObj,
+                          emoji
+                        });
+                      }
+                    });
+                  }
+                });
+
+                const handleUpdateWordSfx = (sIdx: number, wIdx: number, sfxId: string) => {
+                  const updatedScenes = [...scenes];
+                  if (updatedScenes[sIdx] && updatedScenes[sIdx].words && updatedScenes[sIdx].words[wIdx]) {
+                    updatedScenes[sIdx].words[wIdx].sfx = sfxId;
+                    setScenes(updatedScenes);
+                  }
+                };
+
+                if (!showEmojis || emojiWordsList.length === 0) return null;
+
+                return (
+                  <div className="inspector-card" style={{ marginTop: '16px', background: 'var(--bg-card)', border: '1px solid var(--border-medium)' }}>
+                    <div className="inspector-sub-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span>🎵 Emoji Word SFX Mappings</span>
+                      <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: 'normal' }}>{emojiWordsList.length} detected</span>
+                    </div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-gray)', marginBottom: '10px' }}>
+                      Play sound effects exactly when these key emoji words are spoken.
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '220px', overflowY: 'auto', paddingRight: '4px' }}>
+                      {emojiWordsList.map(({ sceneIdx, wordIdx, wordObj, emoji }) => {
+                        const displayWord = wordObj.word;
+                        const selectedSfx = wordObj.sfx || 'none';
+                        return (
+                          <div key={`${sceneIdx}_${wordIdx}`} style={{ 
+                            display: 'flex', flexDirection: 'column', gap: '4px',
+                            background: 'var(--bg-darker)', border: '1px solid var(--border-medium)', 
+                            borderRadius: '4px', padding: '8px 10px'
+                          }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', fontWeight: 500 }}>
+                              <span>"{displayWord}" {emoji}</span>
+                              <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Scene {sceneIdx + 1} at {wordObj.start_time.toFixed(1)}s</span>
+                            </div>
+                            <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginTop: '2px' }}>
+                              <select
+                                value={selectedSfx}
+                                onChange={(e) => handleUpdateWordSfx(sceneIdx, wordIdx, e.target.value)}
+                                className="input-field"
+                                style={{ flex: 1, height: '28px', fontSize: '11px', padding: '0 6px', background: 'var(--bg-medium)' }}
+                              >
+                                <option value="none">No Sound Effect</option>
+                                {sfxList.map(s => (
+                                  <option key={s.id} value={s.id}>{s.name}</option>
+                                ))}
+                              </select>
+                              {selectedSfx !== 'none' && (
+                                <button
+                                  type="button"
+                                  onClick={() => handlePlaySfx(selectedSfx)}
+                                  style={{
+                                    background: 'var(--bg-medium)', border: 'none', 
+                                    color: 'var(--text-white)', width: '28px', height: '28px',
+                                    borderRadius: '4px', display: 'flex', alignItems: 'center',
+                                    justifyContent: 'center', cursor: 'pointer', padding: 0
+                                  }}
+                                >
+                                  {previewingSfx === selectedSfx ? '⏹' : '▶'}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
             </section>
           ) : (
             <div className="inspector-card" style={{ padding: '24px', textAlign: 'center', color: 'var(--text-gray)' }}>

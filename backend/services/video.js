@@ -340,11 +340,118 @@ function isEmphasisWord(word) {
   return emphasisWords.includes(clean);
 }
 
+function getWordCategory(word) {
+  if (getWordEmoji(word)) return 'emoji';
+  if (isEmphasisWord(word)) return 'highlight';
+  return 'normal';
+}
+
+function resolveStyleObj(style) {
+  const baseGlowColor = style.glowColor || '#00FFFF';
+  const baseGlowBlur = style.glowBlur !== undefined ? style.glowBlur : 6;
+  const baseGlowDistance = style.glowDistance !== undefined ? style.glowDistance : 3;
+  const baseNeonGlow = !!style.neonGlow;
+
+  const normalStyle = {
+    fontColor: style.normalStyle?.fontColor || style.fontColor || '#FFFFFF',
+    activeWordScale: style.normalStyle?.activeWordScale !== undefined ? style.normalStyle.activeWordScale : 1.0,
+    neonGlow: style.normalStyle?.neonGlow !== undefined ? style.normalStyle.neonGlow : baseNeonGlow,
+    glowColor: style.normalStyle?.glowColor || baseGlowColor,
+    glowBlur: style.normalStyle?.glowBlur !== undefined ? style.normalStyle.glowBlur : baseGlowBlur,
+    glowDistance: style.normalStyle?.glowDistance !== undefined ? style.normalStyle.glowDistance : baseGlowDistance,
+    outlineSize: style.outlineSize
+  };
+
+  const highlightStyle = {
+    fontColor: style.highlightStyle?.fontColor || style.highlightColor || '#FFFF00',
+    activeWordScale: style.highlightStyle?.activeWordScale !== undefined ? style.highlightStyle.activeWordScale : (style.activeWordScale !== undefined ? style.activeWordScale : 1.15),
+    neonGlow: style.highlightStyle?.neonGlow !== undefined ? style.highlightStyle.neonGlow : baseNeonGlow,
+    glowColor: style.highlightStyle?.glowColor || baseGlowColor,
+    glowBlur: style.highlightStyle?.glowBlur !== undefined ? style.highlightStyle.glowBlur : baseGlowBlur,
+    glowDistance: style.highlightStyle?.glowDistance !== undefined ? style.highlightStyle.glowDistance : baseGlowDistance,
+    outlineSize: style.outlineSize
+  };
+
+  const emojiStyle = {
+    fontColor: style.emojiStyle?.fontColor || style.highlightColor || '#FFFF00',
+    activeWordScale: style.emojiStyle?.activeWordScale !== undefined ? style.emojiStyle.activeWordScale : (style.activeWordScale !== undefined ? style.activeWordScale : 1.15),
+    neonGlow: style.emojiStyle?.neonGlow !== undefined ? style.emojiStyle.neonGlow : baseNeonGlow,
+    glowColor: style.emojiStyle?.glowColor || baseGlowColor,
+    glowBlur: style.emojiStyle?.glowBlur !== undefined ? style.emojiStyle.glowBlur : baseGlowBlur,
+    glowDistance: style.emojiStyle?.glowDistance !== undefined ? style.emojiStyle.glowDistance : baseGlowDistance,
+    outlineSize: style.outlineSize
+  };
+
+  return { normalStyle, highlightStyle, emojiStyle };
+}
+
+function getWordTags(wordStyle, isActive, layerType, baseOutlineColor, baseOutlineSize, baseFontSize, style, category) {
+  const outlineSize = style.pop3d ? Math.max(style.outlineSize || 3, 4) : (style.outlineSize || 3);
+  const fontCol = hexToAssColor(wordStyle.fontColor);
+
+  if (isActive) {
+    if (layerType === 'core') {
+      // Core Layer: Keep it sharp. If neonGlow is active, fill with white.
+      const fillCol = wordStyle.neonGlow ? '&H00FFFFFF&' : fontCol;
+      return `\\c${fillCol}\\3c${baseOutlineColor}\\bord${outlineSize}\\blur0`;
+    } else {
+      // Glow Layers
+      if (wordStyle.neonGlow) {
+        const glowCol = hexToAssColor(wordStyle.glowColor || '#00FFFF');
+        const glowBlur = wordStyle.glowBlur !== undefined ? wordStyle.glowBlur : 6;
+        const glowDistance = wordStyle.glowDistance !== undefined ? wordStyle.glowDistance : 3;
+        
+        // Street Light Glow Logic:
+        // We scale the border size using glowDistance, and use large, staggered blurs
+        // to create a smooth, wide gradient falloff decay into the background.
+        if (layerType === 'glowOuter' || layerType === 'outerGlow') {
+          const borderSize = Math.round(outlineSize + glowDistance * 6.0);
+          const blurVal = Math.round(glowBlur * 5.0 + glowDistance * 3.0);
+          return `\\c${glowCol}\\3c${glowCol}\\4c${glowCol}\\blur${blurVal}\\bord${borderSize}\\alpha&HBB&`;
+        } else if (layerType === 'glowMedium') {
+          const borderSize = Math.round(outlineSize + glowDistance * 3.0);
+          const blurVal = Math.round(glowBlur * 3.0 + glowDistance * 1.5);
+          return `\\c${glowCol}\\3c${glowCol}\\4c${glowCol}\\blur${blurVal}\\bord${borderSize}\\alpha&H77&`;
+        } else {
+          // glowInner / innerGlow
+          const borderSize = Math.round(outlineSize + glowDistance * 1.0);
+          const blurVal = Math.round(glowBlur * 1.5 + glowDistance * 0.5);
+          return `\\c${glowCol}\\3c${glowCol}\\4c${glowCol}\\blur${blurVal}\\bord${borderSize}\\alpha&H22&`;
+        }
+      } else {
+        // Transparent
+        return `\\alpha&HFF&`;
+      }
+    }
+  } else {
+    // Inactive word
+    let inactiveColorHex = style.normalStyle?.fontColor || style.fontColor || '#FFFFFF';
+    if (style.autoEmphasis) {
+      if (category === 'highlight') {
+        inactiveColorHex = style.highlightStyle?.fontColor || style.highlightColor || '#FFFF00';
+      } else if (category === 'emoji') {
+        inactiveColorHex = style.emojiStyle?.fontColor || style.highlightColor || '#FFFF00';
+      }
+    }
+    const inactiveFontCol = hexToAssColor(inactiveColorHex);
+    
+    if (layerType === 'core') {
+      // Inactive core is sharp, no glow
+      return `\\c${inactiveFontCol}\\3c${baseOutlineColor}\\bord${outlineSize}\\blur0`;
+    } else {
+      // Inactive glow layer is fully transparent
+      return `\\alpha&HFF&`;
+    }
+  }
+}
+
 function applyNeonGlowToEvents(eventsStr, style, primaryColor, outlineColor) {
   const lines = eventsStr.split('\n');
   const result = [];
   const glowCol = hexToAssColor(style.glowColor || '#00FFFF');
   const coreCol = '&H00FFFFFF&'; // pure white core
+  const blurVal = style.glowBlur !== undefined ? style.glowBlur : 6;
+  const distanceVal = style.glowDistance !== undefined ? style.glowDistance : 3;
 
   for (const line of lines) {
     if (!line.startsWith('Dialogue:')) {
@@ -370,56 +477,106 @@ function applyNeonGlowToEvents(eventsStr, style, primaryColor, outlineColor) {
     const layerMatch = metaParts[0].match(/Dialogue:\s*(\d+)/);
     const layer = layerMatch ? parseInt(layerMatch[1], 10) : 0;
 
-    // Create Glow Line (Layer 0, underneath)
-    const glowMetaParts = [...metaParts];
-    glowMetaParts[0] = `Dialogue: ${layer}`;
-    const glowMeta = glowMetaParts.join(',');
-
-    let glowText = textPart;
-    if (glowText.startsWith('{')) {
-      const closingBraceIdx = glowText.indexOf('}');
+    let cleanTags = '';
+    let restText = textPart;
+    if (textPart.startsWith('{')) {
+      const closingBraceIdx = textPart.indexOf('}');
       if (closingBraceIdx !== -1) {
-        const tags = glowText.substring(1, closingBraceIdx);
-        const rest = glowText.substring(closingBraceIdx + 1);
-        let cleanTags = tags
+        const tags = textPart.substring(1, closingBraceIdx);
+        restText = textPart.substring(closingBraceIdx + 1);
+        cleanTags = tags
           .replace(/\\c&H[0-9A-Fa-f]+&/g, '')
           .replace(/\\3c&H[0-9A-Fa-f]+&/g, '')
           .replace(/\\4c&H[0-9A-Fa-f]+&/g, '')
           .replace(/\\bord\d+/g, '');
-        const borderSize = (style.outlineSize || 3) + 3;
-        const glowTags = `\\blur6\\c${glowCol}\\3c${glowCol}\\4c${glowCol}\\bord${borderSize}${cleanTags}`;
-        glowText = `{${glowTags}}${rest}`;
       }
-    } else {
-      const borderSize = (style.outlineSize || 3) + 3;
-      glowText = `{\\blur6\\c${glowCol}\\3c${glowCol}\\4c${glowCol}\\bord${borderSize}}${glowText}`;
     }
-    result.push(`${glowMeta},${glowText}`);
 
-    // Create Core Line (Layer 1, on top)
+    const baseOutlineSize = style.outlineSize || 3;
+
+    // 1. Outer Glow (Wide, faint)
+    const glowMetaPartsOuter = [...metaParts];
+    glowMetaPartsOuter[0] = `Dialogue: ${layer}`;
+    const glowMetaOuter = glowMetaPartsOuter.join(',');
+    const outerBorderSize = Math.round(baseOutlineSize + distanceVal * 6.0);
+    const outerBlur = Math.round(blurVal * 5.0 + distanceVal * 3.0);
+    const outerGlowText = `{\\blur${outerBlur}\\c${glowCol}\\3c${glowCol}\\4c${glowCol}\\bord${outerBorderSize}\\alpha&HBB&${cleanTags}}${restText}`;
+    result.push(`${glowMetaOuter},${outerGlowText}`);
+
+    // 2. Medium Glow
+    const glowMetaPartsMed = [...metaParts];
+    glowMetaPartsMed[0] = `Dialogue: ${layer + 1}`;
+    const glowMetaMed = glowMetaPartsMed.join(',');
+    const medBorderSize = Math.round(baseOutlineSize + distanceVal * 3.0);
+    const medBlur = Math.round(blurVal * 3.0 + distanceVal * 1.5);
+    const medGlowText = `{\\blur${medBlur}\\c${glowCol}\\3c${glowCol}\\4c${glowCol}\\bord${medBorderSize}\\alpha&H77&${cleanTags}}${restText}`;
+    result.push(`${glowMetaMed},${medGlowText}`);
+
+    // 3. Inner Glow (Brighter, closer)
+    const glowMetaPartsInner = [...metaParts];
+    glowMetaPartsInner[0] = `Dialogue: ${layer + 2}`;
+    const glowMetaInner = glowMetaPartsInner.join(',');
+    const innerBorderSize = Math.round(baseOutlineSize + distanceVal * 1.0);
+    const innerBlur = Math.round(blurVal * 1.5 + distanceVal * 0.5);
+    const innerGlowText = `{\\blur${innerBlur}\\c${glowCol}\\3c${glowCol}\\4c${glowCol}\\bord${innerBorderSize}\\alpha&H22&${cleanTags}}${restText}`;
+    result.push(`${glowMetaInner},${innerGlowText}`);
+
+    // 4. Core Line (Layer + 3, on top)
     const coreMetaParts = [...metaParts];
-    coreMetaParts[0] = `Dialogue: ${layer + 1}`;
+    coreMetaParts[0] = `Dialogue: ${layer + 3}`;
     const coreMeta = coreMetaParts.join(',');
-
-    let coreText = textPart;
-    if (coreText.startsWith('{')) {
-      const closingBraceIdx = coreText.indexOf('}');
-      if (closingBraceIdx !== -1) {
-        const tags = coreText.substring(1, closingBraceIdx);
-        const rest = coreText.substring(closingBraceIdx + 1);
-        let cleanTags = tags
-          .replace(/\\c&H[0-9A-Fa-f]+&/g, '')
-          .replace(/\\3c&H[0-9A-Fa-f]+&/g, '');
-        const coreTags = `\\c${coreCol}\\3c${outlineColor}${cleanTags}`;
-        coreText = `{${coreTags}}${rest}`;
-      }
-    } else {
-      coreText = `{\\c${coreCol}\\3c${outlineColor}}${coreText}`;
-    }
+    const coreTags = `\\c${coreCol}\\3c${outlineColor}${cleanTags}`;
+    const coreText = `{${coreTags}}${restText}`;
     result.push(`${coreMeta},${coreText}`);
   }
 
   return result.join('\n');
+}
+
+/**
+ * Helper to localize and adjust word timings relative to a scene start.
+ * Ensures word timings are sequential, non-overlapping, and fit strictly within [0, duration].
+ */
+export function getLocalWordTimings(words, sceneStartTime, duration) {
+  if (!words || words.length === 0) return [];
+  
+  // 1. Initial localization relative to sceneStartTime
+  const localWords = words.map(w => ({
+    word: w.word,
+    start: w.start_time - sceneStartTime,
+    end: w.end_time - sceneStartTime
+  }));
+
+  const N = localWords.length;
+  const safeDuration = Math.max(0.01, duration);
+  // Calculate minimum word duration (e.g. 0.08s, but at most duration / N)
+  const W = Math.max(0.001, Math.min(0.08, safeDuration / N));
+
+  // 2. Adjust starts to fit in [0, duration] with minimum spacing W
+  const starts = [];
+  for (let i = 0; i < N; i++) {
+    const idealStart = localWords[i].start;
+    const minStart = i * W;
+    const maxStart = safeDuration - (N - i) * W;
+    const clampedStart = Math.max(minStart, Math.min(maxStart, idealStart));
+    starts.push(clampedStart);
+  }
+
+  // 3. Compute ends ensuring they are >= start + W, <= duration, and <= next start
+  const adjustedWords = [];
+  for (let i = 0; i < N; i++) {
+    const originalDur = Math.max(W, localWords[i].end - localWords[i].start);
+    const start = starts[i];
+    const nextStart = (i < N - 1) ? starts[i + 1] : safeDuration;
+    const end = Math.min(nextStart, start + originalDur);
+    adjustedWords.push({
+      word: localWords[i].word,
+      start: Number(start.toFixed(3)),
+      end: Number(end.toFixed(3))
+    });
+  }
+
+  return adjustedWords;
 }
 
 /**
@@ -443,7 +600,11 @@ function createAssFileContent(originalScene, duration, style, width, height) {
   }
   const isBold = forceBold || !!style.bold;
   const fontSize = Math.round((style.fontSize || 24) * (height / 640)); // Scale font size relative to resolution
-  const primaryColor = hexToAssColor(style.fontColor);
+  
+  const { normalStyle, highlightStyle, emojiStyle } = resolveStyleObj(style);
+  const anyNeonGlow = normalStyle.neonGlow || highlightStyle.neonGlow || emojiStyle.neonGlow;
+
+  const primaryColor = hexToAssColor(normalStyle.fontColor);
   const outlineColor = hexToAssColor(style.outlineColor || '#000000');
   const shadowColor = style.pop3d
     ? hexToAssColor(style.pop3dColor || '#000000', '00')
@@ -483,7 +644,7 @@ function createAssFileContent(originalScene, duration, style, width, height) {
       if (style.textFade !== false) {
         fadeTag = '\\fad(150,150)';
       }
-      return `Dialogue: ${layer},${formatTime(start)},${formatTime(end)},Default,,0,0,0,,{\\an5${moveTag}${fadeTag}${extraTags}\\c${col}}${text}\n`;
+      return `Dialogue: ${layer},${formatTime(start)},${formatTime(end)},Default,,0,0,0,,{\\an5${moveTag}${fadeTag}${extraTags}${col ? `\\c${col}` : ''}}${text}\n`;
     }
 
     // Proportional transition time calculation: 
@@ -586,9 +747,9 @@ function createAssFileContent(originalScene, duration, style, width, height) {
       fadeTagOut = `\\fad(0,${animMs})`;
     }
 
-    let result = `Dialogue: ${layer},${formatTime(start)},${formatTime(t1)},Default,,0,0,0,,{\\an5${inMove}${inAnim}${fadeTag}${extraTags}\\c${col}}${text}\n`;
-    result += `Dialogue: ${layer},${formatTime(t1)},${formatTime(t2)},Default,,0,0,0,,{\\an5${midMove}${extraTags}\\c${col}}${text}\n`;
-    result += `Dialogue: ${layer},${formatTime(t2)},${formatTime(end)},Default,,0,0,0,,{\\an5${outMove}${outAnim}${fadeTagOut}${extraTags}\\c${col}}${text}\n`;
+    let result = `Dialogue: ${layer},${formatTime(start)},${formatTime(t1)},Default,,0,0,0,,{\\an5${inMove}${inAnim}${fadeTag}${extraTags}${col ? `\\c${col}` : ''}}${text}\n`;
+    result += `Dialogue: ${layer},${formatTime(t1)},${formatTime(t2)},Default,,0,0,0,,{\\an5${midMove}${extraTags}${col ? `\\c${col}` : ''}}${text}\n`;
+    result += `Dialogue: ${layer},${formatTime(t2)},${formatTime(end)},Default,,0,0,0,,{\\an5${outMove}${outAnim}${fadeTagOut}${extraTags}${col ? `\\c${col}` : ''}}${text}\n`;
     return result;
   };
 
@@ -632,23 +793,29 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
       if (words.length > 0) {
         text = words.map(w => {
           const rawWord = w.word;
-          if (isEmphasisWord(w.word)) {
-            const empCol = hexToAssColor(style.emphasisColor || '#FFFF00');
-            return `{\\fscx125\\fscy125\\c${empCol}}${rawWord}{\\fscx100\\fscy100\\c${primaryColor}}`;
+          const category = getWordCategory(w.word);
+          if (category === 'highlight') {
+            const empCol = hexToAssColor(highlightStyle.fontColor || '#FFFF00');
+            const scale = Math.round(100 * (highlightStyle.activeWordScale || 1.15));
+            return `{\\fscx${scale}\\fscy${scale}\\c${empCol}}${rawWord}{\\fscx100\\fscy100\\c${primaryColor}}`;
+          } else if (category === 'emoji') {
+            const empCol = hexToAssColor(emojiStyle.fontColor || '#FFFF00');
+            const scale = Math.round(100 * (emojiStyle.activeWordScale || 1.15));
+            return `{\\fscx${scale}\\fscy${scale}\\c${empCol}}${rawWord}{\\fscx100\\fscy100\\c${primaryColor}}`;
           }
           return rawWord;
         }).join(' ');
       }
     }
-    const events = createDialogueLines(0, 0.0, duration, X_pos, Y_pos, text, hexToAssColor(style.fontColor || '#FFFFFF'));
-    const processedEvents = style.neonGlow ? applyNeonGlowToEvents(events, style, primaryColor, outlineColor) : events;
+    const events = createDialogueLines(0, 0.0, duration, X_pos, Y_pos, text, hexToAssColor(normalStyle.fontColor || '#FFFFFF'));
+    const processedEvents = normalStyle.neonGlow ? applyNeonGlowToEvents(events, normalStyle, primaryColor, outlineColor) : events;
     return header + processedEvents;
   }
 
   const words = scene.words || [];
   if (words.length === 0) {
-    const events = createDialogueLines(0, 0.0, duration, X_pos, Y_pos, scene.text, hexToAssColor(style.fontColor || '#FFFFFF'));
-    const processedEvents = style.neonGlow ? applyNeonGlowToEvents(events, style, primaryColor, outlineColor) : events;
+    const events = createDialogueLines(0, 0.0, duration, X_pos, Y_pos, scene.text, hexToAssColor(normalStyle.fontColor || '#FFFFFF'));
+    const processedEvents = normalStyle.neonGlow ? applyNeonGlowToEvents(events, normalStyle, primaryColor, outlineColor) : events;
     return header + processedEvents;
   }
 
@@ -659,12 +826,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     end: Math.min(duration, w.end_time - scene.start_time)
   }));
 
-  const primaryAssColor = hexToAssColor(style.fontColor || '#FFFFFF');
-  const highlightAssColor = hexToAssColor(style.highlightColor || '#FFFF00');
   const boxAssColor = hexToAssColor(style.boxColor || '#8A4BF3');
   const showBox = style.showHighlightBox !== false;
   const boxRounding = parseInt(style.boxRounding, 10) || 8;
-  const activeWordScale = style.activeWordScale || 1.15;
 
   let events = '';
 
@@ -678,6 +842,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
   const padX = fontSize * 0.3;
   const boxHeight = fontSize * 1.3;
 
+  const startLayer = showBox ? 1 : 0;
+
   if (mode === 'centered-word') {
     // Snappy centered single word mode (Hormozi / Snappy style)
     for (let i = 0; i < localWords.length; i++) {
@@ -685,20 +851,26 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
       const rx = X_pos;
       const ry = Y_pos;
       
+      const category = getWordCategory(w.word);
+      let wordStyle = normalStyle;
+      if (category === 'emoji') {
+        wordStyle = emojiStyle;
+      } else if (category === 'highlight') {
+        wordStyle = highlightStyle;
+      }
+
       // Snappy pop-in scale animation if zoom bump is enabled (> 1.0)
+      const activeWordScale = wordStyle.activeWordScale || 1.0;
       let scaleTag = '';
       if (activeWordScale > 1.0) {
         const scaleStart = Math.round(90 * activeWordScale);
         const scaleEnd = Math.round(100 * activeWordScale);
         scaleTag = `\\fscx${scaleStart}\\fscy${scaleStart}\\t(0,60,\\fscx${scaleEnd}\\fscy${scaleEnd})`;
+      } else {
+        scaleTag = `\\fscx100\\fscy100`;
       }
 
       const wordText = w.word;
-
-      let currentWordCol = highlightAssColor;
-      if (style.autoEmphasis && isEmphasisWord(w.word)) {
-        currentWordCol = hexToAssColor(style.emphasisColor || '#FFFF00');
-      }
 
       // Background Box for single word
       if (showBox) {
@@ -715,11 +887,32 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         events += createDialogueLines(0, w.start, w.end, rx, ry, `{\\p1}${drawCenteredRoundedRect(boxW, boxHeight, boxRounding)}{\\p0}`, boxAssColor, boxScaleTag);
       }
       
-      events += createDialogueLines(1, w.start, w.end, rx, ry, wordText, currentWordCol, scaleTag);
+      const glowTagsOuter = getWordTags(wordStyle, true, 'glowOuter', outlineColor, outlineSize, fontSize, style, category);
+      const glowTagsMedium = getWordTags(wordStyle, true, 'glowMedium', outlineColor, outlineSize, fontSize, style, category);
+      const glowTagsInner = getWordTags(wordStyle, true, 'glowInner', outlineColor, outlineSize, fontSize, style, category);
+      const coreTags = getWordTags(wordStyle, true, 'core', outlineColor, outlineSize, fontSize, style, category);
+
+      const glowTextOuter = `{\\an5${glowTagsOuter}}${wordText}`;
+      const glowTextMedium = `{\\an5${glowTagsMedium}}${wordText}`;
+      const glowTextInner = `{\\an5${glowTagsInner}}${wordText}`;
+      const coreText = `{\\an5${coreTags}}${wordText}`;
+
+      const glowLayerOuter = startLayer;
+      const glowLayerMedium = startLayer + 1;
+      const glowLayerInner = startLayer + 2;
+      const coreLayer = anyNeonGlow ? startLayer + 3 : startLayer;
+
+      if (anyNeonGlow) {
+        events += createDialogueLines(glowLayerOuter, w.start, w.end, rx, ry, glowTextOuter, "", scaleTag);
+        events += createDialogueLines(glowLayerMedium, w.start, w.end, rx, ry, glowTextMedium, "", scaleTag);
+        events += createDialogueLines(glowLayerInner, w.start, w.end, rx, ry, glowTextInner, "", scaleTag);
+        events += createDialogueLines(coreLayer, w.start, w.end, rx, ry, coreText, "", scaleTag);
+      } else {
+        events += createDialogueLines(coreLayer, w.start, w.end, rx, ry, coreText, "", scaleTag);
+      }
     }
   } else if (mode === 'smart-highlight') {
-    // Smart TikTok/Instagram Reels style: centered text phrase, active word highlighted in highlightColor
-    // Force single line by chunking localWords (max 3 words or 20 characters)
+    // Smart TikTok/Instagram Reels style: centered text phrase, active word highlighted
     const chunks = [];
     let currentChunk = [];
     let currentLen = 0;
@@ -742,35 +935,49 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     const totalStart = localWords[0].start;
     const totalEnd = Math.max(localWords[localWords.length - 1].end, duration);
     
-    // Helper to render chunk text with highlight and auto-emphasis
-    const renderChunkText = (chunk, activeIdx) => {
+    const renderChunkTextForLayer = (chunk, activeIdx, layerType) => {
       return chunk.map((item, idx) => {
         const rawWord = item.word;
-
-        if (idx === activeIdx) {
-          let col = highlightAssColor;
-          if (style.autoEmphasis && isEmphasisWord(item.word)) {
-            col = hexToAssColor(style.emphasisColor || '#FFFF00');
-          }
-          let tag = `{\\c${col}}`;
-          if (activeWordScale > 1.0) {
-            const activeSize = Math.round(fontSize * activeWordScale);
-            tag += `{\\fs${activeSize}}`;
-          }
-          const restoreTag = activeWordScale > 1.0 ? `{\\fs${fontSize}}` : '';
-          return `${tag}${rawWord}${restoreTag}{\\c${primaryAssColor}}`;
-        } else if (style.autoEmphasis && isEmphasisWord(item.word)) {
-          const empCol = hexToAssColor(style.emphasisColor || '#FFFF00');
-          return `{\\fscx125\\fscy125\\c${empCol}}${rawWord}{\\fscx100\\fscy100\\c${primaryAssColor}}`;
-        } else {
-          return rawWord;
+        const category = getWordCategory(item.word);
+        
+        let wordStyle = normalStyle;
+        if (category === 'emoji') {
+          wordStyle = emojiStyle;
+        } else if (category === 'highlight') {
+          wordStyle = highlightStyle;
         }
+
+        const isActive = (idx === activeIdx);
+        const tags = getWordTags(wordStyle, isActive, layerType, outlineColor, outlineSize, fontSize, style, category);
+
+        let scaleTag = '';
+        if (isActive) {
+          const activeWordScale = wordStyle.activeWordScale || 1.0;
+          if (activeWordScale !== 1.0) {
+            const scaleVal = Math.round(100 * activeWordScale);
+            scaleTag = `\\fscx${scaleVal}\\fscy${scaleVal}`;
+          }
+        }
+
+        const restoreTag = isActive && (wordStyle.activeWordScale || 1.0) !== 1.0 ? `{\\fscx100\\fscy100}` : '';
+        return `{\\rDefault\\an5${tags}${scaleTag}}${rawWord}${restoreTag}`;
       }).join(' ');
     };
 
     // 1. Pre-speech segment
     if (totalStart > 0 && chunks.length > 0) {
-      events += createDialogueLines(0, 0.0, totalStart, X_pos, Y_pos, renderChunkText(chunks[0], -1), primaryAssColor);
+      const glowTextOuter = renderChunkTextForLayer(chunks[0], -1, 'glowOuter');
+      const glowTextMedium = renderChunkTextForLayer(chunks[0], -1, 'glowMedium');
+      const glowTextInner = renderChunkTextForLayer(chunks[0], -1, 'glowInner');
+      const coreText = renderChunkTextForLayer(chunks[0], -1, 'core');
+      if (anyNeonGlow) {
+        events += createDialogueLines(0, 0.0, totalStart, X_pos, Y_pos, glowTextOuter, "");
+        events += createDialogueLines(1, 0.0, totalStart, X_pos, Y_pos, glowTextMedium, "");
+        events += createDialogueLines(2, 0.0, totalStart, X_pos, Y_pos, glowTextInner, "");
+        events += createDialogueLines(3, 0.0, totalStart, X_pos, Y_pos, coreText, "");
+      } else {
+        events += createDialogueLines(0, 0.0, totalStart, X_pos, Y_pos, coreText, "");
+      }
     }
     
     // 2. Word highlight transitions per chunk
@@ -787,7 +994,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         
         const isFirst = (wIdx === 0);
         const isLast = (wIdx === chunk.length - 1);
-        const text = renderChunkText(chunk, wIdx);
+        
+        const glowTextOuter = renderChunkTextForLayer(chunk, wIdx, 'glowOuter');
+        const glowTextMedium = renderChunkTextForLayer(chunk, wIdx, 'glowMedium');
+        const glowTextInner = renderChunkTextForLayer(chunk, wIdx, 'glowInner');
+        const coreText = renderChunkTextForLayer(chunk, wIdx, 'core');
 
         const transition = style.textTransition || 'none';
         const motion = style.textMotion || 'none';
@@ -801,156 +1012,169 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
           return Y_pos + 4 - progress * 8;
         };
 
-        if (transition === 'none' || chunkDuration < 0.15 || segmentDuration < 0.10) {
-          const yStart = Math.round(getYForTime(start));
-          const yEnd = Math.round(getYForTime(end));
-          let moveTag = `\\pos(${X_pos},${Y_pos})`;
-          if (motion === 'float') {
-            moveTag = `\\move(${X_pos},${yStart},${X_pos},${yEnd})`;
-          }
-          
-          let fadeTag = '';
-          if (style.textFade !== false) {
-            if (isFirst && isLast) fadeTag = '\\fad(150,150)';
-            else if (isFirst) fadeTag = '\\fad(150,0)';
-            else if (isLast) fadeTag = '\\fad(0,150)';
-          }
-          events += `Dialogue: 0,${formatTime(start)},${formatTime(end)},Default,,0,0,0,,{\\an5${moveTag}${fadeTag}\\c${primaryAssColor}}${text}\n`;
-        } else {
-          // Complex slide/zoom transitions
-          let animTime = 0.15;
-          if (isFirst && isLast) {
-            animTime = (segmentDuration >= 0.45) ? 0.15 : Math.max(0.05, segmentDuration * 0.33);
-          } else if (isFirst || isLast) {
-            animTime = (segmentDuration >= 0.30) ? 0.15 : Math.max(0.05, segmentDuration * 0.50);
-          }
-          const animMs = Math.round(animTime * 1000);
-
-          let inMove = '';
-          let inAnim = '';
-          let outMove = '';
-          let outAnim = '';
-
-          const Y_in = Math.round(getYForTime(chunkStart));
-          const Y_out = Math.round(getYForTime(chunkEnd));
-
-          switch (transition) {
-            case 'slide-up':
-            case 'slide-up-fade':
-              inMove = `\\move(${X_pos},${Y_in + 40},${X_pos},${Y_in},0,${animMs})`;
-              outMove = `\\move(${X_pos},${Y_out},${X_pos},${Y_out - 40},0,${animMs})`;
-              break;
-            case 'slide-down':
-            case 'slide-down-fade':
-              inMove = `\\move(${X_pos},${Y_in - 40},${X_pos},${Y_in},0,${animMs})`;
-              outMove = `\\move(${X_pos},${Y_out},${X_pos},${Y_out + 40},0,${animMs})`;
-              break;
-            case 'slide-left':
-            case 'slide-left-fade':
-              inMove = `\\move(${X_pos + 50},${Y_in},${X_pos},${Y_in},0,${animMs})`;
-              outMove = `\\move(${X_pos},${Y_out},${X_pos - 50},${Y_out},0,${animMs})`;
-              break;
-            case 'slide-right':
-            case 'slide-right-fade':
-              inMove = `\\move(${X_pos - 50},${Y_in},${X_pos},${Y_in},0,${animMs})`;
-              outMove = `\\move(${X_pos},${Y_out},${X_pos + 50},${Y_out},0,${animMs})`;
-              break;
-            case 'slide-up-blur':
-            case 'slide-up-blur-fade':
-              inMove = `\\move(${X_pos},${Y_in + 40},${X_pos},${Y_in},0,${animMs})`;
-              inAnim = `\\blur6\\t(0,${animMs},\\blur0)`;
-              outMove = `\\move(${X_pos},${Y_out},${X_pos},${Y_out - 40},0,${animMs})`;
-              outAnim = `\\blur0\\t(0,${animMs},\\blur6)`;
-              break;
-            case 'slide-down-blur':
-            case 'slide-down-blur-fade':
-              inMove = `\\move(${X_pos},${Y_in - 40},${X_pos},${Y_in},0,${animMs})`;
-              inAnim = `\\blur6\\t(0,${animMs},\\blur0)`;
-              outMove = `\\move(${X_pos},${Y_out},${X_pos},${Y_out + 40},0,${animMs})`;
-              outAnim = `\\blur0\\t(0,${animMs},\\blur6)`;
-              break;
-            case 'slide-left-blur':
-            case 'slide-left-blur-fade':
-              inMove = `\\move(${X_pos + 50},${Y_in},${X_pos},${Y_in},0,${animMs})`;
-              inAnim = `\\blur6\\t(0,${animMs},\\blur0)`;
-              outMove = `\\move(${X_pos},${Y_out},${X_pos - 50},${Y_out},0,${animMs})`;
-              outAnim = `\\blur0\\t(0,${animMs},\\blur6)`;
-              break;
-            case 'slide-right-blur':
-            case 'slide-right-blur-fade':
-              inMove = `\\move(${X_pos - 50},${Y_in},${X_pos},${Y_in},0,${animMs})`;
-              inAnim = `\\blur6\\t(0,${animMs},\\blur0)`;
-              outMove = `\\move(${X_pos},${Y_out},${X_pos + 50},${Y_out},0,${animMs})`;
-              outAnim = `\\blur0\\t(0,${animMs},\\blur6)`;
-              break;
-            case 'zoom-in-out':
-            case 'zoom-in-out-fade':
-              inMove = `\\pos(${X_pos},${Y_in})`;
-              inAnim = `\\fscx0\\fscy0\\t(0,${animMs},\\fscx100\\fscy100)`;
-              outMove = `\\pos(${X_pos},${Y_out})`;
-              outAnim = `\\fscx100\\fscy100\\t(0,${animMs},\\fscx0\\fscy0)`;
-              break;
-            case 'zoom-in-out-blur':
-            case 'zoom-in-out-blur-fade':
-              inMove = `\\pos(${X_pos},${Y_in})`;
-              inAnim = `\\fscx0\\fscy0\\blur6\\t(0,${animMs},\\fscx100\\fscy100\\blur0)`;
-              outMove = `\\pos(${X_pos},${Y_out})`;
-              outAnim = `\\fscx100\\fscy100\\blur0\\t(0,${animMs},\\fscx0\\fscy0\\blur6)`;
-              break;
-            default:
-              inMove = `\\pos(${X_pos},${Y_in})`;
-              outMove = `\\pos(${X_pos},${Y_out})`;
-              break;
-          }
-
-          const hasFade = (style.textFade !== false) || transition.endsWith('-fade');
-          let fadeTagIn = hasFade ? `\\fad(${animMs},0)` : '';
-          let fadeTagOut = hasFade ? `\\fad(0,${animMs})` : '';
-
-          if (isFirst && isLast) {
-            const mid1 = start + animTime;
-            const mid2 = end - animTime;
-            const y1 = Math.round(getYForTime(mid1));
-            const y2 = Math.round(getYForTime(mid2));
-            let midMove = `\\pos(${X_pos},${Y_pos})`;
+        const writeChunkDialogueLines = (layer, text) => {
+          let chunkEvents = '';
+          if (transition === 'none' || chunkDuration < 0.15 || segmentDuration < 0.10) {
+            const yStart = Math.round(getYForTime(start));
+            const yEnd = Math.round(getYForTime(end));
+            let moveTag = `\\pos(${X_pos},${Y_pos})`;
             if (motion === 'float') {
-              midMove = `\\move(${X_pos},${y1},${X_pos},${y2})`;
+              moveTag = `\\move(${X_pos},${yStart},${X_pos},${yEnd})`;
             }
-
-            events += `Dialogue: 0,${formatTime(start)},${formatTime(mid1)},Default,,0,0,0,,{\\an5${inMove}${inAnim}${fadeTagIn}\\c${primaryAssColor}}${text}\n`;
-            events += `Dialogue: 0,${formatTime(mid1)},${formatTime(mid2)},Default,,0,0,0,,{\\an5${midMove}\\c${primaryAssColor}}${text}\n`;
-            events += `Dialogue: 0,${formatTime(mid2)},${formatTime(end)},Default,,0,0,0,,{\\an5${outMove}${outAnim}${fadeTagOut}\\c${primaryAssColor}}${text}\n`;
-          } else if (isFirst) {
-            const mid = start + animTime;
-            const y1 = Math.round(getYForTime(mid));
-            const y2 = Math.round(getYForTime(end));
-            let midMove = `\\pos(${X_pos},${Y_pos})`;
-            if (motion === 'float') {
-              midMove = `\\move(${X_pos},${y1},${X_pos},${y2})`;
+            
+            let fadeTag = '';
+            if (style.textFade !== false) {
+              if (isFirst && isLast) fadeTag = '\\fad(150,150)';
+              else if (isFirst) fadeTag = '\\fad(150,0)';
+              else if (isLast) fadeTag = '\\fad(0,150)';
             }
-
-            events += `Dialogue: 0,${formatTime(start)},${formatTime(mid)},Default,,0,0,0,,{\\an5${inMove}${inAnim}${fadeTagIn}\\c${primaryAssColor}}${text}\n`;
-            events += `Dialogue: 0,${formatTime(mid)},${formatTime(end)},Default,,0,0,0,,{\\an5${midMove}\\c${primaryAssColor}}${text}\n`;
-          } else if (isLast) {
-            const mid = end - animTime;
-            const y1 = Math.round(getYForTime(start));
-            const y2 = Math.round(getYForTime(mid));
-            let midMove = `\\pos(${X_pos},${Y_pos})`;
-            if (motion === 'float') {
-              midMove = `\\move(${X_pos},${y1},${X_pos},${y2})`;
-            }
-
-            events += `Dialogue: 0,${formatTime(start)},${formatTime(mid)},Default,,0,0,0,,{\\an5${midMove}\\c${primaryAssColor}}${text}\n`;
-            events += `Dialogue: 0,${formatTime(mid)},${formatTime(end)},Default,,0,0,0,,{\\an5${outMove}${outAnim}${fadeTagOut}\\c${primaryAssColor}}${text}\n`;
+            chunkEvents += `Dialogue: ${layer},${formatTime(start)},${formatTime(end)},Default,,0,0,0,,{\\an5${moveTag}${fadeTag}}${text}\n`;
           } else {
-            const y1 = Math.round(getYForTime(start));
-            const y2 = Math.round(getYForTime(end));
-            let midMove = `\\pos(${X_pos},${Y_pos})`;
-            if (motion === 'float') {
-              midMove = `\\move(${X_pos},${y1},${X_pos},${y2})`;
+            // Complex slide/zoom transitions
+            let animTime = 0.15;
+            if (isFirst && isLast) {
+              animTime = (segmentDuration >= 0.45) ? 0.15 : Math.max(0.05, segmentDuration * 0.33);
+            } else if (isFirst || isLast) {
+              animTime = (segmentDuration >= 0.30) ? 0.15 : Math.max(0.05, segmentDuration * 0.50);
             }
-            events += `Dialogue: 0,${formatTime(start)},${formatTime(end)},Default,,0,0,0,,{\\an5${midMove}\\c${primaryAssColor}}${text}\n`;
+            const animMs = Math.round(animTime * 1000);
+
+            let inMove = '';
+            let inAnim = '';
+            let outMove = '';
+            let outAnim = '';
+
+            const Y_in = Math.round(getYForTime(chunkStart));
+            const Y_out = Math.round(getYForTime(chunkEnd));
+
+            switch (transition) {
+              case 'slide-up':
+              case 'slide-up-fade':
+                inMove = `\\move(${X_pos},${Y_in + 40},${X_pos},${Y_in},0,${animMs})`;
+                outMove = `\\move(${X_pos},${Y_out},${X_pos},${Y_out - 40},0,${animMs})`;
+                break;
+              case 'slide-down':
+              case 'slide-down-fade':
+                inMove = `\\move(${X_pos},${Y_in - 40},${X_pos},${Y_in},0,${animMs})`;
+                outMove = `\\move(${X_pos},${Y_out},${X_pos},${Y_out + 40},0,${animMs})`;
+                break;
+              case 'slide-left':
+              case 'slide-left-fade':
+                inMove = `\\move(${X_pos + 50},${Y_in},${X_pos},${Y_in},0,${animMs})`;
+                outMove = `\\move(${X_pos},${Y_out},${X_pos - 50},${Y_out},0,${animMs})`;
+                break;
+              case 'slide-right':
+              case 'slide-right-fade':
+                inMove = `\\move(${X_pos - 50},${Y_in},${X_pos},${Y_in},0,${animMs})`;
+                outMove = `\\move(${X_pos},${Y_out},${X_pos + 50},${Y_out},0,${animMs})`;
+                break;
+              case 'slide-up-blur':
+              case 'slide-up-blur-fade':
+                inMove = `\\move(${X_pos},${Y_in + 40},${X_pos},${Y_in},0,${animMs})`;
+                inAnim = `\\blur6\\t(0,${animMs},\\blur0)`;
+                outMove = `\\move(${X_pos},${Y_out},${X_pos},${Y_out - 40},0,${animMs})`;
+                outAnim = `\\blur0\\t(0,${animMs},\\blur6)`;
+                break;
+              case 'slide-down-blur':
+              case 'slide-down-blur-fade':
+                inMove = `\\move(${X_pos},${Y_in - 40},${X_pos},${Y_in},0,${animMs})`;
+                inAnim = `\\blur6\\t(0,${animMs},\\blur0)`;
+                outMove = `\\move(${X_pos},${Y_out},${X_pos},${Y_out + 40},0,${animMs})`;
+                outAnim = `\\blur0\\t(0,${animMs},\\blur6)`;
+                break;
+              case 'slide-left-blur':
+              case 'slide-left-blur-fade':
+                inMove = `\\move(${X_pos + 50},${Y_in},${X_pos},${Y_in},0,${animMs})`;
+                inAnim = `\\blur6\\t(0,${animMs},\\blur0)`;
+                outMove = `\\move(${X_pos},${Y_out},${X_pos - 50},${Y_out},0,${animMs})`;
+                outAnim = `\\blur0\\t(0,${animMs},\\blur6)`;
+                break;
+              case 'slide-right-blur':
+              case 'slide-right-blur-fade':
+                inMove = `\\move(${X_pos - 50},${Y_in},${X_pos},${Y_in},0,${animMs})`;
+                inAnim = `\\blur6\\t(0,${animMs},\\blur0)`;
+                outMove = `\\move(${X_pos},${Y_out},${X_pos + 50},${Y_out},0,${animMs})`;
+                outAnim = `\\blur0\\t(0,${animMs},\\blur6)`;
+                break;
+              case 'zoom-in-out':
+              case 'zoom-in-out-fade':
+                inMove = `\\pos(${X_pos},${Y_in})`;
+                inAnim = `\\fscx0\\fscy0\\t(0,${animMs},\\fscx100\\fscy100)`;
+                outMove = `\\pos(${X_pos},${Y_out})`;
+                outAnim = `\\fscx100\\fscy100\\t(0,${animMs},\\fscx0\\fscy0)`;
+                break;
+              case 'zoom-in-out-blur':
+              case 'zoom-in-out-blur-fade':
+                inMove = `\\pos(${X_pos},${Y_in})`;
+                inAnim = `\\fscx0\\fscy0\\blur6\\t(0,${animMs},\\fscx100\\fscy100\\blur0)`;
+                outMove = `\\pos(${X_pos},${Y_out})`;
+                outAnim = `\\fscx100\\fscy100\\blur0\\t(0,${animMs},\\fscx0\\fscy0\\blur6)`;
+                break;
+              default:
+                inMove = `\\pos(${X_pos},${Y_in})`;
+                outMove = `\\pos(${X_pos},${Y_out})`;
+                break;
+            }
+
+            const hasFade = (style.textFade !== false) || transition.endsWith('-fade');
+            let fadeTagIn = hasFade ? `\\fad(${animMs},0)` : '';
+            let fadeTagOut = hasFade ? `\\fad(0,${animMs})` : '';
+
+            if (isFirst && isLast) {
+              const mid1 = start + animTime;
+              const mid2 = end - animTime;
+              const y1 = Math.round(getYForTime(mid1));
+              const y2 = Math.round(getYForTime(mid2));
+              let midMove = `\\pos(${X_pos},${Y_pos})`;
+              if (motion === 'float') {
+                midMove = `\\move(${X_pos},${y1},${X_pos},${y2})`;
+              }
+
+              chunkEvents += `Dialogue: ${layer},${formatTime(start)},${formatTime(mid1)},Default,,0,0,0,,{\\an5${inMove}${inAnim}${fadeTagIn}}${text}\n`;
+              chunkEvents += `Dialogue: ${layer},${formatTime(mid1)},${formatTime(mid2)},Default,,0,0,0,,{\\an5${midMove}}${text}\n`;
+              chunkEvents += `Dialogue: ${layer},${formatTime(mid2)},${formatTime(end)},Default,,0,0,0,,{\\an5${outMove}${outAnim}${fadeTagOut}}${text}\n`;
+            } else if (isFirst) {
+              const mid = start + animTime;
+              const y1 = Math.round(getYForTime(mid));
+              const y2 = Math.round(getYForTime(end));
+              let midMove = `\\pos(${X_pos},${Y_pos})`;
+              if (motion === 'float') {
+                midMove = `\\move(${X_pos},${y1},${X_pos},${y2})`;
+              }
+
+              chunkEvents += `Dialogue: ${layer},${formatTime(start)},${formatTime(mid)},Default,,0,0,0,,{\\an5${inMove}${inAnim}${fadeTagIn}}${text}\n`;
+              chunkEvents += `Dialogue: ${layer},${formatTime(mid)},${formatTime(end)},Default,,0,0,0,,{\\an5${midMove}}${text}\n`;
+            } else if (isLast) {
+              const mid = end - animTime;
+              const y1 = Math.round(getYForTime(start));
+              const y2 = Math.round(getYForTime(mid));
+              let midMove = `\\pos(${X_pos},${Y_pos})`;
+              if (motion === 'float') {
+                midMove = `\\move(${X_pos},${y1},${X_pos},${y2})`;
+              }
+
+              chunkEvents += `Dialogue: ${layer},${formatTime(start)},${formatTime(mid)},Default,,0,0,0,,{\\an5${midMove}}${text}\n`;
+              chunkEvents += `Dialogue: ${layer},${formatTime(mid)},${formatTime(end)},Default,,0,0,0,,{\\an5${outMove}${outAnim}${fadeTagOut}}${text}\n`;
+            } else {
+              const y1 = Math.round(getYForTime(start));
+              const y2 = Math.round(getYForTime(end));
+              let midMove = `\\pos(${X_pos},${Y_pos})`;
+              if (motion === 'float') {
+                midMove = `\\move(${X_pos},${y1},${X_pos},${y2})`;
+              }
+              chunkEvents += `Dialogue: ${layer},${formatTime(start)},${formatTime(end)},Default,,0,0,0,,{\\an5${midMove}}${text}\n`;
+            }
           }
+          return chunkEvents;
+        };
+
+        if (anyNeonGlow) {
+          events += writeChunkDialogueLines(0, glowTextOuter);
+          events += writeChunkDialogueLines(1, glowTextMedium);
+          events += writeChunkDialogueLines(2, glowTextInner);
+          events += writeChunkDialogueLines(3, coreText);
+        } else {
+          events += writeChunkDialogueLines(0, coreText);
         }
       }
     }
@@ -963,8 +1187,20 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         ? `\\move(${X_pos},${Y_pos + 4},${X_pos},${Y_pos - 4})`
         : `\\pos(${X_pos},${Y_pos})`;
       const fadeTag = style.textFade !== false ? '\\fad(150,150)' : '';
-      const text = renderChunkText(chunks[chunks.length - 1], -1);
-      events += `Dialogue: 0,${startStr},${endStr},Default,,0,0,0,,{\\an5${moveTag}${fadeTag}\\c${primaryAssColor}}${text}\n`;
+      
+      const glowTextOuter = renderChunkTextForLayer(chunks[chunks.length - 1], -1, 'glowOuter');
+      const glowTextMedium = renderChunkTextForLayer(chunks[chunks.length - 1], -1, 'glowMedium');
+      const glowTextInner = renderChunkTextForLayer(chunks[chunks.length - 1], -1, 'glowInner');
+      const coreText = renderChunkTextForLayer(chunks[chunks.length - 1], -1, 'core');
+      
+      if (anyNeonGlow) {
+        events += `Dialogue: 0,${startStr},${endStr},Default,,0,0,0,,{\\an5${moveTag}${fadeTag}}${glowTextOuter}\n`;
+        events += `Dialogue: 1,${startStr},${endStr},Default,,0,0,0,,{\\an5${moveTag}${fadeTag}}${glowTextMedium}\n`;
+        events += `Dialogue: 2,${startStr},${endStr},Default,,0,0,0,,{\\an5${moveTag}${fadeTag}}${glowTextInner}\n`;
+        events += `Dialogue: 3,${startStr},${endStr},Default,,0,0,0,,{\\an5${moveTag}${fadeTag}}${coreText}\n`;
+      } else {
+        events += `Dialogue: 0,${startStr},${endStr},Default,,0,0,0,,{\\an5${moveTag}${fadeTag}}${coreText}\n`;
+      }
     }
   } else {
     // Current "pop" mode: word linger with random positions and pop-burst
@@ -1004,10 +1240,19 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
       const wordText = w.word;
 
-      let currentWordCol = highlightAssColor;
-      if (style.autoEmphasis && isEmphasisWord(w.word)) {
-        currentWordCol = hexToAssColor(style.emphasisColor || '#FFFF00');
+      const category = getWordCategory(w.word);
+      let wordStyle = normalStyle;
+      if (category === 'emoji') {
+        wordStyle = emojiStyle;
+      } else if (category === 'highlight') {
+        wordStyle = highlightStyle;
       }
+
+      const activeWordScale = wordStyle.activeWordScale || 1.0;
+      const wordAnim = `\\fscx${Math.round(10 * activeWordScale)}\\fscy${Math.round(10 * activeWordScale)}` +
+        `\\t(0,${popInMs},\\fscx${Math.round(120 * activeWordScale)}\\fscy${Math.round(120 * activeWordScale)})` +
+        `\\t(${popInMs},${settleMs},\\fscx${Math.round(100 * activeWordScale)}\\fscy${Math.round(100 * activeWordScale)})` +
+        `\\t(${burstStart},${durMs},\\fscx${Math.round(300 * activeWordScale)}\\fscy${Math.round(300 * activeWordScale)}\\alpha&HFF&)`;
 
       if (showBox) {
         const wordW = wordText.length * charWidthFactor * fontSize;
@@ -1019,15 +1264,35 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         events += `Dialogue: 0,${startStr},${endStr},Default,,0,0,0,,{\\an5${moveTag}${bAnim}\\c${boxAssColor}}{\\p1}${drawCenteredRoundedRect(boxW, boxHeight, boxRounding)}{\\p0}\n`;
       }
 
-      const wordAnim = `\\fscx10\\fscy10` +
-        `\\t(0,${popInMs},\\fscx120\\fscy120)` +
-        `\\t(${popInMs},${settleMs},\\fscx100\\fscy100)` +
-        `\\t(${burstStart},${durMs},\\fscx300\\fscy300\\alpha&HFF&)`;
-      events += `Dialogue: 1,${startStr},${endStr},Default,,0,0,0,,{\\an5${moveTag}\\c${currentWordCol}${wordAnim}}${wordText}\n`;
+      const glowTagsOuter = getWordTags(wordStyle, true, 'glowOuter', outlineColor, outlineSize, fontSize, style, category);
+      const glowTagsMedium = getWordTags(wordStyle, true, 'glowMedium', outlineColor, outlineSize, fontSize, style, category);
+      const glowTagsInner = getWordTags(wordStyle, true, 'glowInner', outlineColor, outlineSize, fontSize, style, category);
+      const coreTags = getWordTags(wordStyle, true, 'core', outlineColor, outlineSize, fontSize, style, category);
+
+      const glowTextOuter = `{\\an5${glowTagsOuter}}${wordText}`;
+      const glowTextMedium = `{\\an5${glowTagsMedium}}${wordText}`;
+      const glowTextInner = `{\\an5${glowTagsInner}}${wordText}`;
+      const coreText = `{\\an5${coreTags}}${wordText}`;
+
+      const glowLayerOuter = startLayer;
+      const glowLayerMedium = startLayer + 1;
+      const glowLayerInner = startLayer + 2;
+      const coreLayer = anyNeonGlow ? startLayer + 3 : startLayer;
+
+      if (anyNeonGlow) {
+        events += `Dialogue: ${glowLayerOuter},${startStr},${endStr},Default,,0,0,0,,{\\an5${moveTag}${wordAnim}}${glowTextOuter}\n`;
+        events += `Dialogue: ${glowLayerMedium},${startStr},${endStr},Default,,0,0,0,,{\\an5${moveTag}${wordAnim}}${glowTextMedium}\n`;
+        events += `Dialogue: ${glowLayerInner},${startStr},${endStr},Default,,0,0,0,,{\\an5${moveTag}${wordAnim}}${glowTextInner}\n`;
+        events += `Dialogue: ${coreLayer},${startStr},${endStr},Default,,0,0,0,,{\\an5${moveTag}${wordAnim}}${coreText}\n`;
+      } else {
+        events += `Dialogue: ${coreLayer},${startStr},${endStr},Default,,0,0,0,,{\\an5${moveTag}${wordAnim}}${coreText}\n`;
+      }
     }
   }
 
-  const finalEvents = style.neonGlow ? applyNeonGlowToEvents(events, style, primaryColor, outlineColor) : events;
+  const finalEvents = (mode === 'classic')
+    ? (normalStyle.neonGlow ? applyNeonGlowToEvents(events, normalStyle, primaryColor, outlineColor) : events)
+    : events;
   return header + finalEvents;
 }
 
@@ -1100,6 +1365,25 @@ export async function assembleVideo(options, onProgress) {
     console.warn('Failed to calculate voiceover duration:', err.message);
   }
 
+  // Dynamically scale scene timings if their total duration exceeds the actual voiceover duration
+  if (adjustedScenes.length > 0 && voiceoverDuration > 0) {
+    const maxSceneEndTime = Math.max(...adjustedScenes.map(s => s.end_time || s.start_time));
+    if (maxSceneEndTime > voiceoverDuration + 0.05) {
+      const scaleFactor = voiceoverDuration / maxSceneEndTime;
+      console.log(`[Video Generator] Scenes end time (${maxSceneEndTime.toFixed(3)}s) exceeds voiceover duration (${voiceoverDuration.toFixed(3)}s). Scaling scenes by ${scaleFactor.toFixed(4)} to fit perfectly.`);
+      for (const scene of adjustedScenes) {
+        scene.start_time = Number((scene.start_time * scaleFactor).toFixed(3));
+        scene.end_time = Number((scene.end_time * scaleFactor).toFixed(3));
+        if (scene.words && Array.isArray(scene.words)) {
+          for (const w of scene.words) {
+            w.start_time = Number((w.start_time * scaleFactor).toFixed(3));
+            w.end_time = Number((w.end_time * scaleFactor).toFixed(3));
+          }
+        }
+      }
+    }
+  }
+
   // Adjust scene timings to completely cover intermediate gaps/silences.
   // This eliminates accumulated timing drift between video and audio tracks!
   if (adjustedScenes.length > 0) {
@@ -1107,9 +1391,8 @@ export async function assembleVideo(options, onProgress) {
 
     // Filter out scenes that start beyond the actual audio track duration
     if (voiceoverDuration > 0) {
-      // Keep scenes starting before voiceover ends (with a tiny 50ms buffer)
-      // but always keep at least the first scene.
-      const validScenes = adjustedScenes.filter((s, idx) => idx === 0 || s.start_time < voiceoverDuration - 0.05);
+      // Keep scenes starting before voiceover ends (with a safety buffer)
+      const validScenes = adjustedScenes.filter((s, idx) => idx === 0 || s.start_time < voiceoverDuration + 0.1);
       
       // Update the adjustedScenes array in-place
       adjustedScenes.length = 0;
@@ -1131,6 +1414,32 @@ export async function assembleVideo(options, onProgress) {
         // Fallback if voiceoverDuration isn't available
         if (adjustedScenes[i].end_time < adjustedScenes[i].start_time + 0.1) {
           adjustedScenes[i].end_time = adjustedScenes[i].start_time + 0.1;
+        }
+      }
+    }
+
+    // Adjust word timings in-place to fit strictly within their respective adjusted scenes
+    for (const scene of adjustedScenes) {
+      const duration = scene.end_time - scene.start_time;
+      if (scene.words && scene.words.length > 0) {
+        const adjustedLocal = getLocalWordTimings(scene.words, scene.start_time, duration);
+        for (let j = 0; j < scene.words.length; j++) {
+          scene.words[j].start_time = Number((scene.start_time + adjustedLocal[j].start).toFixed(3));
+          scene.words[j].end_time = Number((scene.start_time + adjustedLocal[j].end).toFixed(3));
+        }
+      }
+      if (scene.words_hindi && scene.words_hindi.length > 0) {
+        const adjustedLocalHindi = getLocalWordTimings(scene.words_hindi, scene.start_time, duration);
+        for (let j = 0; j < scene.words_hindi.length; j++) {
+          scene.words_hindi[j].start_time = Number((scene.start_time + adjustedLocalHindi[j].start).toFixed(3));
+          scene.words_hindi[j].end_time = Number((scene.start_time + adjustedLocalHindi[j].end).toFixed(3));
+        }
+      }
+      if (scene.words_hinglish && scene.words_hinglish.length > 0) {
+        const adjustedLocalHinglish = getLocalWordTimings(scene.words_hinglish, scene.start_time, duration);
+        for (let j = 0; j < scene.words_hinglish.length; j++) {
+          scene.words_hinglish[j].start_time = Number((scene.start_time + adjustedLocalHinglish[j].start).toFixed(3));
+          scene.words_hinglish[j].end_time = Number((scene.start_time + adjustedLocalHinglish[j].end).toFixed(3));
         }
       }
     }
@@ -1272,88 +1581,146 @@ export async function assembleVideo(options, onProgress) {
       videoFilter += `,scale=w='2*trunc(((1+0.06*t/${sceneDuration})*${targetWidth})/2)':h='2*trunc(((1+0.06*t/${sceneDuration})*${targetHeight})/2)':eval=frame,crop=${targetWidth}:${targetHeight}:2*trunc((iw-ow)/4):2*trunc((ih-oh)/4)`;
     }
 
-    // Resolve active transition for this scene (handles 'random')
-    let activeTransition = clipTransition || 'none';
-    if (activeTransition === 'random') {
-      const transitionsList = [
-        'fade',
-        'slide-left', 'slide-right', 'slide-up', 'slide-down',
-        'slide-left-fade', 'slide-right-fade', 'slide-up-fade', 'slide-down-fade',
-        'blur-slide-left', 'blur-slide-right', 'blur-slide-up', 'blur-slide-down',
-        'blur-slide-left-fade', 'blur-slide-right-fade', 'blur-slide-up-fade', 'blur-slide-down-fade',
-        'pan-left', 'pan-right', 'pan-up', 'pan-down',
-        'pan-left-fade', 'pan-right-fade', 'pan-up-fade', 'pan-down-fade',
-        'blur-pan-left', 'blur-pan-right', 'blur-pan-up', 'blur-pan-down',
-        'blur-pan-left-fade', 'blur-pan-right-fade', 'blur-pan-up-fade', 'blur-pan-down-fade',
-        'zoom-in', 'zoom-out',
-        'zoom-in-fade', 'zoom-out-fade',
-        'blur-zoom-in', 'blur-zoom-out',
-        'blur-zoom-in-fade', 'blur-zoom-out-fade'
-      ];
-      // Deterministic index-based selection
-      activeTransition = transitionsList[i % transitionsList.length];
-    }
+    // Resolve active transitions for this scene (governed by boundary definitions)
+    const getTransition = (type, idx) => {
+      if (!type || type === 'none') return 'none';
+      if (type === 'random') {
+        const transitionsList = [
+          'fade',
+          'slide-left', 'slide-right', 'slide-up', 'slide-down',
+          'slide-left-fade', 'slide-right-fade', 'slide-up-fade', 'slide-down-fade',
+          'blur-slide-left', 'blur-slide-right', 'blur-slide-up', 'blur-slide-down',
+          'blur-slide-left-fade', 'blur-slide-right-fade', 'blur-slide-up-fade', 'blur-slide-down-fade',
+          'pan-left', 'pan-right', 'pan-up', 'pan-down',
+          'pan-left-fade', 'pan-right-fade', 'pan-up-fade', 'pan-down-fade',
+          'blur-pan-left', 'blur-pan-right', 'blur-pan-up', 'blur-pan-down',
+          'blur-pan-left-fade', 'blur-pan-right-fade', 'blur-pan-up-fade', 'blur-pan-down-fade',
+          'zoom-in', 'zoom-out',
+          'zoom-in-fade', 'zoom-out-fade',
+          'blur-zoom-in', 'blur-zoom-out',
+          'blur-zoom-in-fade', 'blur-zoom-out-fade'
+        ];
+        return transitionsList[idx % transitionsList.length];
+      }
+      return type;
+    };
+
+    const incomingTransition = (i > 0) ? getTransition(adjustedScenes[i - 1].transition || clipTransition, i - 1) : 'none';
+    const outgoingTransition = (i < adjustedScenes.length - 1) ? getTransition(adjustedScenes[i].transition || clipTransition, i) : 'none';
 
     const td = Number(transitionDuration) || 0.3; // resolved transition duration
-    const fadeDur = Math.min(td, sceneDuration / 2);
-    const hasFade = activeTransition === 'fade' || activeTransition.endsWith('-fade');
 
-    if (hasFade) {
-      videoFilter += `,fade=t=in:st=0:d=${fadeDur.toFixed(3)},fade=t=out:st=${(sceneDuration - fadeDur).toFixed(3)}:d=${fadeDur.toFixed(3)}`;
+    // 1. Fade Transitions
+    const incomingFadeDur = (incomingTransition === 'fade' || incomingTransition.endsWith('-fade')) ? Math.min(td, sceneDuration / 2) : 0;
+    const outgoingFadeDur = (outgoingTransition === 'fade' || outgoingTransition.endsWith('-fade')) ? Math.min(td, sceneDuration / 2) : 0;
+
+    if (incomingFadeDur > 0) {
+      videoFilter += `,fade=t=in:st=0:d=${incomingFadeDur.toFixed(3)}`;
+    }
+    if (outgoingFadeDur > 0) {
+      videoFilter += `,fade=t=out:st=${(sceneDuration - outgoingFadeDur).toFixed(3)}:d=${outgoingFadeDur.toFixed(3)}`;
     }
 
-    if (activeTransition !== 'none' && activeTransition !== 'fade' && sceneDuration > td * 2) {
-      const isSlide = activeTransition.includes('slide');
-      const isPan = activeTransition.includes('pan');
-      const isZoom = activeTransition.includes('zoom');
-      const isBlur = activeTransition.includes('blur');
-      
-      if (isSlide || isPan) {
-        const amp = isPan ? 0.2 : 1.0;
-        let xExpr = String(targetWidth);
-        let yExpr = String(targetHeight);
-        
-        if (activeTransition.includes('left')) {
-          xExpr = `${targetWidth} * (1 + ${amp} * if(lt(t, ${td}), -pow(1 - (t/${td}), 3), if(gt(t, ${sceneDuration} - ${td}), pow((t - (${sceneDuration} - ${td}))/${td}, 3), 0)))`;
-        } else if (activeTransition.includes('right')) {
-          xExpr = `${targetWidth} * (1 + ${amp} * if(lt(t, ${td}), pow(1 - (t/${td}), 3), if(gt(t, ${sceneDuration} - ${td}), -pow((t - (${sceneDuration} - ${td}))/${td}, 3), 0)))`;
-        } else if (activeTransition.includes('up')) {
-          yExpr = `${targetHeight} * (1 + ${amp} * if(lt(t, ${td}), -pow(1 - (t/${td}), 3), if(gt(t, ${sceneDuration} - ${td}), pow((t - (${sceneDuration} - ${td}))/${td}, 3), 0)))`;
-        } else if (activeTransition.includes('down')) {
-          yExpr = `${targetHeight} * (1 + ${amp} * if(lt(t, ${td}), pow(1 - (t/${td}), 3), if(gt(t, ${sceneDuration} - ${td}), -pow((t - (${sceneDuration} - ${td}))/${td}, 3), 0)))`;
+    // 2. Motion Transitions (Slide/Pan)
+    const incomingIsSlidePan = incomingTransition.includes('slide') || incomingTransition.includes('pan');
+    const outgoingIsSlidePan = outgoingTransition.includes('slide') || outgoingTransition.includes('pan');
+
+    if ((incomingIsSlidePan || outgoingIsSlidePan) && sceneDuration > td * 2) {
+      const isPan = incomingTransition.includes('pan') || outgoingTransition.includes('pan'); // apply pan dampening if either is pan
+      const amp = isPan ? 0.2 : 1.0;
+      let xExpr = String(targetWidth);
+      let yExpr = String(targetHeight);
+
+      let xIn = '0';
+      if (incomingIsSlidePan) {
+        const inAmp = incomingTransition.includes('pan') ? 0.2 : 1.0;
+        if (incomingTransition.includes('left')) {
+          xIn = `-${inAmp} * pow(1 - (t/${td}), 3)`;
+        } else if (incomingTransition.includes('right')) {
+          xIn = `${inAmp} * pow(1 - (t/${td}), 3)`;
         }
-        
-        // Pad video to 3x dimensions (canvas is centered around original video at W, H)
-        videoFilter += `,pad=w=3*${targetWidth}:h=3*${targetHeight}:x=${targetWidth}:y=${targetHeight}:color=black`;
-        videoFilter += `,crop=w=${targetWidth}:h=${targetHeight}:x='${xExpr}':y='${yExpr}'`;
-      } else if (isZoom) {
-        const factor = activeTransition.includes('zoom-in') ? 0.3 : -0.3;
-        const sExpr = `if(lt(t, ${td}), 1.0 + ${factor} * pow(1 - (t/${td}), 3), if(gt(t, ${sceneDuration} - ${td}), 1.0 + ${factor} * pow((t - (${sceneDuration} - ${td}))/${td}, 3), 1.0))`;
-        
-        // Scale to dynamic S factor (forcing even dimensions to avoid YUV colorspace green borders)
-        videoFilter += `,scale=w='2*trunc(((${sExpr})*${targetWidth})/2)':h='2*trunc(((${sExpr})*${targetHeight})/2)':eval=frame`;
-        // Pad to 3x centered, then crop center (forcing even dimensions and eval=frame to prevent green borders)
-        videoFilter += `,pad=w=3*${targetWidth}:h=3*${targetHeight}:x='2*trunc((3*${targetWidth}-iw)/4)':y='2*trunc((3*${targetHeight}-ih)/4)':color=black:eval=frame`;
-        videoFilter += `,crop=w=${targetWidth}:h=${targetHeight}:x=${targetWidth}:y=${targetHeight}`;
       }
-      
-      if (isBlur) {
-        // Stepped blur-in (decelerating blur radius) — 3 equal thirds of td
-        const bs1 = (td / 3).toFixed(3);
-        const bs2 = (2 * td / 3).toFixed(3);
-        const bs3 = td.toFixed(3);
-        videoFilter += `,boxblur=lr=16:lp=1:enable='lt(t,${bs1})'`;
-        videoFilter += `,boxblur=lr=8:lp=1:enable='between(t,${bs1},${bs2})'`;
-        videoFilter += `,boxblur=lr=3:lp=1:enable='between(t,${bs2},${bs3})'`;
-        
-        // Stepped blur-out (accelerating blur radius)
-        const t1 = (sceneDuration - td).toFixed(3);
-        const t2 = (sceneDuration - 2 * td / 3).toFixed(3);
-        const t3 = (sceneDuration - td / 3).toFixed(3);
-        videoFilter += `,boxblur=lr=3:lp=1:enable='between(t,${t1},${t2})'`;
-        videoFilter += `,boxblur=lr=8:lp=1:enable='between(t,${t2},${t3})'`;
-        videoFilter += `,boxblur=lr=16:lp=1:enable='gt(t,${t3})'`;
+
+      let xOut = '0';
+      if (outgoingIsSlidePan) {
+        const outAmp = outgoingTransition.includes('pan') ? 0.2 : 1.0;
+        if (outgoingTransition.includes('left')) {
+          xOut = `${outAmp} * pow((t - (${sceneDuration} - ${td}))/${td}, 3)`;
+        } else if (outgoingTransition.includes('right')) {
+          xOut = `-${outAmp} * pow((t - (${sceneDuration} - ${td}))/${td}, 3)`;
+        }
       }
+
+      let yIn = '0';
+      if (incomingIsSlidePan) {
+        const inAmp = incomingTransition.includes('pan') ? 0.2 : 1.0;
+        if (incomingTransition.includes('up')) {
+          yIn = `-${inAmp} * pow(1 - (t/${td}), 3)`;
+        } else if (incomingTransition.includes('down')) {
+          yIn = `${inAmp} * pow(1 - (t/${td}), 3)`;
+        }
+      }
+
+      let yOut = '0';
+      if (outgoingIsSlidePan) {
+        const outAmp = outgoingTransition.includes('pan') ? 0.2 : 1.0;
+        if (outgoingTransition.includes('up')) {
+          yOut = `${outAmp} * pow((t - (${sceneDuration} - ${td}))/${td}, 3)`;
+        } else if (outgoingTransition.includes('down')) {
+          yOut = `-${outAmp} * pow((t - (${sceneDuration} - ${td}))/${td}, 3)`;
+        }
+      }
+
+      xExpr = `${targetWidth} * (1 + if(lt(t, ${td}), ${xIn}, if(gt(t, ${sceneDuration} - ${td}), ${xOut}, 0)))`;
+      yExpr = `${targetHeight} * (1 + if(lt(t, ${td}), ${yIn}, if(gt(t, ${sceneDuration} - ${td}), ${yOut}, 0)))`;
+
+      videoFilter += `,pad=w=3*${targetWidth}:h=3*${targetHeight}:x=${targetWidth}:y=${targetHeight}:color=black`;
+      videoFilter += `,crop=w=${targetWidth}:h=${targetHeight}:x='${xExpr}':y='${yExpr}'`;
+    }
+
+    // 3. Zoom Transitions
+    const incomingIsZoom = incomingTransition.includes('zoom');
+    const outgoingIsZoom = outgoingTransition.includes('zoom');
+
+    if ((incomingIsZoom || outgoingIsZoom) && sceneDuration > td * 2) {
+      let sIn = '1.0';
+      if (incomingIsZoom) {
+        const inFactor = incomingTransition.includes('zoom-in') ? 0.3 : -0.3;
+        sIn = `1.0 + ${inFactor} * pow(1 - (t/${td}), 3)`;
+      }
+
+      let sOut = '1.0';
+      if (outgoingIsZoom) {
+        const outFactor = outgoingTransition.includes('zoom-in') ? 0.3 : -0.3;
+        sOut = `1.0 + ${outFactor} * pow((t - (${sceneDuration} - ${td}))/${td}, 3)`;
+      }
+
+      const sExpr = `if(lt(t, ${td}), ${sIn}, if(gt(t, ${sceneDuration} - ${td}), ${sOut}, 1.0))`;
+
+      videoFilter += `,scale=w='2*trunc(((${sExpr})*${targetWidth})/2)':h='2*trunc(((${sExpr})*${targetHeight})/2)':eval=frame`;
+      videoFilter += `,pad=w=3*${targetWidth}:h=3*${targetHeight}:x='2*trunc((3*${targetWidth}-iw)/4)':y='2*trunc((3*${targetHeight}-ih)/4)':color=black:eval=frame`;
+      videoFilter += `,crop=w=${targetWidth}:h=${targetHeight}:x=${targetWidth}:y=${targetHeight}`;
+    }
+
+    // 4. Blur Transitions
+    const incomingIsBlur = incomingTransition.includes('blur');
+    const outgoingIsBlur = outgoingTransition.includes('blur');
+
+    if (incomingIsBlur && sceneDuration > td * 2) {
+      const bs1 = (td / 3).toFixed(3);
+      const bs2 = (2 * td / 3).toFixed(3);
+      const bs3 = td.toFixed(3);
+      videoFilter += `,boxblur=lr=16:lp=1:enable='lt(t,${bs1})'`;
+      videoFilter += `,boxblur=lr=8:lp=1:enable='between(t,${bs1},${bs2})'`;
+      videoFilter += `,boxblur=lr=3:lp=1:enable='between(t,${bs2},${bs3})'`;
+    }
+    if (outgoingIsBlur && sceneDuration > td * 2) {
+      const t1 = (sceneDuration - td).toFixed(3);
+      const t2 = (sceneDuration - 2 * td / 3).toFixed(3);
+      const t3 = (sceneDuration - td / 3).toFixed(3);
+      videoFilter += `,boxblur=lr=3:lp=1:enable='between(t,${t1},${t2})'`;
+      videoFilter += `,boxblur=lr=8:lp=1:enable='between(t,${t2},${t3})'`;
+      videoFilter += `,boxblur=lr=16:lp=1:enable='gt(t,${t3})'`;
     }
  
     // Apply mini-beat visual effects (strobe/blink or camera shake)
@@ -1701,30 +2068,104 @@ export async function assembleVideo(options, onProgress) {
   ];
   await runFFmpeg(concatArgs, { cwd: tempDir });
 
-  onProgress(85, 'Mixing voiceover, music, and rendering final video...');
+  onProgress(85, 'Mixing voiceover, music, SFXs and rendering final video...');
+
+  // Resolve active SFX assets for scene boundaries
+  const activeSfxs = [];
+  for (let i = 0; i < adjustedScenes.length - 1; i++) {
+    const scene = adjustedScenes[i];
+    if (scene.sfx && scene.sfx !== 'none') {
+      const cleanSfx = scene.sfx.endsWith('.mp3') ? scene.sfx : `${scene.sfx}.mp3`;
+      let sfxPath = path.join(outputDir, 'sfx', cleanSfx);
+      if (!existsSync(sfxPath)) {
+        sfxPath = path.join(__dirname, '..', 'uploads', 'sfx', cleanSfx);
+      }
+      
+      if (existsSync(sfxPath)) {
+        // Play SFX 150ms before the cut so the whoosh peak aligns with the cut
+        const playTime = Math.max(0, scene.end_time - 0.15);
+        activeSfxs.push({
+          path: sfxPath,
+          playTime
+        });
+      }
+    }
+  }
+
+  // Word-level SFXs!
+  for (let i = 0; i < adjustedScenes.length; i++) {
+    const scene = adjustedScenes[i];
+    if (scene.words && scene.words.length > 0) {
+      for (const word of scene.words) {
+        if (word.sfx && word.sfx !== 'none') {
+          const cleanSfx = word.sfx.endsWith('.mp3') ? word.sfx : `${word.sfx}.mp3`;
+          let sfxPath = path.join(outputDir, 'sfx', cleanSfx);
+          if (!existsSync(sfxPath)) {
+            sfxPath = path.join(__dirname, '..', 'uploads', 'sfx', cleanSfx);
+          }
+          if (existsSync(sfxPath)) {
+            activeSfxs.push({
+              path: sfxPath,
+              playTime: word.start_time
+            });
+          }
+        }
+      }
+    }
+  }
 
   // Step 3: Mix Audio and compile final render
   const finalOutputPath = path.join(outputDir, `render_${jobId}.mp4`);
-  const renderArgs = [
-    '-i', concatVideoOnlyPath,
-    '-i', voiceoverPath
-  ];
+  
+  let currentInputIndex = 0;
+  const renderArgs = [];
+  
+  renderArgs.push('-i', concatVideoOnlyPath); // input 0
+  currentInputIndex++;
+  
+  renderArgs.push('-i', voiceoverPath);       // input 1
+  currentInputIndex++;
 
+  let bgIndex = -1;
   if (bgMusicPath && existsSync(bgMusicPath)) {
-    // Apply start offset (seek) before the BGM input if specified
     const bgOffset = Number(bgMusicStartOffset) || 0;
     if (bgOffset > 0) {
       renderArgs.push('-ss', String(bgOffset));
     }
-    renderArgs.push('-i', bgMusicPath);
-    // Mix voiceover (input 1, with volume control) and bg music (input 2, with volume control)
-    // Cap duration to voiceover (first audio input)
-    const voVol = Number(voiceoverVolume) || 1.0;
-    renderArgs.push('-filter_complex', `[1:a]volume=${voVol}[vo];[2:a]volume=${bgMusicVolume}[bg];[vo][bg]amix=inputs=2:duration=first[a]`);
+    renderArgs.push('-i', bgMusicPath); // input 2
+    bgIndex = currentInputIndex;
+    currentInputIndex++;
+  }
+
+  const sfxStartInputIndex = currentInputIndex;
+  for (let idx = 0; idx < activeSfxs.length; idx++) {
+    renderArgs.push('-i', activeSfxs[idx].path);
+    currentInputIndex++;
+  }
+
+  const voVol = Number(voiceoverVolume) || 1.0;
+  
+  // Construct filter complex if we have BGM or SFX inputs
+  if (bgIndex !== -1 || activeSfxs.length > 0) {
+    let filterComplex = `[1:a]volume=${voVol}[vo]`;
+    const amixInputs = ['[vo]'];
+
+    if (bgIndex !== -1) {
+      filterComplex += `;[${bgIndex}:a]volume=${bgMusicVolume}[bg]`;
+      amixInputs.push('[bg]');
+    }
+
+    for (let idx = 0; idx < activeSfxs.length; idx++) {
+      const delayMs = Math.round(activeSfxs[idx].playTime * 1000);
+      filterComplex += `;[${sfxStartInputIndex + idx}:a]volume=0.20,adelay=${delayMs}|${delayMs}[sfx_${idx}]`;
+      amixInputs.push(`[sfx_${idx}]`);
+    }
+
+    filterComplex += `;${amixInputs.join('')}amix=inputs=${amixInputs.length}:duration=first:normalize=0[a]`;
+    renderArgs.push('-filter_complex', filterComplex);
     renderArgs.push('-map', '0:v', '-map', '[a]');
   } else {
     // Just map the voiceover directly (with optional volume adjustment)
-    const voVol = Number(voiceoverVolume) || 1.0;
     if (voVol !== 1.0) {
       renderArgs.push('-filter_complex', `[1:a]volume=${voVol}[a]`);
       renderArgs.push('-map', '0:v', '-map', '[a]');

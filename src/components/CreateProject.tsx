@@ -17,6 +17,13 @@ interface Clip {
   thumbnail: string;
 }
 
+interface WordTiming {
+  word: string;
+  start_time: number;
+  end_time: number;
+  sfx?: string;
+}
+
 interface Scene {
   text: string;
   start_time: number;
@@ -24,6 +31,9 @@ interface Scene {
   clipId?: string;
   clipStart?: number;
   reason?: string;
+  words?: WordTiming[];
+  words_hindi?: WordTiming[];
+  words_hinglish?: WordTiming[];
   speedRamp?: {
     enabled: boolean;
     v0: number;
@@ -31,6 +41,48 @@ interface Scene {
     v2: number;
     preset: string;
   };
+}
+
+interface WordStyle {
+  fontColor: string;
+  activeWordScale: number;
+  neonGlow: boolean;
+  glowColor: string;
+  glowBlur: number;
+  glowDistance: number;
+}
+
+const emojiMap: Record<string, string> = {
+  // Fitness
+  'gym': '🏋️‍♂️', 'workout': '🏋️‍♂️', 'fitness': '💪', 'strong': '💪', 'training': '🏋️‍♂️', 'athlete': '🏃‍♂️', 'exercise': '🏋️‍♂️',
+  'run': '🏃‍♂️', 'walk': '🏃‍♂️', 'jump': '🦘', 'swim': '🏊‍♂️', 'climb': '🧗‍♂️', 'wrestling': '🤼‍♂️', 'martial': '🥋', 'karate': '🥋', 'judo': '🥋', 'gymnastics': '🤸‍♂️', 'boxing': '🥊', 'punch': '🥊', 'fight': '🥊',
+  // Money
+  'money': '💰', 'rich': '💰', 'million': '💵', 'billion': '💵', 'cash': '💵', 'dollar': '💵', 'wealth': '💰', 'broke': '💸', 'poor': '💸', 'bank': '🏦', 'card': '💳', 'credit': '💳', 'pay': '💵', 'buy': '🛒', 'sell': '📈', 'price': '🏷️', 'cost': '🏷️', 'bill': '💵', 'tax': '💸', 'gold': '🪙', 'coin': '🪙', 'diamond': '💎', 'gem': '💎', 'ring': '💍',
+  // Power
+  'fire': '🔥', 'hot': '🔥', 'burn': '🔥', 'flame': '🔥',
+  'danger': '⚠️', 'warn': '⚠️', 'warning': '⚠️', 'alert': '⚠️', 'stop': '🛑', 'go': '🟢', 'power': '⚡', 'energy': '⚡', 'speed': '⚡', 'fast': '⚡', 'lightning': '⚡', 'thunder': '⛈️', 'storm': '⛈️', 'bomb': '💣', 'explode': '💥', 'explosion': '💥', 'destroy': '💥', 'crash': '💥',
+  // Mind
+  'mind': '🧠', 'brain': '🧠', 'think': '🧠', 'smart': '🧠', 'idea': '💡', 'thought': '🤔', 'secret': '🤫', 'quiet': '🤫', 'genius': '🧠', 'truth': '🗣️', 'speak': '🗣️', 'talk': '🗣️', 'listen': '👂', 'hear': '👂',
+  // Goals
+  'time': '⏱️', 'clock': '⏰', 'watch': '⌚', 'target': '🎯', 'goal': '🎯', 'success': '🏆', 'win': '🏆', 'winner': '🏆', 'victory': '🏆', 'trophy': '🏆', 'medal': '🏅', 'first': '🥇', 'crown': '👑', 'king': '👑', 'queen': '👑',
+  // Emotions
+  'love': '❤️', 'heart': '❤️', 'broken': '💔', 'hate': '💔', 'scream': '😱', 'scared': '😱', 'shock': '😱', 'fear': '😨', 'ghost': '👻', 'monster': '👹', 'alien': '👽', 'happy': '😊', 'smile': '😊', 'excited': '🤩', 'wow': '😮', 'shocked': '😲', 'surprised': '😲', 'confused': '😕', 'laugh': '😂', 'funny': '😂', 'joke': '😂', 'cry': '😭', 'sad': '😭', 'crap': '💩', 'shit': '💩',
+  // Tech
+  'phone': '📱', 'mobile': '📱', 'computer': '💻', 'laptop': '💻', 'code': '💻', 'software': '💻', 'program': '💻', 'gift': '🎁', 'party': '🎉', 'celebrate': '🎉', 'key': '🔑', 'lock': '🔒', 'unlock': '🔓', 'door': '🚪', 'bed': '🛏️', 'tv': '📺', 'camera': '📷', 'photo': '📷', 'video': '🎥', 'movie': '🎬', 'film': '🎬', 'music': '🎵', 'song': '🎶', 'sing': '🎤', 'dance': '💃', 'book': '📖', 'read': '📖', 'write': '✍️',
+  // Travel
+  'car': '🏎️', 'bus': '🚌', 'truck': '🚚', 'bike': '🚲', 'travel': '✈️', 'trip': '✈️', 'plane': '✈️', 'train': '🚆', 'rocket': '🚀', 'fly': '🚀',
+  // Nature
+  'earth': '🌍', 'world': '🌎', 'nature': '🌿', 'sun': '☀️', 'moon': '🌙', 'star': '⭐', 'sky': '🌌', 'cloud': '☁️', 'rain': '🌧️', 'snow': '❄️', 'wind': '💨', 'ice': '❄️', 'water': '💧', 'ocean': '🌊', 'sea': '🌊', 'mountain': '⛰️', 'forest': '🌲', 'flower': '🌸', 'rose': '🌹', 'tree': '🌳',
+  // Animals
+  'dog': '🐶', 'cat': '🐱', 'bird': '🐦', 'fish': '🐟', 'shark': '🦈', 'lion': '🦁', 'tiger': '🐯', 'bear': '🐻', 'wolf': '🐺', 'fox': '🦊',
+  // Food
+  'food': '🍔', 'pizza': '🍕', 'burger': '🍔', 'fries': '🍟', 'coffee': '☕', 'drink': '🍹'
+};
+
+function getWordEmoji(word: string) {
+  if (!word) return '';
+  const clean = word.toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g, "");
+  return emojiMap[clean] || '';
 }
 
 interface VideoPreviewProps {
@@ -329,8 +381,44 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
   const [emphasisColor, setEmphasisColor] = useState('#FFFF00');
   const [neonGlow, setNeonGlow] = useState(false);
   const [glowColor, setGlowColor] = useState('#00FFFF');
+  const [glowBlur, setGlowBlur] = useState(6);
+  const [glowDistance, setGlowDistance] = useState(3);
+  const [showBulkTransitions, setShowBulkTransitions] = useState(false);
+  const [bulkTransition, setBulkTransition] = useState('none');
+  const [bulkSfx, setBulkSfx] = useState('none');
+
+  const [highlightTrigger, setHighlightTrigger] = useState<'all' | 'emphasis' | 'emoji'>('all');
   const [pop3d, setPop3d] = useState(false);
   const [pop3dColor, setPop3dColor] = useState('#000000');
+  
+  const [normalStyle, setNormalStyle] = useState<WordStyle>({
+    fontColor: '#FFFFFF',
+    activeWordScale: 1.0,
+    neonGlow: false,
+    glowColor: '#00FFFF',
+    glowBlur: 6,
+    glowDistance: 3
+  });
+  const [highlightStyle, setHighlightStyle] = useState<WordStyle>({
+    fontColor: '#FFFF00',
+    activeWordScale: 1.15,
+    neonGlow: false,
+    glowColor: '#00FFFF',
+    glowBlur: 6,
+    glowDistance: 3
+  });
+  const [emojiStyle, setEmojiStyle] = useState<WordStyle>({
+    fontColor: '#FFFF00',
+    activeWordScale: 1.15,
+    neonGlow: false,
+    glowColor: '#00FFFF',
+    glowBlur: 6,
+    glowDistance: 3
+  });
+  const [styleTab, setStyleTab] = useState<'normal' | 'highlight' | 'emoji'>('normal');
+  const [sfxList, setSfxList] = useState<{ id: string; name: string }[]>([]);
+  const [previewingSfx, setPreviewingSfx] = useState<string | null>(null);
+  const sfxAudioRef = useRef<HTMLAudioElement | null>(null);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
@@ -349,6 +437,47 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
       }
     };
   }, []);
+
+  useEffect(() => {
+    const fetchSfxs = async () => {
+      try {
+        const res = await fetch('/api/sfx');
+        if (res.ok) {
+          const data = await res.json();
+          setSfxList(data);
+        }
+      } catch (err) {
+        console.warn('Failed to fetch SFXs:', err);
+      }
+    };
+    fetchSfxs();
+  }, []);
+
+  const handlePlaySfx = (sfxId: string) => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+    }
+    if (sfxAudioRef.current) {
+      sfxAudioRef.current.pause();
+      sfxAudioRef.current = null;
+    }
+    if (previewingSfx === sfxId) {
+      setPreviewingSfx(null);
+      return;
+    }
+    const cleanSfx = sfxId.endsWith('.mp3') ? sfxId : `${sfxId}.mp3`;
+    const url = `/uploads/sfx/${cleanSfx}`;
+    const audio = new Audio(url);
+    sfxAudioRef.current = audio;
+    setPreviewingSfx(sfxId);
+    audio.play().catch(err => {
+      console.warn('Failed to play SFX:', err);
+      setPreviewingSfx(null);
+    });
+    audio.onended = () => {
+      setPreviewingSfx(null);
+    };
+  };
 
   const toggleVoicePreview = (voice: Voice) => {
     if (!voice.previewUrl) return;
@@ -553,8 +682,8 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
             fontName, fontSize, fontColor, outlineColor, bold, italic, shadow, highlightColor,
             showHighlightBox, boxColor, boxRounding, textFade, textTransition, textMotion,
             activeWordScale, wordDisplayTime, textPositionX, textPositionY, exportResolution,
-            exportFps, showEmojis, autoEmphasis, emphasisColor, neonGlow, glowColor, pop3d, pop3dColor,
-            elevenLabsModel, enhanceWithThoughtfulTags, originalScriptText
+            exportFps, showEmojis, autoEmphasis, emphasisColor, neonGlow, glowColor, glowBlur, glowDistance, highlightTrigger, pop3d, pop3dColor,
+            normalStyle, highlightStyle, emojiStyle, elevenLabsModel, enhanceWithThoughtfulTags, originalScriptText
           }
         } : {
           scriptText, selectedVoice, audioSource, voiceoverPath, voiceoverUrl, scenes,
@@ -563,8 +692,8 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
           fontName, fontSize, fontColor, outlineColor, bold, italic, shadow, highlightColor,
           showHighlightBox, boxColor, boxRounding, textFade, textTransition, textMotion,
           activeWordScale, wordDisplayTime, textPositionX, textPositionY, exportResolution,
-          exportFps, showEmojis, autoEmphasis, emphasisColor, neonGlow, glowColor, pop3d, pop3dColor,
-          elevenLabsModel, enhanceWithThoughtfulTags, originalScriptText
+          exportFps, showEmojis, autoEmphasis, emphasisColor, neonGlow, glowColor, glowBlur, glowDistance, highlightTrigger, pop3d, pop3dColor,
+          normalStyle, highlightStyle, emojiStyle, elevenLabsModel, enhanceWithThoughtfulTags, originalScriptText
         };
 
         await fetch(endpoint, {
@@ -589,7 +718,8 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
     bold, italic, shadow, highlightColor, showHighlightBox, boxColor, boxRounding, textFade,
     textTransition, textMotion, activeWordScale, wordDisplayTime, textPositionX, textPositionY,
     exportResolution, exportFps, showEmojis, autoEmphasis, emphasisColor, neonGlow, glowColor,
-    pop3d, pop3dColor, elevenLabsModel, enhanceWithThoughtfulTags, originalScriptText, hasLoadedProject, projectId
+    glowBlur, glowDistance, highlightTrigger, pop3d, pop3dColor, normalStyle, highlightStyle, emojiStyle,
+    elevenLabsModel, enhanceWithThoughtfulTags, originalScriptText, hasLoadedProject, projectId
   ]);
 
   const fetchProjectState = async () => {
@@ -649,8 +779,40 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
         if (project.emphasisColor !== undefined) setEmphasisColor(project.emphasisColor);
         if (project.neonGlow !== undefined) setNeonGlow(project.neonGlow);
         if (project.glowColor !== undefined) setGlowColor(project.glowColor);
+        if (project.glowBlur !== undefined) setGlowBlur(project.glowBlur);
+        if (project.glowDistance !== undefined) setGlowDistance(project.glowDistance);
+        if (project.highlightTrigger !== undefined) setHighlightTrigger(project.highlightTrigger);
         if (project.pop3d !== undefined) setPop3d(project.pop3d);
         if (project.pop3dColor !== undefined) setPop3dColor(project.pop3dColor);
+
+        const norm = project.normalStyle || {
+          fontColor: project.fontColor || '#FFFFFF',
+          activeWordScale: 1.0,
+          neonGlow: !!project.neonGlow,
+          glowColor: project.glowColor || '#00FFFF',
+          glowBlur: project.glowBlur !== undefined ? project.glowBlur : 6,
+          glowDistance: project.glowDistance !== undefined ? project.glowDistance : 3
+        };
+        const high = project.highlightStyle || {
+          fontColor: project.highlightColor || '#FFFF00',
+          activeWordScale: project.activeWordScale !== undefined ? project.activeWordScale : 1.15,
+          neonGlow: !!project.neonGlow,
+          glowColor: project.glowColor || '#00FFFF',
+          glowBlur: project.glowBlur !== undefined ? project.glowBlur : 6,
+          glowDistance: project.glowDistance !== undefined ? project.glowDistance : 3
+        };
+        const emoj = project.emojiStyle || {
+          fontColor: project.highlightColor || '#FFFF00',
+          activeWordScale: project.activeWordScale !== undefined ? project.activeWordScale : 1.15,
+          neonGlow: !!project.neonGlow,
+          glowColor: project.glowColor || '#00FFFF',
+          glowBlur: project.glowBlur !== undefined ? project.glowBlur : 6,
+          glowDistance: project.glowDistance !== undefined ? project.glowDistance : 3
+        };
+        setNormalStyle(norm);
+        setHighlightStyle(high);
+        setEmojiStyle(emoj);
+
         if (project.elevenLabsModel !== undefined) setElevenLabsModel(project.elevenLabsModel);
         if (project.enhanceWithThoughtfulTags !== undefined) setEnhanceWithThoughtfulTags(project.enhanceWithThoughtfulTags);
         if (project.originalScriptText !== undefined) setOriginalScriptText(project.originalScriptText);
@@ -917,6 +1079,65 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
     setScenes(updated);
   };
 
+  const updateSceneTransition = (idx: number, transition: string) => {
+    const updated = [...scenes];
+    updated[idx].transition = transition;
+    setScenes(updated);
+  };
+
+  const updateSceneSfx = (idx: number, sfx: string) => {
+    const updated = [...scenes];
+    updated[idx].sfx = sfx;
+    setScenes(updated);
+  };
+
+  const handleRecommendTransitionsAndSfx = () => {
+    const transitionSfxMap: { [key: string]: string } = {
+      'fade': 'none',
+      'slide-left': 'trans_swoosh_fast',
+      'slide-right': 'trans_swoosh_fast',
+      'slide-up': 'trans_swoosh_fast',
+      'slide-down': 'trans_swoosh_fast',
+      'zoom-in': 'trans_swoosh_deep',
+      'zoom-out': 'trans_swoosh_deep',
+      'random': 'trans_swoosh_fast'
+    };
+
+    const updated = scenes.map((scene, idx) => {
+      if (idx === scenes.length - 1) {
+        return { ...scene, transition: 'none', sfx: 'none' };
+      }
+
+      let transition: string;
+      if (idx % 3 === 0) {
+        transition = 'zoom-in';
+      } else if (idx % 3 === 1) {
+        transition = 'fade';
+      } else {
+        transition = 'zoom-out';
+      }
+
+      const sfx = transitionSfxMap[transition] || 'trans_swoosh_fast';
+      return { ...scene, transition, sfx };
+    });
+
+    setScenes(updated);
+    setSuccess('Transitions & SFXs recommended successfully!');
+  };
+
+  const handleApplyBulkTransition = () => {
+    const updated = scenes.map((scene, idx) => {
+      if (idx === scenes.length - 1) {
+        return { ...scene, transition: 'none', sfx: 'none' };
+      }
+      return { ...scene, transition: bulkTransition, sfx: bulkSfx };
+    });
+    setScenes(updated);
+    setSuccess('Applied transition and SFX to all scenes!');
+  };
+
+
+
   const getRequiredSourceDuration = (scene: Scene) => {
     const targetDuration = scene.end_time - scene.start_time;
     if (!scene.speedRamp?.enabled) {
@@ -1085,7 +1306,8 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
             subtitleMode, fontName, fontSize, fontColor, outlineColor, bold, italic, shadow,
             highlightColor, showHighlightBox, boxColor, boxRounding, textFade, textTransition,
             textMotion, activeWordScale, wordDisplayTime, textPositionX, textPositionY, showEmojis,
-            autoEmphasis, emphasisColor, neonGlow, glowColor, pop3d, pop3dColor
+            autoEmphasis, emphasisColor, neonGlow, glowColor, glowBlur, glowDistance, highlightTrigger, pop3d, pop3dColor,
+            normalStyle, highlightStyle, emojiStyle
           }
         })
       });
@@ -1482,17 +1704,110 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                   <AlertTriangle size={14} /> Gemini API key not set. Go to Settings tab.
                 </div>
               ) : (
-                <button
-                  onClick={handleMatchClips}
-                  className="btn-secondary"
-                  disabled={matching || clips.length === 0}
-                  style={{ fontSize: '12px', padding: '6px 14px', height: '32px' }}
-                >
-                  <Sparkles size={12} style={{ marginRight: '6px' }} />
-                  {matching ? 'Auto-matching...' : 'AI Auto-Match Clips'}
-                </button>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    type="button"
+                    onClick={() => setShowBulkTransitions(!showBulkTransitions)}
+                    className="btn-secondary"
+                    style={{ fontSize: '12px', padding: '6px 14px', height: '32px', borderColor: showBulkTransitions ? 'var(--primary)' : 'var(--border-medium)', color: showBulkTransitions ? 'var(--text-white)' : 'var(--text-gray)' }}
+                  >
+                    ✨ Bulk Transitions & SFX
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleMatchClips}
+                    className="btn-secondary"
+                    disabled={matching || clips.length === 0}
+                    style={{ fontSize: '12px', padding: '6px 14px', height: '32px' }}
+                  >
+                    <Sparkles size={12} style={{ marginRight: '6px' }} />
+                    {matching ? 'Auto-matching...' : 'AI Auto-Match Clips'}
+                  </button>
+                </div>
               )}
             </div>
+
+            {showBulkTransitions && clips.length > 0 && (
+              <div className="premium-card" style={{ padding: '16px', marginBottom: '20px', display: 'flex', flexWrap: 'wrap', gap: '16px', alignItems: 'center', background: 'var(--bg-surface)', border: '1px solid var(--border-medium)', borderRadius: 'var(--radius-lg)' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <label className="label" style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Smart Recommendation</label>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={handleRecommendTransitionsAndSfx}
+                    style={{ fontSize: '11px', height: '32px', padding: '0 12px', borderColor: 'var(--primary)', color: 'var(--primary)', fontWeight: 'bold' }}
+                  >
+                    🪄 Auto-Recommend Transitions & SFXs (Alternating)
+                  </button>
+                </div>
+                
+                <div style={{ width: '1px', height: '40px', background: 'var(--border-light)', alignSelf: 'center' }} />
+                
+                <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end', flex: 1, minWidth: '280px' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1 }}>
+                    <label className="label" style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Custom Transition</label>
+                    <select
+                      className="input-field"
+                      value={bulkTransition}
+                      onChange={(e) => setBulkTransition(e.target.value)}
+                      style={{ height: '32px', fontSize: '11px', margin: 0, background: 'var(--bg-medium)' }}
+                    >
+                      <option value="none">None</option>
+                      <option value="fade">Fade</option>
+                      <option value="slide-left">Slide Left</option>
+                      <option value="slide-right">Slide Right</option>
+                      <option value="slide-up">Slide Up</option>
+                      <option value="slide-down">Slide Down</option>
+                      <option value="zoom-in">Zoom In</option>
+                      <option value="zoom-out">Zoom Out</option>
+                      <option value="random">Random</option>
+                    </select>
+                  </div>
+                  
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1 }}>
+                    <label className="label" style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Custom Transition SFX</label>
+                    <select
+                      className="input-field"
+                      value={bulkSfx}
+                      onChange={(e) => setBulkSfx(e.target.value)}
+                      style={{ height: '32px', fontSize: '11px', margin: 0, background: 'var(--bg-medium)' }}
+                    >
+                      <option value="none">None</option>
+                      {(sfxList.length > 0 ? sfxList : [
+                        { id: 'trans_swoosh_fast', name: 'Snappy Swoosh' },
+                        { id: 'trans_swoosh_deep', name: 'Cinematic Whoosh' },
+                        { id: 'trans_glitch_digital', name: 'Glitch / Static' },
+                        { id: 'trans_shutter_click', name: 'Shutter & Flash' },
+                        { id: 'trans_vhs_rewind', name: 'Tape Rewind' },
+                        { id: 'trans_paper_slide', name: 'Page Slide' },
+                        { id: 'reveal_pop_bubble', name: 'Bubble Pop' },
+                        { id: 'reveal_kb_click', name: 'Keyboard Tap' },
+                        { id: 'reveal_ding_bell', name: 'Snappy Ding' },
+                        { id: 'reveal_swoosh_zip', name: 'Micro Zip' },
+                        { id: 'reveal_chime_sweet', name: 'Synth Chime' },
+                        { id: 'hook_bass_drop', name: 'Sub Bass Rumble' },
+                        { id: 'hook_vinyl_scratch', name: 'Record Scratch' },
+                        { id: 'hook_metal_hit', name: 'Cinematic Metal Hit' },
+                        { id: 'hook_woosh_hit', name: 'Whoosh To Hit' },
+                        { id: 'hook_cymbal_swell', name: 'Reversed Cymbal' }
+                      ]).map(s => (
+                        <option key={s.id} value={s.id}>{s.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    onClick={handleApplyBulkTransition}
+                    style={{ fontSize: '11px', height: '32px', padding: '0 16px', fontWeight: 'bold' }}
+                  >
+                    Apply to All
+                  </button>
+                </div>
+              </div>
+            )}
+
 
             {clips.length === 0 ? (
               <div style={{ padding: '16px', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.2)', color: '#f87171', borderRadius: '8px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -1679,6 +1994,78 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                             </div>
                           );
                         })()}
+
+                        {idx < scenes.length - 1 && (
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', borderTop: '1px solid var(--border-light)', paddingTop: '10px', marginTop: '4px' }}>
+                            <div>
+                              <label className="label" style={{ fontSize: '10px', marginBottom: '4px' }}>Transition Out</label>
+                              <select
+                                className="input-field"
+                                value={scene.transition || 'none'}
+                                onChange={(e) => updateSceneTransition(idx, e.target.value)}
+                                style={{ margin: 0, fontSize: '11px', height: '28px', padding: '0 8px' }}
+                              >
+                                <option value="none">None</option>
+                                <option value="fade">Fade</option>
+                                <option value="slide-left">Slide Left</option>
+                                <option value="slide-right">Slide Right</option>
+                                <option value="slide-up">Slide Up</option>
+                                <option value="slide-down">Slide Down</option>
+                                <option value="zoom-in">Zoom In</option>
+                                <option value="zoom-out">Zoom Out</option>
+                                <option value="random">Random</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="label" style={{ fontSize: '10px', marginBottom: '4px' }}>Transition SFX</label>
+                              <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                                <select
+                                  className="input-field"
+                                  value={scene.sfx || 'none'}
+                                  onChange={(e) => updateSceneSfx(idx, e.target.value)}
+                                  style={{ margin: 0, fontSize: '11px', height: '28px', padding: '0 8px', flex: 1, minWidth: 0 }}
+                                >
+                                  <option value="none">None</option>
+                                  {(sfxList.length > 0 ? sfxList : [
+                                    { id: 'trans_swoosh_fast', name: 'Snappy Swoosh' },
+                                    { id: 'trans_swoosh_deep', name: 'Cinematic Whoosh' },
+                                    { id: 'trans_glitch_digital', name: 'Glitch / Static' },
+                                    { id: 'trans_shutter_click', name: 'Shutter & Flash' },
+                                    { id: 'trans_vhs_rewind', name: 'Tape Rewind' },
+                                    { id: 'trans_paper_slide', name: 'Page Slide' },
+                                    { id: 'reveal_pop_bubble', name: 'Bubble Pop' },
+                                    { id: 'reveal_kb_click', name: 'Keyboard Tap' },
+                                    { id: 'reveal_ding_bell', name: 'Snappy Ding' },
+                                    { id: 'reveal_swoosh_zip', name: 'Micro Zip' },
+                                    { id: 'reveal_chime_sweet', name: 'Synth Chime' },
+                                    { id: 'hook_bass_drop', name: 'Sub Bass Rumble' },
+                                    { id: 'hook_vinyl_scratch', name: 'Record Scratch' },
+                                    { id: 'hook_metal_hit', name: 'Cinematic Metal Hit' },
+                                    { id: 'hook_woosh_hit', name: 'Whoosh To Hit' },
+                                    { id: 'hook_cymbal_swell', name: 'Reversed Cymbal' }
+                                  ]).map(sfx => (
+                                    <option key={sfx.id} value={sfx.id}>{sfx.name}</option>
+                                  ))}
+                                </select>
+                                {scene.sfx && scene.sfx !== 'none' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handlePlaySfx(scene.sfx!)}
+                                    style={{
+                                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                      width: '28px', height: '28px', borderRadius: '4px', border: '1px solid var(--border-light)',
+                                      background: 'var(--bg-card)', color: 'var(--text-white)', cursor: 'pointer',
+                                      transition: 'all 0.2s', flexShrink: 0
+                                    }}
+                                    title="Preview SFX"
+                                  >
+                                    {previewingSfx === scene.sfx ? <Pause size={12} /> : <Play size={12} />}
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        )}
 
                         {scene.reason && (
                           <div style={{ fontSize: '10px', color: 'var(--text-muted)', borderLeft: '2px solid var(--primary)', paddingLeft: '8px', marginTop: '4px' }}>
@@ -2033,10 +2420,219 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                 </div>
               </div>
 
+              {/* Word-Specific Styles Section */}
+              <div className="inspector-card" style={{ background: 'var(--bg-darker)', border: '1px solid var(--border-medium)', borderRadius: '8px', padding: '12px', marginBottom: '14px' }}>
+                <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-white)', marginBottom: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span>Word Styling (Normal, Highlight, Emoji)</span>
+                </div>
+                
+                {/* Tab Headers */}
+                <div style={{ display: 'flex', gap: '4px', background: 'rgba(0,0,0,0.2)', padding: '4px', borderRadius: '6px', marginBottom: '12px' }}>
+                  {(['normal', 'highlight', 'emoji'] as const).map(tab => (
+                    <button
+                      key={tab}
+                      type="button"
+                      onClick={() => setStyleTab(tab)}
+                      style={{
+                        flex: 1, padding: '6px 0', borderRadius: '4px', border: 'none',
+                        fontSize: '11px', fontWeight: 600, textTransform: 'capitalize', cursor: 'pointer',
+                        background: styleTab === tab ? 'var(--primary)' : 'transparent',
+                        color: styleTab === tab ? 'var(--text-white)' : 'var(--text-gray)',
+                        transition: 'all 0.2s'
+                      }}
+                    >
+                      {tab}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Copy-sync buttons */}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '12px', borderBottom: '1px solid var(--border-light)', paddingBottom: '10px' }}>
+                  <button type="button" className="btn-secondary"
+                    onClick={() => { setHighlightStyle({ ...normalStyle }); setEmojiStyle({ ...normalStyle }); }}
+                    style={{ fontSize: '10px', padding: '4px 8px', height: 'auto' }}
+                  >Copy Normal to All</button>
+                  <button type="button" className="btn-secondary"
+                    onClick={() => { setEmojiStyle({ ...highlightStyle }); }}
+                    style={{ fontSize: '10px', padding: '4px 8px', height: 'auto' }}
+                  >Copy Highlight to Emoji</button>
+                </div>
+
+                {/* Tab Contents */}
+                <div>
+                  {/* 1. Text Color */}
+                  <div style={{ marginBottom: '12px' }}>
+                    <label className="label" style={{ marginBottom: '4px', fontSize: '11px' }}>Text Color</label>
+                    <div style={{ background: 'rgba(0,0,0,0.15)', border: '1px solid var(--border-medium)', borderRadius: '4px', padding: '4px 8px', display: 'flex', alignItems: 'center', gap: '6px', height: '34px' }}>
+                      <div style={{ position: 'relative', width: '20px', height: '20px', borderRadius: '4px', overflow: 'hidden', border: '1px solid var(--border-medium)', cursor: 'pointer' }}>
+                        <input 
+                          type="color" 
+                          value={styleTab === 'normal' ? normalStyle.fontColor : styleTab === 'highlight' ? highlightStyle.fontColor : emojiStyle.fontColor} 
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (styleTab === 'normal') { setNormalStyle({ ...normalStyle, fontColor: val }); setFontColor(val); }
+                            else if (styleTab === 'highlight') { setHighlightStyle({ ...highlightStyle, fontColor: val }); setHighlightColor(val); }
+                            else { setEmojiStyle({ ...emojiStyle, fontColor: val }); }
+                          }} 
+                          style={{ position: 'absolute', top: '-4px', left: '-4px', width: '28px', height: '28px', padding: 0, border: 'none', background: 'none', cursor: 'pointer' }} 
+                        />
+                      </div>
+                      <input 
+                        type="text" 
+                        value={(styleTab === 'normal' ? normalStyle.fontColor : styleTab === 'highlight' ? highlightStyle.fontColor : emojiStyle.fontColor).toUpperCase()} 
+                        onChange={(e) => {
+                          let val = e.target.value;
+                          if (!val.startsWith('#') && val.length > 0) val = '#' + val;
+                          if (styleTab === 'normal') { setNormalStyle({ ...normalStyle, fontColor: val }); setFontColor(val); }
+                          else if (styleTab === 'highlight') { setHighlightStyle({ ...highlightStyle, fontColor: val }); setHighlightColor(val); }
+                          else { setEmojiStyle({ ...emojiStyle, fontColor: val }); }
+                        }} 
+                        style={{ background: 'none', border: 'none', color: 'var(--text-white)', fontFamily: 'monospace', fontSize: '11px', width: '100%', outline: 'none', padding: 0 }} 
+                        placeholder="#FFFFFF"
+                      />
+                    </div>
+                  </div>
+
+                  {/* 2. Active Word Scale */}
+                  <div style={{ marginBottom: '12px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                      <label className="label" style={{ margin: 0, fontSize: '11px' }}>Active Scale Zoom</label>
+                      <span style={{ fontSize: '10px', fontFamily: 'monospace' }}>
+                        {(styleTab === 'normal' ? normalStyle.activeWordScale : styleTab === 'highlight' ? highlightStyle.activeWordScale : emojiStyle.activeWordScale).toFixed(2)}x
+                      </span>
+                    </div>
+                    <input 
+                      type="range" min={1.00} max={1.60} step={0.05} 
+                      value={styleTab === 'normal' ? normalStyle.activeWordScale : styleTab === 'highlight' ? highlightStyle.activeWordScale : emojiStyle.activeWordScale}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value);
+                        if (styleTab === 'normal') { setNormalStyle({ ...normalStyle, activeWordScale: val }); }
+                        else if (styleTab === 'highlight') { setHighlightStyle({ ...highlightStyle, activeWordScale: val }); setActiveWordScale(val); }
+                        else { setEmojiStyle({ ...emojiStyle, activeWordScale: val }); }
+                      }}
+                      style={{ width: '100%', accentColor: 'var(--primary)', cursor: 'pointer' }}
+                    />
+                  </div>
+
+                  {/* 3. Neon Glow */}
+                  <div style={{ borderTop: '1px solid var(--border-light)', paddingTop: '10px', marginTop: '10px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span>💡</span>
+                        <span style={{ fontSize: '11px', fontWeight: 500 }}>Glow Enabled</span>
+                      </div>
+                      <div 
+                        className={`stitch-switch ${(styleTab === 'normal' ? normalStyle.neonGlow : styleTab === 'highlight' ? highlightStyle.neonGlow : emojiStyle.neonGlow) ? 'active' : ''}`} 
+                        onClick={() => {
+                          if (styleTab === 'normal') { const t = !normalStyle.neonGlow; setNormalStyle({ ...normalStyle, neonGlow: t }); setNeonGlow(t); }
+                          else if (styleTab === 'highlight') { const t = !highlightStyle.neonGlow; setHighlightStyle({ ...highlightStyle, neonGlow: t }); }
+                          else { const t = !emojiStyle.neonGlow; setEmojiStyle({ ...emojiStyle, neonGlow: t }); }
+                        }}
+                      >
+                        <div className="stitch-switch-handle" />
+                      </div>
+                    </div>
+
+                    {(styleTab === 'normal' ? normalStyle.neonGlow : styleTab === 'highlight' ? highlightStyle.neonGlow : emojiStyle.neonGlow) && (
+                      <div style={{ padding: '8px', background: 'rgba(0,0,0,0.2)', borderRadius: '6px', border: '1px solid var(--border-medium)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        {/* Glow Color */}
+                        <div>
+                          <label className="label" style={{ marginBottom: '2px', fontSize: '10px' }}>Glow Color</label>
+                          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                            <div style={{ position: 'relative', width: '18px', height: '18px', borderRadius: '4px', overflow: 'hidden', border: '1px solid var(--border-medium)', cursor: 'pointer' }}>
+                              <input 
+                                type="color" 
+                                value={styleTab === 'normal' ? normalStyle.glowColor : styleTab === 'highlight' ? highlightStyle.glowColor : emojiStyle.glowColor} 
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  if (styleTab === 'normal') { setNormalStyle({ ...normalStyle, glowColor: val }); setGlowColor(val); }
+                                  else if (styleTab === 'highlight') { setHighlightStyle({ ...highlightStyle, glowColor: val }); }
+                                  else { setEmojiStyle({ ...emojiStyle, glowColor: val }); }
+                                }} 
+                                style={{ position: 'absolute', top: '-4px', left: '-4px', width: '26px', height: '26px', padding: 0, border: 'none', background: 'none', cursor: 'pointer' }} 
+                              />
+                            </div>
+                            <input 
+                              type="text" 
+                              value={(styleTab === 'normal' ? normalStyle.glowColor : styleTab === 'highlight' ? highlightStyle.glowColor : emojiStyle.glowColor).toUpperCase()} 
+                              onChange={(e) => {
+                                let hex = e.target.value;
+                                if (!hex.startsWith('#') && hex.length > 0) hex = '#' + hex;
+                                if (styleTab === 'normal') { setNormalStyle({ ...normalStyle, glowColor: hex }); setGlowColor(hex); }
+                                else if (styleTab === 'highlight') { setHighlightStyle({ ...highlightStyle, glowColor: hex }); }
+                                else { setEmojiStyle({ ...emojiStyle, glowColor: hex }); }
+                              }}
+                              className="input-field"
+                              style={{ flex: 1, height: '24px', padding: '2px 6px', fontSize: '10px', fontFamily: 'monospace' }}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Glow Blur */}
+                        <div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1px' }}>
+                            <label className="label" style={{ fontSize: '10px', margin: 0 }}>Glow Strength (Blur)</label>
+                            <span style={{ fontSize: '9px', color: 'var(--text-muted)' }}>
+                              {styleTab === 'normal' ? normalStyle.glowBlur : styleTab === 'highlight' ? highlightStyle.glowBlur : emojiStyle.glowBlur}px
+                            </span>
+                          </div>
+                          <input 
+                            type="range" min={1} max={15} step={1} 
+                            value={styleTab === 'normal' ? normalStyle.glowBlur : styleTab === 'highlight' ? highlightStyle.glowBlur : emojiStyle.glowBlur} 
+                            onChange={(e) => {
+                              const val = parseInt(e.target.value, 10);
+                              if (styleTab === 'normal') { setNormalStyle({ ...normalStyle, glowBlur: val }); setGlowBlur(val); }
+                              else if (styleTab === 'highlight') { setHighlightStyle({ ...highlightStyle, glowBlur: val }); }
+                              else { setEmojiStyle({ ...emojiStyle, glowBlur: val }); }
+                            }}
+                            style={{ width: '100%', accentColor: 'var(--primary)', cursor: 'pointer' }}
+                          />
+                        </div>
+
+                        {/* Glow Distance */}
+                        <div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1px' }}>
+                            <label className="label" style={{ fontSize: '10px', margin: 0 }}>Glow Distance</label>
+                            <span style={{ fontSize: '9px', color: 'var(--text-muted)' }}>
+                              {styleTab === 'normal' ? normalStyle.glowDistance : styleTab === 'highlight' ? highlightStyle.glowDistance : emojiStyle.glowDistance}px
+                            </span>
+                          </div>
+                          <input 
+                            type="range" min={1} max={20} step={1} 
+                            value={styleTab === 'normal' ? normalStyle.glowDistance : styleTab === 'highlight' ? highlightStyle.glowDistance : emojiStyle.glowDistance} 
+                            onChange={(e) => {
+                              const val = parseInt(e.target.value, 10);
+                              if (styleTab === 'normal') { setNormalStyle({ ...normalStyle, glowDistance: val }); setGlowDistance(val); }
+                              else if (styleTab === 'highlight') { setHighlightStyle({ ...highlightStyle, glowDistance: val }); }
+                              else { setEmojiStyle({ ...emojiStyle, glowDistance: val }); }
+                            }}
+                            style={{ width: '100%', accentColor: 'var(--primary)', cursor: 'pointer' }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
               {/* Highlight Style Card (Conditional) */}
               {(subtitleMode === 'pop' || subtitleMode === 'centered-word' || subtitleMode === 'smart-highlight') && (
                 <div className="inspector-card">
                   <div className="inspector-sub-title">Highlight Word Style</div>
+
+                  <div style={{ marginBottom: '10px' }}>
+                    <label className="label">Highlight Trigger Mode</label>
+                    <select
+                      value={highlightTrigger}
+                      onChange={(e) => setHighlightTrigger(e.target.value as any)}
+                      className="input-field"
+                      style={{ width: '100%', height: '34px', fontSize: '12px', background: 'var(--bg-surface)' }}
+                    >
+                      <option value="all">Highlight Every Word (Standard)</option>
+                      <option value="emphasis">Highlight Emphasis/Highlight Words Only</option>
+                      <option value="emoji">Highlight Emoji Words Only</option>
+                    </select>
+                  </div>
                   
                   <div style={{ marginBottom: '12px' }}>
                     <label className="label">Highlight Word Color</label>
@@ -2196,16 +2792,6 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
 
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span>💡</span>
-                      <span style={{ fontSize: '13px', fontWeight: 500, fontFamily: 'Inter' }}>Neon Glow</span>
-                    </div>
-                    <div className={`stitch-switch ${neonGlow ? 'active' : ''}`} onClick={() => setNeonGlow(!neonGlow)}>
-                      <div className="stitch-switch-handle" />
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <span>🧱</span>
                       <span style={{ fontSize: '13px', fontWeight: 500, fontFamily: 'Inter' }}>3D Extrusion</span>
                     </div>
@@ -2215,6 +2801,98 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                   </div>
                 </div>
               </div>
+
+              {/* Emoji Word SFX Mappings */}
+              {(() => {
+                const emojiWordsList: {
+                  sceneIdx: number;
+                  wordIdx: number;
+                  wordObj: WordTiming;
+                  emoji: string;
+                }[] = [];
+                scenes.forEach((scene, sceneIdx) => {
+                  if (scene.words && Array.isArray(scene.words)) {
+                    scene.words.forEach((wordObj, wordIdx) => {
+                      const emoji = getWordEmoji(wordObj.word);
+                      if (emoji) {
+                        emojiWordsList.push({
+                          sceneIdx,
+                          wordIdx,
+                          wordObj,
+                          emoji
+                        });
+                      }
+                    });
+                  }
+                });
+
+                const handleUpdateWordSfx = (sIdx: number, wIdx: number, sfxId: string) => {
+                  const updatedScenes = [...scenes];
+                  if (updatedScenes[sIdx] && updatedScenes[sIdx].words && updatedScenes[sIdx].words![wIdx]) {
+                    updatedScenes[sIdx].words![wIdx].sfx = sfxId;
+                    setScenes(updatedScenes);
+                  }
+                };
+
+                if (!showEmojis || emojiWordsList.length === 0) return null;
+
+                return (
+                  <div className="inspector-card" style={{ marginTop: '16px', background: 'var(--bg-card)', border: '1px solid var(--border-medium)' }}>
+                    <div className="inspector-sub-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span>🎵 Emoji Word SFX Mappings</span>
+                      <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: 'normal' }}>{emojiWordsList.length} detected</span>
+                    </div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-gray)', marginBottom: '10px' }}>
+                      Play sound effects exactly when these key emoji words are spoken.
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '220px', overflowY: 'auto', paddingRight: '4px' }}>
+                      {emojiWordsList.map(({ sceneIdx, wordIdx, wordObj, emoji }) => {
+                        const displayWord = wordObj.word;
+                        const selectedSfx = wordObj.sfx || 'none';
+                        return (
+                          <div key={`${sceneIdx}_${wordIdx}`} style={{ 
+                            display: 'flex', flexDirection: 'column', gap: '4px',
+                            background: 'var(--bg-darker)', border: '1px solid var(--border-medium)', 
+                            borderRadius: '4px', padding: '8px 10px'
+                          }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', fontWeight: 500 }}>
+                              <span>"{displayWord}" {emoji}</span>
+                              <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Scene {sceneIdx + 1} at {wordObj.start_time.toFixed(1)}s</span>
+                            </div>
+                            <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginTop: '2px' }}>
+                              <select
+                                value={selectedSfx}
+                                onChange={(e) => handleUpdateWordSfx(sceneIdx, wordIdx, e.target.value)}
+                                className="input-field"
+                                style={{ flex: 1, height: '28px', fontSize: '11px', padding: '0 6px', background: 'var(--bg-medium)' }}
+                              >
+                                <option value="none">No Sound Effect</option>
+                                {sfxList.map(s => (
+                                  <option key={s.id} value={s.id}>{s.name}</option>
+                                ))}
+                              </select>
+                              {selectedSfx !== 'none' && (
+                                <button
+                                  type="button"
+                                  onClick={() => handlePlaySfx(selectedSfx)}
+                                  style={{
+                                    background: 'var(--bg-medium)', border: 'none', 
+                                    color: 'var(--text-white)', width: '28px', height: '28px',
+                                    borderRadius: '4px', display: 'flex', alignItems: 'center',
+                                    justifyContent: 'center', cursor: 'pointer', padding: 0
+                                  }}
+                                >
+                                  {previewingSfx === selectedSfx ? '⏹' : '▶'}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           )}
 

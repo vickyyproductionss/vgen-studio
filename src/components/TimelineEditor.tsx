@@ -18,17 +18,88 @@ interface Word {
   word: string;
   start_time: number;
   end_time: number;
+  sfx?: string;
 }
 
 interface Scene {
   text: string;
+  text_hindi?: string;
+  text_hinglish?: string;
   start_time: number;
   end_time: number;
   clipId: string;
   clipStart: number;
   words?: Word[];
+  words_hindi?: Word[];
+  words_hinglish?: Word[];
   reason?: string;
 }
+
+const clampWordTimings = (wordsList: Word[], start: number, end: number): Word[] => {
+  if (!wordsList || wordsList.length === 0) return [];
+  const duration = end - start;
+  
+  // 1. Initial localization relative to start
+  const localWords = wordsList.map(w => ({
+    word: w.word,
+    start: w.start_time - start,
+    end: w.end_time - start,
+    sfx: w.sfx
+  }));
+
+  const N = localWords.length;
+  const safeDuration = Math.max(0.01, duration);
+  const W = Math.max(0.001, Math.min(0.08, safeDuration / N));
+
+  // 2. Adjust starts to fit in [0, duration] with minimum spacing W
+  const starts: number[] = [];
+  for (let i = 0; i < N; i++) {
+    const idealStart = localWords[i].start;
+    const minStart = i * W;
+    const maxStart = safeDuration - (N - i) * W;
+    const clampedStart = Math.max(minStart, Math.min(maxStart, idealStart));
+    starts.push(clampedStart);
+  }
+
+  // 3. Compute ends
+  const adjustedWords: Word[] = [];
+  for (let i = 0; i < N; i++) {
+    const originalDur = Math.max(W, localWords[i].end - localWords[i].start);
+    const startVal = starts[i];
+    const nextStart = (i < N - 1) ? starts[i + 1] : safeDuration;
+    const endVal = Math.min(nextStart, startVal + originalDur);
+    adjustedWords.push({
+      word: localWords[i].word,
+      start_time: Number((start + startVal).toFixed(3)),
+      end_time: Number((start + endVal).toFixed(3)),
+      sfx: localWords[i].sfx
+    });
+  }
+
+  return adjustedWords;
+};
+
+const adjustSceneWordTimings = (scene: Scene, newStart: number, newEnd: number): Scene => {
+  const delta = newStart - scene.start_time;
+  const shiftWord = (w: Word) => ({
+    ...w,
+    start_time: w.start_time + delta,
+    end_time: w.end_time + delta
+  });
+  
+  const shiftedWords = (scene.words || []).map(shiftWord);
+  const shiftedWordsHindi = (scene.words_hindi || []).map(shiftWord);
+  const shiftedWordsHinglish = (scene.words_hinglish || []).map(shiftWord);
+
+  return {
+    ...scene,
+    start_time: newStart,
+    end_time: newEnd,
+    words: clampWordTimings(shiftedWords, newStart, newEnd),
+    words_hindi: clampWordTimings(shiftedWordsHindi, newStart, newEnd),
+    words_hinglish: clampWordTimings(shiftedWordsHinglish, newStart, newEnd)
+  };
+};
 
 interface Clip {
   id: string;
@@ -451,20 +522,38 @@ export default function TimelineEditor({ onStartRender, onBack }: TimelineEditor
     }
 
     const words = sceneToSplit.words || [];
+    const wordsHindi = sceneToSplit.words_hindi || [];
+    const wordsHinglish = sceneToSplit.words_hinglish || [];
     const splitRelTime = splitTime - sceneToSplit.start_time;
 
     // Divide words based on timing bounds
     const leftWords = words.filter(w => (w.start_time - sceneToSplit.start_time) < splitRelTime);
     const rightWords = words.filter(w => (w.start_time - sceneToSplit.start_time) >= splitRelTime);
 
+    const leftWordsHindi = wordsHindi.filter(w => (w.start_time - sceneToSplit.start_time) < splitRelTime);
+    const rightWordsHindi = wordsHindi.filter(w => (w.start_time - sceneToSplit.start_time) >= splitRelTime);
+
+    const leftWordsHinglish = wordsHinglish.filter(w => (w.start_time - sceneToSplit.start_time) < splitRelTime);
+    const rightWordsHinglish = wordsHinglish.filter(w => (w.start_time - sceneToSplit.start_time) >= splitRelTime);
+
     const leftText = leftWords.map(w => w.word).join(' ') || sceneToSplit.text;
     const rightText = rightWords.map(w => w.word).join(' ') || sceneToSplit.text;
+
+    const leftTextHindi = leftWordsHindi.map(w => w.word).join(' ') || sceneToSplit.text_hindi;
+    const rightTextHindi = rightWordsHindi.map(w => w.word).join(' ') || sceneToSplit.text_hindi;
+
+    const leftTextHinglish = leftWordsHinglish.map(w => w.word).join(' ') || sceneToSplit.text_hinglish;
+    const rightTextHinglish = rightWordsHinglish.map(w => w.word).join(' ') || sceneToSplit.text_hinglish;
 
     const leftScene: Scene = {
       ...sceneToSplit,
       end_time: splitTime,
       text: leftText,
-      words: leftWords
+      text_hindi: leftTextHindi,
+      text_hinglish: leftTextHinglish,
+      words: clampWordTimings(leftWords, sceneToSplit.start_time, splitTime),
+      words_hindi: clampWordTimings(leftWordsHindi, sceneToSplit.start_time, splitTime),
+      words_hinglish: clampWordTimings(leftWordsHinglish, sceneToSplit.start_time, splitTime)
     };
 
     const rightScene: Scene = {
@@ -472,7 +561,11 @@ export default function TimelineEditor({ onStartRender, onBack }: TimelineEditor
       start_time: splitTime,
       clipStart: (sceneToSplit.clipStart || 0) + splitRelTime,
       text: rightText,
-      words: rightWords
+      text_hindi: rightTextHindi,
+      text_hinglish: rightTextHinglish,
+      words: clampWordTimings(rightWords, splitTime, sceneToSplit.end_time),
+      words_hindi: clampWordTimings(rightWordsHindi, splitTime, sceneToSplit.end_time),
+      words_hinglish: clampWordTimings(rightWordsHinglish, splitTime, sceneToSplit.end_time)
     };
 
     const updatedScenes = [...scenes];
@@ -499,8 +592,10 @@ export default function TimelineEditor({ onStartRender, onBack }: TimelineEditor
 
     // Adjust timings of subsequent scenes to shift them left (gap-free timeline)
     for (let i = idx; i < updatedScenes.length; i++) {
-      updatedScenes[i].start_time -= deletedDuration;
-      updatedScenes[i].end_time -= deletedDuration;
+      const oldScene = updatedScenes[i];
+      const newStart = oldScene.start_time - deletedDuration;
+      const newEnd = oldScene.end_time - deletedDuration;
+      updatedScenes[i] = adjustSceneWordTimings(oldScene, newStart, newEnd);
     }
 
     setScenes(updatedScenes);
@@ -522,13 +617,15 @@ export default function TimelineEditor({ onStartRender, onBack }: TimelineEditor
     updatedScenes[idx] = updatedScenes[swapIdx];
     updatedScenes[swapIdx] = temp;
 
-    // Re-calculate the timeline timings based on swapped sequence durations
+    // Re-calculate the timeline timings based on swapped sequence durations and shift words accordingly
     let current = 0.0;
     for (let i = 0; i < updatedScenes.length; i++) {
-      const dur = updatedScenes[i].end_time - updatedScenes[i].start_time;
-      updatedScenes[i].start_time = current;
-      updatedScenes[i].end_time = current + dur;
-      current = updatedScenes[i].end_time;
+      const oldScene = updatedScenes[i];
+      const dur = oldScene.end_time - oldScene.start_time;
+      const newStart = current;
+      const newEnd = current + dur;
+      updatedScenes[i] = adjustSceneWordTimings(oldScene, newStart, newEnd);
+      current = newEnd;
     }
 
     setScenes(updatedScenes);
@@ -557,8 +654,8 @@ export default function TimelineEditor({ onStartRender, onBack }: TimelineEditor
       newEndTime = Math.max(minStart, Math.min(maxEnd, newEndTime));
 
       const updated = [...scenes];
-      updated[idx] = { ...sceneToResize, end_time: newEndTime };
-      updated[idx + 1] = { ...nextScene, start_time: newEndTime };
+      updated[idx] = adjustSceneWordTimings(sceneToResize, sceneToResize.start_time, newEndTime);
+      updated[idx + 1] = adjustSceneWordTimings(nextScene, newEndTime, nextScene.end_time);
       
       setScenes(updated);
     };

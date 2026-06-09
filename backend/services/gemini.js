@@ -1,6 +1,37 @@
 import { GoogleGenAI } from '@google/genai';
 import fs from 'fs';
 import path from 'path';
+import ffmpegPath from 'ffmpeg-static';
+import { spawn } from 'child_process';
+
+// Initialize Google Gen AI client for Google Cloud Vertex AI (Agent Platform)
+const ai = new GoogleGenAI({
+  enterprise: true,
+  project: 'flowsocial-498207',
+  location: 'us-central1'
+});
+
+
+// Helper to get audio duration using ffmpeg
+async function getAudioDuration(filePath) {
+  return new Promise((resolve) => {
+    const proc = spawn(ffmpegPath, ['-i', filePath]);
+    let stderr = '';
+    proc.stderr.on('data', (d) => stderr += d.toString());
+    proc.on('close', () => {
+      const match = stderr.match(/Duration: (\d{2}):(\d{2}):(\d{2})\.(\d{2})/);
+      if (match) {
+        const hours = parseInt(match[1], 10);
+        const minutes = parseInt(match[2], 10);
+        const seconds = parseInt(match[3], 10);
+        const centiseconds = parseInt(match[4], 10);
+        resolve(hours * 3600 + minutes * 60 + seconds + centiseconds / 100);
+      } else {
+        resolve(0);
+      }
+    });
+  });
+}
 
 // Helper to poll file status until it is ACTIVE
 async function waitForFileActive(ai, fileMeta) {
@@ -27,11 +58,16 @@ async function waitForFileActive(ai, fileMeta) {
  * Helper to call generateContent with model rotation and retry logic for transient errors.
  */
 async function generateContentWithFallback(ai, requestConfig) {
-  const models = ['gemini-2.5-flash', 'gemini-1.5-flash'];
+  const defaultModels = ['gemini-2.5-flash', 'gemini-1.5-flash'];
+  const models = requestConfig.models || defaultModels;
+  
+  const cleanConfig = { ...requestConfig };
+  delete cleanConfig.models;
+
   let lastError;
 
   for (const model of models) {
-    const configWithModel = { ...requestConfig, model };
+    const configWithModel = { ...cleanConfig, model };
     const maxAttempts = 2;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -72,7 +108,18 @@ async function generateContentWithFallback(ai, requestConfig) {
             await new Promise(resolve => setTimeout(resolve, delay));
           }
         } else {
-          throw err;
+          // If it's a credentials error (401), fail immediately since no models will work.
+          if (code === 401 || status === 'UNAUTHENTICATED' || msg.includes('default credentials') || msg.includes('401')) {
+            throw err;
+          }
+          
+          // Otherwise, if we have other models left to try, log a warning and proceed to the next model.
+          if (model !== models[models.length - 1]) {
+            console.warn(`[Gemini API Warning] Model ${model} failed with error: ${msg}. Status: ${status}, Code: ${code}. Rotating to the next model...`);
+            break; // Break the attempt loop to move to the next model in the outer loop
+          } else {
+            throw err; // Out of models, throw the error
+          }
         }
       }
     }
@@ -100,17 +147,12 @@ function getMimeType(filePath) {
  * Uploads a video clip and analyzes its visual context using Gemini
  */
 export async function analyzeVideo(filePath, apiKey) {
-  const ai = new GoogleGenAI({ apiKey });
-  
-  console.log(`Uploading video to Gemini: ${filePath}`);
-  const mimeType = getMimeType(filePath);
-  const uploadResult = await ai.files.upload({
-    file: filePath,
-    config: { mimeType }
-  });
+  // Using global Vertex AI 'ai' instance
 
-  // Wait for processing to complete
-  await waitForFileActive(ai, uploadResult);
+  console.log(`Reading video file: ${filePath}`);
+  const mimeType = getMimeType(filePath);
+  const fileBuffer = fs.readFileSync(filePath);
+  const base64Data = fileBuffer.toString('base64');
 
   console.log('Sending video for visual analysis...');
   const prompt = `Analyze this video clip. Provide:
@@ -123,9 +165,9 @@ Return the result as a JSON object matching the requested schema.`;
   const response = await generateContentWithFallback(ai, {
     contents: [
       {
-        fileData: {
-          fileUri: uploadResult.uri,
-          mimeType: uploadResult.mimeType
+        inlineData: {
+          data: base64Data,
+          mimeType: mimeType
         }
       },
       prompt
@@ -158,14 +200,6 @@ Return the result as a JSON object matching the requested schema.`;
     }
   });
 
-  // Clean up file from Gemini after analysis to be tidy
-  try {
-    await ai.files.delete({ name: uploadResult.name });
-    console.log(`Cleaned up file ${uploadResult.name} from Gemini`);
-  } catch (err) {
-    console.warn(`Failed to delete Gemini file: ${err.message}`);
-  }
-
   const resultText = response.text;
   console.log('Gemini Analysis Result:', resultText);
   return JSON.parse(resultText);
@@ -194,15 +228,20 @@ export async function alignScriptAndAudio(scriptText, audioPath, apiKey) {
 }
 
 async function alignScriptAndAudioInternal(scriptText, audioPath, apiKey) {
-  const ai = new GoogleGenAI({ apiKey });
+  // Using global Vertex AI 'ai' instance
 
-  console.log(`Uploading audio to Gemini: ${audioPath}`);
-  const uploadResult = await ai.files.upload({
-    file: audioPath,
-    config: { mimeType: 'audio/mpeg' }
-  });
 
-  await waitForFileActive(ai, uploadResult);
+  let audioDuration = 0;
+  try {
+    audioDuration = await getAudioDuration(audioPath);
+    console.log(`[Gemini Aligner] Calculated audio duration: ${audioDuration}s`);
+  } catch (err) {
+    console.warn('[Gemini Aligner] Failed to get audio duration:', err.message);
+  }
+
+  console.log(`Reading audio file: ${audioPath}`);
+  const fileBuffer = fs.readFileSync(audioPath);
+  const base64Data = fileBuffer.toString('base64');
 
   const hasScript = scriptText && scriptText.trim().length > 0;
   console.log('Aligning script and audio...');
@@ -211,9 +250,9 @@ async function alignScriptAndAudioInternal(scriptText, audioPath, apiKey) {
     ? `You are a script timing generator. You are given a reference script:
 "${scriptText}"
 
-And the uploaded audio file which is a reading of this script. 
+And the uploaded audio file which is a reading of this script. The total duration of this audio file is exactly ${audioDuration.toFixed(2)} seconds.
 Analyze the audio, match it to the script, and segment the script into logical clips/sentences. 
-CRITICAL: Every segment MUST be at most 4.0 seconds long (aim for 2.0 to 4.0 seconds per segment). If a sentence or phrase takes longer than 4.0 seconds, split it into smaller logical sub-phrases or segments of 2.0-4.0 seconds. Never output a single segment longer than 4.0 seconds.
+CRITICAL: Every segment MUST be between 2.0 and 4.0 seconds long (aim for 2.0 to 4.0 seconds per segment). If a sentence or phrase naturally takes less than 2.0 seconds to speak, you MUST group it with the adjacent sentence/phrase to create a combined segment that is at least 2.0 seconds long. Never output a segment shorter than 2.0 seconds, and never output a segment longer than 4.0 seconds (unless the total audio duration itself is less than 2.0 seconds, in which case output a single segment spanning the entire audio).
 
 For each segment, you MUST generate and provide the transcripts in both Hindi and Hinglish:
 1. text_hindi: The transcribed spoken dialogue in Devanagari Hindi script.
@@ -225,10 +264,10 @@ For each segment, you MUST generate and provide the transcripts in both Hindi an
 7. text: A copy of the text_hinglish transcript.
 8. words: A copy of the words_hinglish array.
 
-Ensure that the segments cover the whole audio timeline, and the start/end times are highly accurate based on the audio recording.`
+Ensure that the segments cover the whole audio timeline, and the start/end times are highly accurate based on the audio recording of ${audioDuration.toFixed(2)} seconds.`
     : `You are an audio transcriber and timing generator. 
-Analyze the uploaded audio file, transcribe it, and segment the transcribed text into logical clips/phrases.
-CRITICAL: Every segment MUST be at most 4.0 seconds long (aim for 2.0 to 4.0 seconds per segment). If a spoken phrase takes longer than 4.0 seconds, split it into smaller logical sub-phrases or segments of 2.0-4.0 seconds. Never output a single segment longer than 4.0 seconds.
+Analyze the uploaded audio file, transcribe it, and segment the transcribed text into logical clips/phrases. The total duration of this audio file is exactly ${audioDuration.toFixed(2)} seconds.
+CRITICAL: Every segment MUST be between 2.0 and 4.0 seconds long (aim for 2.0 to 4.0 seconds per segment). If a spoken phrase naturally takes less than 2.0 seconds to speak, you MUST group it with the adjacent spoken phrase to create a combined segment that is at least 2.0 seconds long. Never output a segment shorter than 2.0 seconds, and never output a segment longer than 4.0 seconds (unless the total audio duration itself is less than 2.0 seconds, in which case output a single segment spanning the entire audio).
 
 For each segment, you MUST generate and provide the transcripts in both Hindi and Hinglish:
 1. text_hindi: The transcribed spoken dialogue in Devanagari Hindi script.
@@ -240,14 +279,15 @@ For each segment, you MUST generate and provide the transcripts in both Hindi an
 7. text: A copy of the text_hinglish transcript.
 8. words: A copy of the words_hinglish array.
 
-Ensure that the segments cover the whole audio timeline, and the start/end times are highly accurate based on the audio recording.`;
+Ensure that the segments cover the whole audio timeline, and the start/end times are highly accurate based on the audio recording of ${audioDuration.toFixed(2)} seconds.`;
 
   const response = await generateContentWithFallback(ai, {
+    models: ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-1.5-pro', 'gemini-1.5-flash'],
     contents: [
       {
-        fileData: {
-          fileUri: uploadResult.uri,
-          mimeType: uploadResult.mimeType
+        inlineData: {
+          data: base64Data,
+          mimeType: 'audio/mpeg'
         }
       },
       prompt
@@ -301,17 +341,12 @@ Ensure that the segments cover the whole audio timeline, and the start/end times
               }
             }
           },
-          required: ['text', 'text_hindi', 'text_hinglish', 'start_time', 'end_time']
+          required: ['text', 'text_hindi', 'text_hinglish', 'start_time', 'end_time', 'words', 'words_hindi', 'words_hinglish']
         }
       }
     }
   });
 
-  try {
-    await ai.files.delete({ name: uploadResult.name });
-  } catch (err) {
-    console.warn(`Failed to delete Gemini file: ${err.message}`);
-  }
 
   const resultText = response.text;
   console.log('Gemini Alignment Result:', resultText);
@@ -322,7 +357,8 @@ Ensure that the segments cover the whole audio timeline, and the start/end times
  * Matches video clips to storyboard scenes semantically
  */
 export async function matchClipsToScenes(scenes, clips, apiKey) {
-  const ai = new GoogleGenAI({ apiKey });
+  // Using global Vertex AI 'ai' instance
+
 
   // Map clips to simplify information but preserve segment timelines
   const clipsWithSegments = clips.map(c => ({
@@ -523,7 +559,8 @@ function reassignMatch(matchIdx, matches, clips, scenes, segmentUsage, maxRepeti
  * Enhances a script by automatically inserting ElevenLabs V3 expression tags using Gemini.
  */
 export async function enhanceScriptWithTags(text, apiKey) {
-  const ai = new GoogleGenAI({ apiKey });
+  // Using global Vertex AI 'ai' instance
+
 
   const prompt = `You are a script formatting assistant for a Text-to-Speech system.
 Your job is to read this voiceover script and insert ElevenLabs v3 expression tags: [thoughtful], [sigh], [gasp], [laughs], [whisper], [cry].
