@@ -83,7 +83,7 @@ if (!ass1.includes('Dialogue: 11,0:00:00.00,0:00:04.00,FIC_Episode,,0,0,0,,{\\fa
 if (!ass1.includes('Dialogue: 11,0:00:00.00,0:00:04.00,FIC_Series,,0,0,0,,{\\fad(400,0)}FITNESSINCHUNKS')) {
   throw new Error('FAIL: Scene 1 persistent Series dialogue not found');
 }
-if (!ass1.includes('Dialogue: 11,0:00:00.00,0:00:04.00,FIC_Line,,0,0,0,,{\\fad(400,0)}{\\pos(43,1086)\\p1}m 0 0 l 2 0 l 2 74 l 0 74{\\p0}')) {
+if (!ass1.includes('Dialogue: 11,0:00:00.00,0:00:04.00,FIC_Line,,0,0,0,,{\\fad(400,0)}{\\pos(43,1056)\\p1}m 0 0 l 2 0 l 2 104 l 0 104{\\p0}')) {
   throw new Error('FAIL: Scene 1 persistent Line drawing not found or coordinates incorrect');
 }
 console.log('✅ Persistent signature block verified.');
@@ -109,7 +109,7 @@ console.log('✅ Topic Card is successfully removed after 2.0s.');
 
 // Scene 2 represents the final 2.0s of the video (entirely inside end screen).
 // Check that Series name opacity is increased (uses FIC_Episode style instead of FIC_Series)
-if (!ass2.includes('Dialogue: 11,0:00:00.00,0:00:02.00,FIC_Episode,,0,0,0,,FITNESSINCHUNKS')) {
+if (!ass2.includes('Dialogue: 11,0:00:00.00,0:00:02.00,FIC_Series,,0,0,0,,{\\alpha&H00&}FITNESSINCHUNKS')) {
   throw new Error('FAIL: Series name did not gain full visibility in the end screen');
 }
 // Check that Call to Action "Follow for EP 03" is centered

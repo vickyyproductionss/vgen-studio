@@ -837,22 +837,39 @@ export function createAssFileContent(originalScene, duration, style, width, heig
 
   let timerStyleLine = '';
   let timerEvents = '';
-  if (style.showTimer && totalDuration > 0 && style.brandingTheme !== 'fitness-in-chunks') {
-    const timerFont = style.headingFontName || 'Montserrat';
-    const timerFontSize = Math.round((style.headingFontSize || 18) * (height / 640) * 0.9);
-    const timerFontColor = hexToAssColor(style.headingFontColor || '#FFFFFF', '00');
-    const timerBoxColor = hexToAssColor(style.headingBoxColor || '#1A1A1A', 'B0');
-    const timerOutline = Math.max(4, Math.round((style.headingPadding || 6) * (height / 640)));
-    const marginL = Math.round(width * 0.5);
-    const marginR = Math.round(width * (headingLeftPct / 100));
-    const marginV_timer = Math.round(height * (headingTopPct / 100));
+  if (style.showTimer && totalDuration > 0) {
+    let timerFont, timerFontSize, timerFontColor, timerBoxColor, timerBoxOutlineColor, timerOutline, marginL, marginR, marginV_timer, X_timer, Y_timer;
     
-    timerStyleLine = `Style: Timer,${timerFont},${timerFontSize},${timerFontColor},&H000000FF,&H00000000,${timerBoxColor},-1,0,0,0,100,100,0,0,3,${timerOutline},0,9,${marginL},${marginR},${marginV_timer},1\n`;
+    if (style.brandingTheme === 'fitness-in-chunks') {
+      timerFont = style.headingFontName || 'Montserrat';
+      timerFontSize = Math.round((style.headingFontSize || 24) * (height / 640) * 0.8);
+      timerFontColor = hexToAssColor(style.headingFontColor || '#FFFFFF', '00');
+      timerBoxColor = hexToAssColor(style.headingBoxColor || '#000000', '24'); // ~85% opacity
+      timerBoxOutlineColor = timerBoxColor;
+      timerOutline = Math.max(6, Math.round((style.headingPadding || 8) * (height / 640)));
+      marginL = Math.round(width * 0.5);
+      marginR = Math.round(width * (headingLeftPct / 100));
+      marginV_timer = Math.round(height * (headingTopPct / 100));
+      X_timer = width - marginR;
+      Y_timer = marginV_timer;
+    } else {
+      timerFont = style.headingFontName || 'Montserrat';
+      timerFontSize = Math.round((style.headingFontSize || 18) * (height / 640) * 0.9);
+      timerFontColor = hexToAssColor(style.headingFontColor || '#FFFFFF', '00');
+      timerBoxColor = hexToAssColor(style.headingBoxColor || '#1A1A1A', 'B0');
+      timerBoxOutlineColor = '&H00000000';
+      timerOutline = Math.max(4, Math.round((style.headingPadding || 6) * (height / 640)));
+      marginL = Math.round(width * 0.5);
+      marginR = Math.round(width * (headingLeftPct / 100));
+      marginV_timer = Math.round(height * (headingTopPct / 100));
+      X_timer = width - Math.round(width * (headingLeftPct / 100));
+      Y_timer = Math.round(height * (headingTopPct / 100));
+    }
+    
+    timerStyleLine = `Style: Timer,${timerFont},${timerFontSize},${timerFontColor},&H000000FF,${timerBoxOutlineColor},${timerBoxColor},-1,0,0,0,100,100,0,0,3,${timerOutline},0,9,${marginL},${marginR},${marginV_timer},1\n`;
     
     const globalStart = scene.start_time || 0.0;
     const globalEnd = scene.end_time || (globalStart + duration);
-    const X_timer = width - Math.round(width * (headingLeftPct / 100));
-    const Y_timer = Math.round(height * (headingTopPct / 100));
     
     const totalSecs = Math.floor(totalDuration);
     for (let sec = 0; sec <= totalSecs; sec++) {
@@ -865,7 +882,16 @@ export function createAssFileContent(originalScene, duration, style, width, heig
       if (overlapStartGlobal < overlapEndGlobal) {
         const localStart = overlapStartGlobal - globalStart;
         const localEnd = overlapEndGlobal - globalStart;
-        const text = `${Math.max(1, Math.ceil(totalDuration - sec))}s`;
+        const remainingSecs = Math.max(0, Math.ceil(totalDuration - sec));
+        let text = `${remainingSecs}s`;
+        
+        if (style.brandingTheme === 'fitness-in-chunks') {
+          const mins = Math.floor(remainingSecs / 60);
+          const secs = remainingSecs % 60;
+          const timeStr = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+          const labelFontSize = Math.round(timerFontSize * 0.55);
+          text = `${timeStr}\\N{\\fs${labelFontSize}\\alpha&H55&}REMAINING`;
+        }
         
         if (sec === 0 && globalStart === 0.0) {
           timerEvents += `Dialogue: 10,${formatTime(localStart)},${formatTime(localEnd)},Timer,,0,0,0,,{\\an9\\move(${width + 100},${Y_timer},${X_timer},${Y_timer},0,400)\\fad(400,0)}${text}\n`;
@@ -886,25 +912,30 @@ export function createAssFileContent(originalScene, duration, style, width, heig
   let brandingStyleLine = '';
   let brandingEvents = '';
   if (style.brandingTheme === 'fitness-in-chunks') {
-    const headingFont = 'Montserrat';
-    const headingFontSize = Math.round(24 * (height / 640)); // Large
-    const headingBoxColor = '&H24000000'; // ~85% opacity black
-    const headingOutline = Math.max(6, Math.round(8 * (height / 640))); // Padding
-    const marginL = Math.round(width * 0.06);
+    const headingFont = style.headingFontName || 'Montserrat';
+    const headingFontSize = Math.round((style.headingFontSize || 24) * (height / 640));
+    const headingFontColor = hexToAssColor(style.headingFontColor || '#FFFFFF', '00');
+    const headingBoxColor = hexToAssColor(style.headingBoxColor || '#000000', '24'); // ~85% opacity
+    const headingOutline = Math.max(6, Math.round((style.headingPadding || 8) * (height / 640)));
+    
+    const headingLeftPct = style.headingLeftOffset !== undefined ? parseFloat(style.headingLeftOffset) : 6;
+    const headingTopPct = style.headingTopOffset !== undefined ? parseFloat(style.headingTopOffset) : 15;
+    
+    const marginL = Math.round(width * (headingLeftPct / 100));
     const marginR = Math.round(width * 0.4);
-    const marginV_heading = Math.round(height * 0.15);
+    const marginV_heading = Math.round(height * (headingTopPct / 100));
 
-    brandingStyleLine += `Style: FIC_Topic,${headingFont},${headingFontSize},&H00FFFFFF,&H000000FF,&H00000000,${headingBoxColor},-1,0,0,0,100,100,0,0,3,${headingOutline},0,7,${marginL},${marginR},${marginV_heading},1\n`;
+    brandingStyleLine += `Style: FIC_Topic,${headingFont},${headingFontSize},${headingFontColor},&H000000FF,${headingBoxColor},${headingBoxColor},-1,0,0,0,100,100,0,0,3,${headingOutline},0,7,${marginL},${marginR},${marginV_heading},1\n`;
 
     const epFontSize = Math.round(18 * (height / 640));
     const seriesFontSize = Math.round(12 * (height / 640));
     const blockMarginL = Math.round(width * 0.06) + 15;
     const blockMarginV = Math.round(height * 0.10);
 
-    brandingStyleLine += `Style: FIC_Episode,${headingFont},${epFontSize},&H00FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,0,0,1,${blockMarginL},20,${blockMarginV + Math.round(18 * (height / 640))},1\n`;
-    brandingStyleLine += `Style: FIC_Series,${headingFont},${seriesFontSize},&H66FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,0,0,1,${blockMarginL},20,${blockMarginV},1\n`;
-    brandingStyleLine += `Style: FIC_Line,${headingFont},10,&H33FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,0,0,1,0,0,0,1\n`;
-    brandingStyleLine += `Style: FIC_Progress,${headingFont},10,&HA6FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,0,0,1,0,0,0,1\n`;
+    brandingStyleLine += `Style: FIC_Episode,${headingFont},${epFontSize},&H00FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,0,0,1,${blockMarginL},20,${blockMarginV + Math.round(26 * (height / 640))},1\n`;
+    brandingStyleLine += `Style: FIC_Series,${headingFont},${seriesFontSize},&H66FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,1,${blockMarginL},20,${blockMarginV},1\n`;
+    brandingStyleLine += `Style: FIC_Line,${headingFont},10,&H33FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1\n`;
+    brandingStyleLine += `Style: FIC_Progress,${headingFont},10,&HA6FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1\n`;
 
     const globalStart = scene.start_time || 0.0;
     const globalEnd = scene.end_time || (globalStart + duration);
@@ -920,7 +951,7 @@ export function createAssFileContent(originalScene, duration, style, width, heig
       const localEnd = overlapEndGlobal_topic - globalStart;
       const X_heading = Math.round(width * 0.06);
       const Y_heading = Math.round(height * 0.15);
-      const text = shapeDevanagari(style.headingTitle.trim());
+      const text = shapeDevanagari(style.headingTitle.trim().toUpperCase());
 
       if (globalStart === 0.0 && globalEnd >= 2.0) {
         brandingEvents += `Dialogue: 10,${formatTime(0.0)},${formatTime(0.4)},FIC_Topic,,0,0,0,,{\\an7\\move(${-500},${Y_heading},${X_heading},${Y_heading},0,400)\\fad(400,0)}${text}\n`;
@@ -970,21 +1001,16 @@ export function createAssFileContent(originalScene, duration, style, width, heig
         const segLocalStart = seg.start - globalStart;
         const segLocalEnd = seg.end - globalStart;
         
-        const epFontSize = Math.round(18 * (height / 640));
-        const seriesFontSize = Math.round(12 * (height / 640));
-        const epHeight = Math.round(20 * (height / 640));
-        const seriesHeight = Math.round(14 * (height / 640));
-        const lineHeight = epHeight + seriesHeight + 6;
-        
         const lineX = Math.round(width * 0.06);
-        const lineY = height - blockMarginV - lineHeight + Math.round(4 * (height / 640));
+        const lineY = height - blockMarginV - Math.round(48 * (height / 640));
+        const lineHeight = Math.round(52 * (height / 640));
         
-        const seriesStyle = seg.isEndScreen ? 'FIC_Episode' : 'FIC_Series';
+        const opacityTag = seg.isEndScreen ? '{\\alpha&H00&}' : '';
         const isEntry = (globalStart === 0.0 && seg.start === 0.0);
         const animTag = isEntry ? '{\\fad(400,0)}' : '';
         
         brandingEvents += `Dialogue: 11,${formatTime(segLocalStart)},${formatTime(segLocalEnd)},FIC_Episode,,0,0,0,,${animTag}${epText}\n`;
-        brandingEvents += `Dialogue: 11,${formatTime(segLocalStart)},${formatTime(segLocalEnd)},${seriesStyle},,0,0,0,,${animTag}${seriesText}\n`;
+        brandingEvents += `Dialogue: 11,${formatTime(segLocalStart)},${formatTime(segLocalEnd)},FIC_Series,,0,0,0,,${animTag}${opacityTag}${seriesText}\n`;
         brandingEvents += `Dialogue: 11,${formatTime(segLocalStart)},${formatTime(segLocalEnd)},FIC_Line,,0,0,0,,${animTag}{\\pos(${lineX},${lineY})\\p1}m 0 0 l 2 0 l 2 ${lineHeight} l 0 ${lineHeight}{\\p0}\n`;
         
         if (seg.isEndScreen && style.nextEpisode && style.nextEpisode.trim().length > 0) {
