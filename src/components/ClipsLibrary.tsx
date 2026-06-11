@@ -99,6 +99,33 @@ export default function ClipsLibrary() {
     }
   };
 
+  const uploadFileToGCS = (file: File, uploadUrl: string, onProgress: (pct: number) => void): Promise<void> => {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+
+      xhr.upload.addEventListener('progress', (event) => {
+        if (event.lengthComputable) {
+          onProgress(Math.round((event.loaded / event.total) * 100));
+        }
+      });
+
+      xhr.addEventListener('load', () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve();
+        } else {
+          reject(new Error(`GCS upload failed (${xhr.status})`));
+        }
+      });
+
+      xhr.addEventListener('error', () => reject(new Error('Network error during upload')));
+      xhr.addEventListener('abort', () => reject(new Error('Upload cancelled')));
+
+      xhr.open('PUT', uploadUrl);
+      xhr.setRequestHeader('Content-Type', file.type || 'video/mp4');
+      xhr.send(file);
+    });
+  };
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
@@ -106,88 +133,94 @@ export default function ClipsLibrary() {
     setUploading(true);
     setError('');
 
-    // Initialize progress tracking for each file
-    const initialProgress: UploadProgress[] = Array.from(files).map(f => ({
+    const fileList = Array.from(files);
+
+    // Initialize progress tracking
+    const initialProgress: UploadProgress[] = fileList.map(f => ({
       fileName: f.name,
       progress: 0,
       status: 'uploading' as const
     }));
     setUploadQueue(initialProgress);
 
-    const formData = new FormData();
-    for (let i = 0; i < files.length; i++) {
-      formData.append('videos', files[i]);
-    }
-
-    // Calculate individual file sizes for weighted progress
-    const fileSizes = Array.from(files).map(f => f.size);
+    const uploadedClips: Clip[] = [];
 
     try {
-      const newClips = await new Promise<Clip[]>((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
+      for (let i = 0; i < fileList.length; i++) {
+        const file = fileList[i];
 
-        xhr.upload.addEventListener('progress', (event) => {
-          if (event.lengthComputable) {
-
-            // Distribute progress across files proportionally
-            let bytesAccountedFor = 0;
-            setUploadQueue(prev => prev.map((item, idx) => {
-              const fileStart = bytesAccountedFor;
-              const fileEnd = bytesAccountedFor + fileSizes[idx];
-              bytesAccountedFor = fileEnd;
-
-              let fileProgress: number;
-              if (event.loaded >= fileEnd) {
-                fileProgress = 100;
-              } else if (event.loaded <= fileStart) {
-                fileProgress = 0;
-              } else {
-                fileProgress = ((event.loaded - fileStart) / fileSizes[idx]) * 100;
-              }
-
-              return {
-                ...item,
-                progress: Math.round(fileProgress),
-                status: fileProgress >= 100 ? 'processing' : 'uploading'
-              };
-            }));
-          }
+        // Step 1: Request upload URL from server
+        const initRes = await fetch('/api/clips/init-upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fileName: file.name,
+            contentType: file.type || 'video/mp4',
+            fileSize: file.size
+          })
         });
 
-        xhr.addEventListener('load', () => {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            try {
-              const data = JSON.parse(xhr.responseText);
-              setUploadQueue(prev => prev.map(item => ({ ...item, progress: 100, status: 'done' as const })));
-              resolve(data);
-            } catch (parseErr) {
-              reject(new Error('Invalid server response'));
-            }
-          } else {
-            try {
-              const errData = JSON.parse(xhr.responseText);
-              reject(new Error(errData.error || `Upload failed (${xhr.status})`));
-            } catch {
-              reject(new Error(`Upload failed with status ${xhr.status}`));
-            }
-          }
+        if (!initRes.ok) {
+          const err = await initRes.json();
+          throw new Error(err.error || 'Failed to initialize upload');
+        }
+
+        const initData = await initRes.json();
+
+        if (initData.mode === 'multipart') {
+          // Fallback: use old multipart upload (local dev)
+          const formData = new FormData();
+          formData.append('videos', file);
+          const uploadRes = await fetch('/api/clips/upload', { method: 'POST', body: formData });
+          if (!uploadRes.ok) throw new Error('Multipart upload failed');
+          const clips = await uploadRes.json();
+          uploadedClips.push(...clips);
+          setUploadQueue(prev => prev.map((item, idx) =>
+            idx === i ? { ...item, progress: 100, status: 'done' as const } : item
+          ));
+          continue;
+        }
+
+        // Step 2: Upload file directly to GCS
+        await uploadFileToGCS(file, initData.uploadUrl, (pct) => {
+          setUploadQueue(prev => prev.map((item, idx) =>
+            idx === i ? { ...item, progress: pct, status: 'uploading' as const } : item
+          ));
         });
 
-        xhr.addEventListener('error', () => {
-          reject(new Error('Network error — upload failed. Check your connection.'));
+        // Mark as processing
+        setUploadQueue(prev => prev.map((item, idx) =>
+          idx === i ? { ...item, progress: 100, status: 'processing' as const } : item
+        ));
+
+        // Step 3: Finalize — server generates thumbnail + starts AI analysis
+        const finalRes = await fetch('/api/clips/finalize-upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            clipId: initData.clipId,
+            gcsPath: initData.gcsPath,
+            fileName: file.name
+          })
         });
 
-        xhr.addEventListener('abort', () => {
-          reject(new Error('Upload was cancelled.'));
-        });
+        if (!finalRes.ok) {
+          const err = await finalRes.json();
+          throw new Error(err.error || 'Failed to finalize upload');
+        }
 
-        xhr.open('POST', '/api/clips/upload');
-        xhr.send(formData);
-      });
+        const newClip = await finalRes.json();
+        uploadedClips.push(newClip);
 
-      setClips(prev => [...newClips, ...prev]);
+        // Mark as done
+        setUploadQueue(prev => prev.map((item, idx) =>
+          idx === i ? { ...item, progress: 100, status: 'done' as const } : item
+        ));
+      }
 
-      // Clear progress after a short delay to show completion
+      setClips(prev => [...uploadedClips, ...prev]);
+
+      // Clear progress after a short delay
       setTimeout(() => {
         setUploadQueue([]);
       }, 2000);
@@ -198,7 +231,10 @@ export default function ClipsLibrary() {
           ? { ...item, status: 'error' as const, error: err.message }
           : item
       ));
-      // Clear error progress after a few seconds
+      // Add any partially uploaded clips
+      if (uploadedClips.length > 0) {
+        setClips(prev => [...uploadedClips, ...prev]);
+      }
       setTimeout(() => {
         setUploadQueue([]);
       }, 5000);

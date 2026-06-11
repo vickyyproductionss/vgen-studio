@@ -16,6 +16,7 @@ import { detectBeats } from './services/beats.js';
 import { getGcpWordTimings, assignTimestampsToWords, mapTimestamps } from './services/speech.js';
 import { dbService } from './services/firestore.js';
 import { gcsService } from './services/gcs.js';
+import { Storage } from '@google-cloud/storage';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -704,6 +705,110 @@ app.post('/api/clips/upload', upload.array('videos', 20), async (req, res) => {
     res.json(importedClips);
   } catch (error) {
     res.status(500).json({ error: `Failed to upload files: ${error.message}` });
+  }
+});
+
+// ── Direct-to-GCS Upload (bypasses Cloud Run 32MB body limit) ──
+
+// Step 1: Client requests a resumable upload URL for each file
+app.post('/api/clips/init-upload', async (req, res) => {
+  const { fileName, contentType, fileSize } = req.body;
+  if (!fileName) {
+    return res.status(400).json({ error: 'fileName is required.' });
+  }
+
+  if (!gcsService.isGcsEnabled()) {
+    // Fallback: tell client to use the old multipart upload
+    return res.json({ mode: 'multipart' });
+  }
+
+  try {
+    const clipId = uuidv4();
+    const ext = path.extname(fileName) || '.mp4';
+    const gcsPath = `clips/${clipId}${ext}`;
+    const bucket = gcsService.getBucketName();
+
+    // Create a resumable upload session directly with the GCS API
+    const file = new Storage().bucket(bucket).file(gcsPath);
+    const [uploadUrl] = await file.createResumableUpload({
+      metadata: {
+        contentType: contentType || 'video/mp4',
+        metadata: { originalName: fileName }
+      }
+    });
+
+    res.json({
+      mode: 'direct',
+      clipId,
+      gcsPath,
+      uploadUrl,   // Client PUTs file data directly to this URL
+      bucket
+    });
+  } catch (error) {
+    console.error('[Upload Init Error]', error.message);
+    res.status(500).json({ error: `Failed to initialize upload: ${error.message}` });
+  }
+});
+
+// Step 2: After client finishes uploading to GCS, finalize the clip
+app.post('/api/clips/finalize-upload', async (req, res) => {
+  const { clipId, gcsPath, fileName } = req.body;
+  if (!clipId || !gcsPath) {
+    return res.status(400).json({ error: 'clipId and gcsPath are required.' });
+  }
+
+  const userId = getUserId(req);
+  try {
+    const settings = await dbService.getSettings();
+    const apiKey = process.env.GEMINI_API_KEY || settings.geminiApiKey;
+
+    // Download the file temporarily for thumbnail generation and analysis
+    const ext = path.extname(gcsPath) || '.mp4';
+    const localTempPath = path.join(CLIPS_DIR, `${clipId}${ext}`);
+    await gcsService.downloadFile(gcsPath, localTempPath);
+
+    // Generate thumbnail
+    const thumbnailFilename = `${clipId}.jpg`;
+    const thumbnailLocalPath = path.join(THUMBNAILS_DIR, thumbnailFilename);
+    const duration = await getVideoDuration(localTempPath);
+    await generateThumbnail(localTempPath, thumbnailLocalPath);
+
+    // Upload thumbnail to GCS
+    let finalThumbnailUrl = `/uploads/thumbnails/${thumbnailFilename}`;
+    if (gcsService.isGcsEnabled()) {
+      finalThumbnailUrl = await gcsService.uploadFile(thumbnailLocalPath, `thumbnails/${thumbnailFilename}`);
+      try { await fs.unlink(thumbnailLocalPath); } catch (_) {}
+    }
+
+    // Get the video's GCS URL
+    const bucket = gcsService.getBucketName();
+    const gcsStorage = new Storage();
+    const [videoUrl] = await gcsStorage.bucket(bucket).file(gcsPath).getSignedUrl({
+      action: 'read',
+      expires: Date.now() + 7 * 24 * 60 * 60 * 1000
+    });
+
+    const newClip = {
+      id: clipId,
+      userId,
+      path: videoUrl,
+      name: fileName || path.basename(gcsPath),
+      thumbnail: finalThumbnailUrl,
+      duration,
+      description: 'Analyzing clip content...',
+      tags: [],
+      status: 'analyzing'
+    };
+
+    await dbService.saveClip(newClip);
+
+    // Start AI analysis in background
+    analyzeVideoInBackground(clipId, localTempPath, apiKey);
+
+    res.json(newClip);
+  } catch (error) {
+    console.error('[Finalize Upload Error]', error.message);
+    res.status(500).json({ error: `Failed to finalize upload: ${error.message}` });
   }
 });
 
