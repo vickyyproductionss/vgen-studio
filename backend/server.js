@@ -598,7 +598,7 @@ app.post('/api/clips/add-path', async (req, res) => {
   try {
     const settings = await dbService.getSettings();
     const apiKey = process.env.GEMINI_API_KEY || settings.geminiApiKey;
-    if (!apiKey && !process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+    if (!apiKey && !process.env.GOOGLE_APPLICATION_CREDENTIALS && !process.env.K_SERVICE) {
       return res.status(400).json({ error: 'Gemini API key or Vertex AI credentials are required.' });
     }
 
@@ -658,7 +658,7 @@ app.post('/api/clips/upload', upload.array('videos', 20), async (req, res) => {
   try {
     const settings = await dbService.getSettings();
     const apiKey = process.env.GEMINI_API_KEY || settings.geminiApiKey;
-    if (!apiKey && !process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+    if (!apiKey && !process.env.GOOGLE_APPLICATION_CREDENTIALS && !process.env.K_SERVICE) {
       return res.status(400).json({ error: 'Gemini API key or Vertex AI credentials are required.' });
     }
 
@@ -828,7 +828,7 @@ app.post('/api/clips/add-folder', async (req, res) => {
     const userId = getUserId(req);
     const settings = await dbService.getSettings();
     const apiKey = process.env.GEMINI_API_KEY || settings.geminiApiKey;
-    if (!apiKey && !process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+    if (!apiKey && !process.env.GOOGLE_APPLICATION_CREDENTIALS && !process.env.K_SERVICE) {
       return res.status(400).json({ error: 'Gemini API key or Vertex AI credentials are required.' });
     }
 
@@ -965,7 +965,7 @@ app.post('/api/clips/reanalyze-all', async (req, res) => {
   try {
     const settings = await dbService.getSettings();
     const apiKey = settings.geminiApiKey;
-    if (!apiKey && !process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+    if (!apiKey && !process.env.GOOGLE_APPLICATION_CREDENTIALS && !process.env.K_SERVICE) {
       return res.status(400).json({ error: 'Gemini API key or Vertex AI credentials are required.' });
     }
 
@@ -1535,7 +1535,7 @@ app.post('/api/enhance-script', async (req, res) => {
   try {
     const settings = await dbService.getSettings();
     const apiKey = process.env.GEMINI_API_KEY || settings.geminiApiKey;
-    if (!apiKey && !process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+    if (!apiKey && !process.env.GOOGLE_APPLICATION_CREDENTIALS && !process.env.K_SERVICE) {
       return res.status(400).json({ error: 'Gemini API key or Vertex AI credentials are required.' });
     }
 
@@ -1559,7 +1559,7 @@ app.post('/api/align-script', async (req, res) => {
   try {
     const settings = await dbService.getSettings();
     const apiKey = process.env.GEMINI_API_KEY || settings.geminiApiKey;
-    if (!apiKey && !process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+    if (!apiKey && !process.env.GOOGLE_APPLICATION_CREDENTIALS && !process.env.K_SERVICE) {
       return res.status(400).json({ error: 'Gemini API key or Vertex AI credentials are required.' });
     }
 
@@ -1988,7 +1988,7 @@ app.post('/api/match-clips', async (req, res) => {
   try {
     const settings = await dbService.getSettings();
     const apiKey = process.env.GEMINI_API_KEY || settings.geminiApiKey;
-    if (!apiKey && !process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+    if (!apiKey && !process.env.GOOGLE_APPLICATION_CREDENTIALS && !process.env.K_SERVICE) {
       return res.status(400).json({ error: 'Gemini API key or Vertex AI credentials are required.' });
     }
 
