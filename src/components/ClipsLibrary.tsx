@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Upload, Plus, Trash2, Video, Search, AlertCircle, FileText, CheckCircle2, RefreshCw } from 'lucide-react';
+import { Upload, Plus, Trash2, Video, Search, AlertCircle, FileText, CheckCircle2, RefreshCw, X } from 'lucide-react';
 
 interface Clip {
   id: string;
@@ -13,6 +13,13 @@ interface Clip {
   exists?: boolean;
 }
 
+interface UploadProgress {
+  fileName: string;
+  progress: number;  // 0-100
+  status: 'uploading' | 'processing' | 'done' | 'error';
+  error?: string;
+}
+
 export default function ClipsLibrary() {
   const [clips, setClips] = useState<Clip[]>([]);
   const [search, setSearch] = useState('');
@@ -20,6 +27,7 @@ export default function ClipsLibrary() {
   const [importMode, setImportMode] = useState<'file' | 'folder'>('file');
   const [importing, setImporting] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [uploadQueue, setUploadQueue] = useState<UploadProgress[]>([]);
   const [error, setError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -98,26 +106,104 @@ export default function ClipsLibrary() {
     setUploading(true);
     setError('');
 
+    // Initialize progress tracking for each file
+    const initialProgress: UploadProgress[] = Array.from(files).map(f => ({
+      fileName: f.name,
+      progress: 0,
+      status: 'uploading' as const
+    }));
+    setUploadQueue(initialProgress);
+
     const formData = new FormData();
     for (let i = 0; i < files.length; i++) {
       formData.append('videos', files[i]);
     }
 
+    // Calculate individual file sizes for weighted progress
+    const fileSizes = Array.from(files).map(f => f.size);
+    const totalSize = fileSizes.reduce((a, b) => a + b, 0);
+
     try {
-      const res = await fetch('/api/clips/upload', {
-        method: 'POST',
-        body: formData
+      const newClips = await new Promise<Clip[]>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+
+        xhr.upload.addEventListener('progress', (event) => {
+          if (event.lengthComputable) {
+            const overallPercent = (event.loaded / event.total) * 100;
+
+            // Distribute progress across files proportionally
+            let bytesAccountedFor = 0;
+            setUploadQueue(prev => prev.map((item, idx) => {
+              const fileStart = bytesAccountedFor;
+              const fileEnd = bytesAccountedFor + fileSizes[idx];
+              bytesAccountedFor = fileEnd;
+
+              let fileProgress: number;
+              if (event.loaded >= fileEnd) {
+                fileProgress = 100;
+              } else if (event.loaded <= fileStart) {
+                fileProgress = 0;
+              } else {
+                fileProgress = ((event.loaded - fileStart) / fileSizes[idx]) * 100;
+              }
+
+              return {
+                ...item,
+                progress: Math.round(fileProgress),
+                status: fileProgress >= 100 ? 'processing' : 'uploading'
+              };
+            }));
+          }
+        });
+
+        xhr.addEventListener('load', () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            try {
+              const data = JSON.parse(xhr.responseText);
+              setUploadQueue(prev => prev.map(item => ({ ...item, progress: 100, status: 'done' as const })));
+              resolve(data);
+            } catch (parseErr) {
+              reject(new Error('Invalid server response'));
+            }
+          } else {
+            try {
+              const errData = JSON.parse(xhr.responseText);
+              reject(new Error(errData.error || `Upload failed (${xhr.status})`));
+            } catch {
+              reject(new Error(`Upload failed with status ${xhr.status}`));
+            }
+          }
+        });
+
+        xhr.addEventListener('error', () => {
+          reject(new Error('Network error — upload failed. Check your connection.'));
+        });
+
+        xhr.addEventListener('abort', () => {
+          reject(new Error('Upload was cancelled.'));
+        });
+
+        xhr.open('POST', '/api/clips/upload');
+        xhr.send(formData);
       });
 
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || 'Failed to upload videos.');
-      }
-
-      const newClips = await res.json();
       setClips(prev => [...newClips, ...prev]);
+
+      // Clear progress after a short delay to show completion
+      setTimeout(() => {
+        setUploadQueue([]);
+      }, 2000);
     } catch (err: any) {
       setError(err.message);
+      setUploadQueue(prev => prev.map(item =>
+        item.status !== 'done'
+          ? { ...item, status: 'error' as const, error: err.message }
+          : item
+      ));
+      // Clear error progress after a few seconds
+      setTimeout(() => {
+        setUploadQueue([]);
+      }, 5000);
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -187,7 +273,7 @@ export default function ClipsLibrary() {
             type="file"
             ref={fileInputRef}
             onChange={handleFileUpload}
-            accept="video/mp4,video/mkv,video/x-matroska,video/quicktime,video/webm,video/x-m4v,.mp4,.mkv,.mov,.webm,.m4v"
+            accept="video/*,.mp4,.mkv,.mov,.webm,.m4v"
             multiple
             style={{ display: 'none' }}
           />
@@ -211,6 +297,84 @@ export default function ClipsLibrary() {
           </button>
         </div>
       </div>
+
+      {/* Upload Progress Panel */}
+      {uploadQueue.length > 0 && (
+        <div style={{
+          background: 'rgba(59, 130, 246, 0.08)',
+          border: '1px solid rgba(59, 130, 246, 0.2)',
+          borderRadius: '12px',
+          padding: '16px',
+          marginBottom: '24px',
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+            <span style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)' }}>
+              📤 Uploading {uploadQueue.length} clip{uploadQueue.length > 1 ? 's' : ''}
+            </span>
+            {!uploading && (
+              <button
+                onClick={() => setUploadQueue([])}
+                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '4px' }}
+              >
+                <X size={16} />
+              </button>
+            )}
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {uploadQueue.map((item, idx) => (
+              <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <span style={{
+                  fontSize: '12px',
+                  color: 'var(--text-gray)',
+                  minWidth: '140px',
+                  maxWidth: '200px',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap'
+                }}>
+                  {item.fileName}
+                </span>
+                <div style={{
+                  flex: 1,
+                  height: '6px',
+                  background: 'rgba(255, 255, 255, 0.08)',
+                  borderRadius: '3px',
+                  overflow: 'hidden'
+                }}>
+                  <div style={{
+                    width: `${item.progress}%`,
+                    height: '100%',
+                    borderRadius: '3px',
+                    background: item.status === 'error'
+                      ? '#ef4444'
+                      : item.status === 'done'
+                        ? '#10b981'
+                        : item.status === 'processing'
+                          ? 'linear-gradient(90deg, #3b82f6, #8b5cf6)'
+                          : '#3b82f6',
+                    transition: 'width 0.3s ease',
+                  }} />
+                </div>
+                <span style={{
+                  fontSize: '11px',
+                  minWidth: '70px',
+                  textAlign: 'right',
+                  color: item.status === 'error' ? '#f87171'
+                    : item.status === 'done' ? '#10b981'
+                    : item.status === 'processing' ? '#a78bfa'
+                    : '#60a5fa',
+                  fontWeight: 500
+                }}>
+                  {item.status === 'uploading' && `${item.progress}%`}
+                  {item.status === 'processing' && '⏳ Analyzing'}
+                  {item.status === 'done' && '✓ Done'}
+                  {item.status === 'error' && '✗ Failed'}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {error && (
         <div style={{

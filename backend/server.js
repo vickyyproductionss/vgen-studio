@@ -62,7 +62,7 @@ const app = express();
 const PORT = process.env.PORT || 8000;
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
 
 // Ensure required directories exist
 const UPLOADS_DIR = path.join(__dirname, 'uploads');
@@ -94,7 +94,10 @@ const storage = multer.diskStorage({
     cb(null, `${uuidv4()}${ext}`);
   }
 });
-const upload = multer({ storage });
+const upload = multer({
+  storage,
+  limits: { fileSize: 500 * 1024 * 1024 } // 500MB per file
+});
 
 const musicStorage = multer.diskStorage({
   destination: (req, file, cb) => {
