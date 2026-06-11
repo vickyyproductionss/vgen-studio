@@ -4,6 +4,7 @@ import path from 'path';
 import fs from 'fs/promises';
 import { existsSync } from 'fs';
 import { fileURLToPath } from 'url';
+import { gcsService } from './gcs.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -140,14 +141,39 @@ export async function getVideoDuration(filePath) {
       const centiseconds = parseInt(match[4], 10);
       return hours * 3600 + minutes * 60 + seconds + centiseconds / 100;
     }
-    
-    // Fallback if not found
-    return 10.0;
-  } catch (error) {
-    console.error(`Error getting duration for ${filePath}:`, error);
-    return 10.0;
+    return 0;
+  } catch (err) {
+    console.warn(`Failed to parse duration for ${filePath}:`, err.message);
+    return 0;
   }
 }
+
+/**
+ * Parses video width and height using ffmpeg -i
+ */
+export async function getVideoDimensions(filePath) {
+  try {
+    const { stderr } = await runFFmpeg(['-i', filePath]).catch(err => {
+      if (err.message.includes('Stderr:')) {
+        return { stderr: err.message };
+      }
+      throw err;
+    });
+
+    const match = stderr.match(/Video:.*?, (\d+)x(\d+)/);
+    if (match) {
+      return {
+        width: parseInt(match[1], 10),
+        height: parseInt(match[2], 10)
+      };
+    }
+    return { width: 1080, height: 1920 }; // fallback
+  } catch (error) {
+    console.error(`Error getting dimensions for ${filePath}:`, error);
+    return { width: 1080, height: 1920 };
+  }
+}
+
 
 /**
  * Extracts a thumbnail at 1s mark
@@ -1614,203 +1640,363 @@ export async function assembleVideo(options, onProgress) {
     outputDir,
     miniBeats,
     miniBeatEffect = 'none',
-    beatEffects = {}
+    beatEffects = {},
+    originalVideoPath,
+    backgroundType = 'none',
+    backgroundColor = '#000000',
+    backgroundClipId = '',
+    talkingHeadEnabled = false,
+    talkingHeadChromaColor = '#00ff00',
+    talkingHeadChromaSimilarity = 0.15,
+    talkingHeadChromaBlend = 0.10,
+    talkingHeadSize = 40,
+    talkingHeadPosition = 'bottom-right',
+    talkingHeadPositionX = 10,
+    talkingHeadPositionY = 10,
+    talkingHeadOutlineEnabled = false,
+    talkingHeadOutlineColor = '#ffffff',
+    talkingHeadOutlineThickness = 2
   } = options;
 
   console.log(`Starting video assembly with ${scenes.length} scenes...`);
 
-  // --- Viral Beat Effects defaults ---
-  const bfx = {
-    whiteFlash: false, whiteFlashIntensity: 0.6,
-    rgbSplit: false, rgbSplitPixels: 6,
-    bassBounce: false, bassBounceScale: 1.06,
-    speedRamp: false, speedRampHold: 0.1,
-    whipPan: false, whipPanStrength: 30,
-    spinTransition: false, spinDegrees: 90,
-    colorFlash: false, colorFlashTint: '#FF6B00',
-    glitchTear: false, glitchTearPixels: 20,
-    filmGrain: false, filmGrainAmount: 12,
-    letterbox: false, letterboxSize: 50,
-    vignettePulse: false,
-    negativeFlash: false,
-    ...beatEffects
+  // Strip query parameters from voiceoverPath to get a clean basename/jobId
+  const cleanPathForBasename = voiceoverPath.split('?')[0];
+  const jobId = path.basename(cleanPathForBasename, path.extname(cleanPathForBasename));
+  const tempDir = path.join(outputDir, 'temp', jobId);
+
+  // Pre-download remote GCS assets if GCS is enabled
+  let localVoiceoverPath = voiceoverPath;
+  let localBgMusicPath = bgMusicPath;
+  let localOriginalVideoPath = originalVideoPath;
+  const localClipsPaths = new Map();
+  let localBackgroundClipPath = null;
+  const gcsAssetsTempDir = path.join('/tmp', 'vgen-gcs-assets-' + jobId);
+
+  const clipsMap = new Map(clips.map(c => [c.id, c]));
+  const backgroundClip = backgroundClipId ? clipsMap.get(backgroundClipId) : null;
+  const backgroundPath = backgroundClip ? backgroundClip.path : null;
+  const backgroundDuration = backgroundClip ? backgroundClip.duration : 10.0;
+
+  // Helper to resolve paths relative to backend/
+  const resolvePath = (filePath) => {
+    if (!filePath) return filePath;
+    if (path.isAbsolute(filePath) && existsSync(filePath)) {
+      return filePath;
+    }
+    const resolvedDir = path.resolve(__dirname, filePath);
+    if (existsSync(resolvedDir)) {
+      return resolvedDir;
+    }
+    const resolvedRoot = path.resolve(__dirname, '..', filePath);
+    if (existsSync(resolvedRoot)) {
+      return resolvedRoot;
+    }
+    if (filePath.includes('uploads/')) {
+      const relativePart = filePath.substring(filePath.indexOf('uploads/'));
+      return path.join(__dirname, '..', relativePart);
+    }
+    return filePath;
   };
 
-  // Ensure custom font is downloaded and available locally
-  if (subtitleStyle.fontName) {
-    try {
-      await ensureFontExists(subtitleStyle.fontName);
-    } catch (fontErr) {
-      console.warn(`Could not verify/download font ${subtitleStyle.fontName}:`, fontErr.message);
-    }
-  }
-  if (subtitleStyle.brandingTheme === 'fitness-in-chunks') {
-    try {
-      await ensureFontExists('Montserrat');
-    } catch (fontErr) {
-      console.warn(`Could not verify/download Montserrat font for branding theme:`, fontErr.message);
-    }
-  }
-  if (subtitleStyle.headingTitle && subtitleStyle.headingTitle.trim().length > 0) {
-    const headingFont = subtitleStyle.headingFontName || 'Montserrat';
-    try {
-      await ensureFontExists(headingFont);
-    } catch (fontErr) {
-      console.warn(`Could not verify/download heading font ${headingFont}:`, fontErr.message);
-    }
-  }
-
-  // Deep copy/clone scenes to avoid mutating original objects in the database
-  const adjustedScenes = scenes.map(s => ({
-    ...s,
-    words: s.words ? s.words.map(w => ({ ...w })) : []
-  }));
-
-  // Resolve voiceover duration to adjust timings
-  let voiceoverDuration = 0;
   try {
-    voiceoverDuration = await getVideoDuration(voiceoverPath);
-    console.log(`Voiceover audio duration: ${voiceoverDuration}s`);
-  } catch (err) {
-    console.warn('Failed to calculate voiceover duration:', err.message);
-  }
+    await fs.mkdir(tempDir, { recursive: true });
 
-  // Dynamically scale scene timings if their total duration exceeds the actual voiceover duration
-  if (adjustedScenes.length > 0 && voiceoverDuration > 0) {
-    const maxSceneEndTime = Math.max(...adjustedScenes.map(s => s.end_time || s.start_time));
-    if (maxSceneEndTime > voiceoverDuration + 0.05) {
-      const scaleFactor = voiceoverDuration / maxSceneEndTime;
-      console.log(`[Video Generator] Scenes end time (${maxSceneEndTime.toFixed(3)}s) exceeds voiceover duration (${voiceoverDuration.toFixed(3)}s). Scaling scenes by ${scaleFactor.toFixed(4)} to fit perfectly.`);
-      for (const scene of adjustedScenes) {
-        scene.start_time = Number((scene.start_time * scaleFactor).toFixed(3));
-        scene.end_time = Number((scene.end_time * scaleFactor).toFixed(3));
-        if (scene.words && Array.isArray(scene.words)) {
-          for (const w of scene.words) {
-            w.start_time = Number((w.start_time * scaleFactor).toFixed(3));
-            w.end_time = Number((w.end_time * scaleFactor).toFixed(3));
+    if (gcsService.isGcsEnabled()) {
+      console.log(`[Video Engine] GCS mode is active. Pre-downloading remote assets for job ${jobId}...`);
+      await fs.mkdir(gcsAssetsTempDir, { recursive: true });
+
+      // 1. Download voiceover
+      if (voiceoverPath && (voiceoverPath.startsWith('http') || voiceoverPath.startsWith('gs://'))) {
+        const dest = path.join(gcsAssetsTempDir, 'voiceover' + path.extname(cleanPathForBasename));
+        onProgress(8, 'Downloading voiceover audio from storage...');
+        await gcsService.downloadFile(voiceoverPath, dest);
+        localVoiceoverPath = dest;
+      }
+
+      // 2. Download background music
+      if (bgMusicPath && (bgMusicPath.startsWith('http') || bgMusicPath.startsWith('gs://'))) {
+        const cleanBgPath = bgMusicPath.split('?')[0];
+        const dest = path.join(gcsAssetsTempDir, 'bgmusic' + path.extname(cleanBgPath));
+        onProgress(10, 'Downloading background music from storage...');
+        await gcsService.downloadFile(bgMusicPath, dest);
+        localBgMusicPath = dest;
+      }
+
+      // 3. Download talking head original video
+      if (originalVideoPath && (originalVideoPath.startsWith('http') || originalVideoPath.startsWith('gs://'))) {
+        const cleanOriginalPath = originalVideoPath.split('?')[0];
+        const dest = path.join(gcsAssetsTempDir, 'originalVideo' + path.extname(cleanOriginalPath));
+        onProgress(12, 'Downloading talking head video from storage...');
+        await gcsService.downloadFile(originalVideoPath, dest);
+        localOriginalVideoPath = dest;
+      }
+
+      // 4. Download background clip if any
+      if (backgroundClip && backgroundPath && (backgroundPath.startsWith('http') || backgroundPath.startsWith('gs://'))) {
+        const cleanBgClipPath = backgroundPath.split('?')[0];
+        const dest = path.join(gcsAssetsTempDir, 'bgclip_' + backgroundClipId + path.extname(cleanBgClipPath));
+        onProgress(14, 'Downloading background clip from storage...');
+        await gcsService.downloadFile(backgroundPath, dest);
+        localBackgroundClipPath = dest;
+      }
+
+      // 5. Download referenced scene clips
+      const uniqueClipIdsToDownload = new Set();
+      for (const scene of scenes) {
+        if (scene.clipId && scene.clipId !== 'original') {
+          uniqueClipIdsToDownload.add(scene.clipId);
+        }
+      }
+
+      let downloadIdx = 0;
+      const totalClips = uniqueClipIdsToDownload.size;
+      for (const clipId of uniqueClipIdsToDownload) {
+        const clip = clipsMap.get(clipId);
+        if (clip && clip.path) {
+          downloadIdx++;
+          if (clip.path.startsWith('http') || clip.path.startsWith('gs://')) {
+            const cleanClipPath = clip.path.split('?')[0];
+            const dest = path.join(gcsAssetsTempDir, 'clip_' + clipId + path.extname(cleanClipPath));
+            onProgress(
+              15 + Math.round((downloadIdx / totalClips) * 15),
+              `Downloading B-roll clip ${downloadIdx}/${totalClips} from storage...`
+            );
+            await gcsService.downloadFile(clip.path, dest);
+            localClipsPaths.set(clipId, dest);
+          } else {
+            localClipsPaths.set(clipId, resolvePath(clip.path));
+          }
+        }
+      }
+    } else {
+      // Local fallbacks if GCS is disabled
+      localVoiceoverPath = resolvePath(voiceoverPath);
+      localBgMusicPath = bgMusicPath ? resolvePath(bgMusicPath) : null;
+      localOriginalVideoPath = originalVideoPath ? resolvePath(originalVideoPath) : null;
+      localBackgroundClipPath = backgroundPath ? resolvePath(backgroundPath) : null;
+    }
+
+    // --- Viral Beat Effects defaults ---
+    const bfx = {
+      whiteFlash: false, whiteFlashIntensity: 0.6,
+      rgbSplit: false, rgbSplitPixels: 6,
+      bassBounce: false, bassBounceScale: 1.06,
+      speedRamp: false, speedRampHold: 0.1,
+      whipPan: false, whipPanStrength: 30,
+      spinTransition: false, spinDegrees: 90,
+      colorFlash: false, colorFlashTint: '#FF6B00',
+      glitchTear: false, glitchTearPixels: 20,
+      filmGrain: false, filmGrainAmount: 12,
+      letterbox: false, letterboxSize: 50,
+      vignettePulse: false,
+      negativeFlash: false,
+      ...beatEffects
+    };
+
+    // Ensure custom font is downloaded and available locally
+    if (subtitleStyle.fontName) {
+      try {
+        await ensureFontExists(subtitleStyle.fontName);
+      } catch (fontErr) {
+        console.warn(`Could not verify/download font ${subtitleStyle.fontName}:`, fontErr.message);
+      }
+    }
+    if (subtitleStyle.brandingTheme === 'fitness-in-chunks') {
+      try {
+        await ensureFontExists('Montserrat');
+      } catch (fontErr) {
+        console.warn(`Could not verify/download Montserrat font for branding theme:`, fontErr.message);
+      }
+    }
+    if (subtitleStyle.headingTitle && subtitleStyle.headingTitle.trim().length > 0) {
+      const headingFont = subtitleStyle.headingFontName || 'Montserrat';
+      try {
+        await ensureFontExists(headingFont);
+      } catch (fontErr) {
+        console.warn(`Could not verify/download heading font ${headingFont}:`, fontErr.message);
+      }
+    }
+
+    // Deep copy/clone scenes to avoid mutating original objects in the database
+    const adjustedScenes = scenes.map(s => ({
+      ...s,
+      words: s.words ? s.words.map(w => ({ ...w })) : []
+    }));
+
+    // Resolve voiceover duration to adjust timings
+    let voiceoverDuration = 0;
+    try {
+      voiceoverDuration = await getVideoDuration(localVoiceoverPath);
+      console.log(`Voiceover audio duration: ${voiceoverDuration}s`);
+    } catch (err) {
+      console.warn('Failed to calculate voiceover duration:', err.message);
+    }
+
+    // Dynamically scale scene timings if their total duration exceeds the actual voiceover duration
+    if (adjustedScenes.length > 0 && voiceoverDuration > 0) {
+      const maxSceneEndTime = Math.max(...adjustedScenes.map(s => s.end_time || s.start_time));
+      if (maxSceneEndTime > voiceoverDuration + 0.05) {
+        const scaleFactor = voiceoverDuration / maxSceneEndTime;
+        console.log(`[Video Generator] Scenes end time (${maxSceneEndTime.toFixed(3)}s) exceeds voiceover duration (${voiceoverDuration.toFixed(3)}s). Scaling scenes by ${scaleFactor.toFixed(4)} to fit perfectly.`);
+        for (const scene of adjustedScenes) {
+          scene.start_time = Number((scene.start_time * scaleFactor).toFixed(3));
+          scene.end_time = Number((scene.end_time * scaleFactor).toFixed(3));
+          if (scene.words && Array.isArray(scene.words)) {
+            for (const w of scene.words) {
+              w.start_time = Number((w.start_time * scaleFactor).toFixed(3));
+              w.end_time = Number((w.end_time * scaleFactor).toFixed(3));
+            }
           }
         }
       }
     }
-  }
 
-  // Adjust scene timings to completely cover intermediate gaps/silences.
-  // This eliminates accumulated timing drift between video and audio tracks!
-  if (adjustedScenes.length > 0) {
-    adjustedScenes[0].start_time = 0.0; // Extend first scene to start of video
+    // Adjust scene timings to completely cover intermediate gaps/silences.
+    // This eliminates accumulated timing drift between video and audio tracks!
+    if (adjustedScenes.length > 0) {
+      adjustedScenes[0].start_time = 0.0; // Extend first scene to start of video
 
-    // Filter out scenes that start beyond the actual audio track duration
-    if (voiceoverDuration > 0) {
-      // Keep scenes starting before voiceover ends (with a safety buffer)
-      const validScenes = adjustedScenes.filter((s, idx) => idx === 0 || s.start_time < voiceoverDuration + 0.1);
-      
-      // Update the adjustedScenes array in-place
-      adjustedScenes.length = 0;
-      adjustedScenes.push(...validScenes);
+      // Filter out scenes that start beyond the actual audio track duration
+      if (voiceoverDuration > 0) {
+        // Keep scenes starting before voiceover ends (with a safety buffer)
+        const validScenes = adjustedScenes.filter((s, idx) => idx === 0 || s.start_time < voiceoverDuration + 0.1);
+        
+        // Update the adjustedScenes array in-place
+        adjustedScenes.length = 0;
+        adjustedScenes.push(...validScenes);
+      }
+
+      for (let i = 0; i < adjustedScenes.length; i++) {
+        if (i < adjustedScenes.length - 1) {
+          // Enforce a minimum scene duration of 0.1s.
+          // If the next scene starts too early, push its start time out.
+          if (adjustedScenes[i + 1].start_time < adjustedScenes[i].start_time + 0.1) {
+            adjustedScenes[i + 1].start_time = adjustedScenes[i].start_time + 0.1;
+          }
+          adjustedScenes[i].end_time = adjustedScenes[i + 1].start_time;
+        } else if (voiceoverDuration > 0) {
+          // For the last scene, make sure it ends at voiceoverDuration but is at least 0.1s long
+          adjustedScenes[i].end_time = Math.max(adjustedScenes[i].start_time + 0.1, voiceoverDuration);
+        } else {
+          // Fallback if voiceoverDuration isn't available
+          if (adjustedScenes[i].end_time < adjustedScenes[i].start_time + 0.1) {
+            adjustedScenes[i].end_time = adjustedScenes[i].start_time + 0.1;
+          }
+        }
+      }
+
+      // Adjust word timings in-place to fit strictly within their respective adjusted scenes
+      for (const scene of adjustedScenes) {
+        const duration = scene.end_time - scene.start_time;
+        if (scene.words && scene.words.length > 0) {
+          const adjustedLocal = getLocalWordTimings(scene.words, scene.start_time, duration);
+          for (let j = 0; j < scene.words.length; j++) {
+            scene.words[j].start_time = Number((scene.start_time + adjustedLocal[j].start).toFixed(3));
+            scene.words[j].end_time = Number((scene.start_time + adjustedLocal[j].end).toFixed(3));
+          }
+        }
+        if (scene.words_hindi && scene.words_hindi.length > 0) {
+          const adjustedLocalHindi = getLocalWordTimings(scene.words_hindi, scene.start_time, duration);
+          for (let j = 0; j < scene.words_hindi.length; j++) {
+            scene.words_hindi[j].start_time = Number((scene.start_time + adjustedLocalHindi[j].start).toFixed(3));
+            scene.words_hindi[j].end_time = Number((scene.start_time + adjustedLocalHindi[j].end).toFixed(3));
+          }
+        }
+        if (scene.words_hinglish && scene.words_hinglish.length > 0) {
+          const adjustedLocalHinglish = getLocalWordTimings(scene.words_hinglish, scene.start_time, duration);
+          for (let j = 0; j < scene.words_hinglish.length; j++) {
+            scene.words_hinglish[j].start_time = Number((scene.start_time + adjustedLocalHinglish[j].start).toFixed(3));
+            scene.words_hinglish[j].end_time = Number((scene.start_time + adjustedLocalHinglish[j].end).toFixed(3));
+          }
+        }
+      }
     }
 
-    for (let i = 0; i < adjustedScenes.length; i++) {
-      if (i < adjustedScenes.length - 1) {
-        // Enforce a minimum scene duration of 0.1s.
-        // If the next scene starts too early, push its start time out.
-        if (adjustedScenes[i + 1].start_time < adjustedScenes[i].start_time + 0.1) {
-          adjustedScenes[i + 1].start_time = adjustedScenes[i].start_time + 0.1;
-        }
-        adjustedScenes[i].end_time = adjustedScenes[i + 1].start_time;
-      } else if (voiceoverDuration > 0) {
-        // For the last scene, make sure it ends at voiceoverDuration but is at least 0.1s long
-        adjustedScenes[i].end_time = Math.max(adjustedScenes[i].start_time + 0.1, voiceoverDuration);
+    // Resolve resolutions
+    const resLabel = (exportResolution || '1080p').toLowerCase();
+    let targetWidth = 1080;
+    let targetHeight = 1920;
+
+    if (aspectRatio === '16:9') {
+      if (resLabel === '2k') {
+        targetWidth = 2560;
+        targetHeight = 1440;
+      } else if (resLabel === '4k') {
+        targetWidth = 3840;
+        targetHeight = 2160;
       } else {
-        // Fallback if voiceoverDuration isn't available
-        if (adjustedScenes[i].end_time < adjustedScenes[i].start_time + 0.1) {
-          adjustedScenes[i].end_time = adjustedScenes[i].start_time + 0.1;
-        }
+        targetWidth = 1920;
+        targetHeight = 1080;
+      }
+    } else if (aspectRatio === '1:1') {
+      if (resLabel === '2k') {
+        targetWidth = 1440;
+        targetHeight = 1440;
+      } else if (resLabel === '4k') {
+        targetWidth = 2160;
+        targetHeight = 2160;
+      } else {
+        targetWidth = 1080;
+        targetHeight = 1080;
+      }
+    } else {
+      if (resLabel === '2k') {
+        targetWidth = 1440;
+        targetHeight = 2560;
+      } else if (resLabel === '4k') {
+        targetWidth = 2160;
+        targetHeight = 3840;
+      } else {
+        targetWidth = 1080;
+        targetHeight = 1920;
       }
     }
 
-    // Adjust word timings in-place to fit strictly within their respective adjusted scenes
-    for (const scene of adjustedScenes) {
-      const duration = scene.end_time - scene.start_time;
-      if (scene.words && scene.words.length > 0) {
-        const adjustedLocal = getLocalWordTimings(scene.words, scene.start_time, duration);
-        for (let j = 0; j < scene.words.length; j++) {
-          scene.words[j].start_time = Number((scene.start_time + adjustedLocal[j].start).toFixed(3));
-          scene.words[j].end_time = Number((scene.start_time + adjustedLocal[j].end).toFixed(3));
-        }
-      }
-      if (scene.words_hindi && scene.words_hindi.length > 0) {
-        const adjustedLocalHindi = getLocalWordTimings(scene.words_hindi, scene.start_time, duration);
-        for (let j = 0; j < scene.words_hindi.length; j++) {
-          scene.words_hindi[j].start_time = Number((scene.start_time + adjustedLocalHindi[j].start).toFixed(3));
-          scene.words_hindi[j].end_time = Number((scene.start_time + adjustedLocalHindi[j].end).toFixed(3));
-        }
-      }
-      if (scene.words_hinglish && scene.words_hinglish.length > 0) {
-        const adjustedLocalHinglish = getLocalWordTimings(scene.words_hinglish, scene.start_time, duration);
-        for (let j = 0; j < scene.words_hinglish.length; j++) {
-          scene.words_hinglish[j].start_time = Number((scene.start_time + adjustedLocalHinglish[j].start).toFixed(3));
-          scene.words_hinglish[j].end_time = Number((scene.start_time + adjustedLocalHinglish[j].end).toFixed(3));
-        }
+    const processedSceneClips = [];
+
+    // Resolve talking head dimensions once
+    let talkingHeadWidth = 1080;
+    let talkingHeadHeight = 1920;
+    const hasTalkingHeadGlobal = talkingHeadEnabled && localOriginalVideoPath && existsSync(localOriginalVideoPath);
+    if (hasTalkingHeadGlobal) {
+      try {
+        const dims = await getVideoDimensions(localOriginalVideoPath);
+        talkingHeadWidth = dims.width;
+        talkingHeadHeight = dims.height;
+        console.log(`Original talking head dimensions: ${talkingHeadWidth}x${talkingHeadHeight}`);
+      } catch (err) {
+        console.warn('Failed to get talking head video dimensions:', err.message);
       }
     }
-  }
-  
-  // Create unique folders for this rendering job
-  const jobId = path.basename(voiceoverPath, path.extname(voiceoverPath));
-  const tempDir = path.join(outputDir, 'temp', jobId);
-  await fs.mkdir(tempDir, { recursive: true });
 
-  // Resolve resolutions
-  const resLabel = (exportResolution || '1080p').toLowerCase();
-  let targetWidth = 1080;
-  let targetHeight = 1920;
-
-  if (aspectRatio === '16:9') {
-    if (resLabel === '2k') {
-      targetWidth = 2560;
-      targetHeight = 1440;
-    } else if (resLabel === '4k') {
-      targetWidth = 3840;
-      targetHeight = 2160;
-    } else { // 1080p
-      targetWidth = 1920;
-      targetHeight = 1080;
-    }
-  } else if (aspectRatio === '1:1') {
-    if (resLabel === '2k') {
-      targetWidth = 1440;
-      targetHeight = 1440;
-    } else if (resLabel === '4k') {
-      targetWidth = 2160;
-      targetHeight = 2160;
-    } else { // 1080p
-      targetWidth = 1080;
-      targetHeight = 1080;
-    }
-  } else { // 9:16
-    if (resLabel === '2k') {
-      targetWidth = 1440;
-      targetHeight = 2560;
-    } else if (resLabel === '4k') {
-      targetWidth = 2160;
-      targetHeight = 3840;
-    } else { // 1080p
-      targetWidth = 1080;
-      targetHeight = 1920;
-    }
-  }
-
-  const clipsMap = new Map(clips.map(c => [c.id, c]));
-  const processedSceneClips = [];
-
-  // Step 1: Format and burn subtitles on each clip separately
-  for (let i = 0; i < adjustedScenes.length; i++) {
-    const scene = adjustedScenes[i];
-    const clip = clipsMap.get(scene.clipId);
-    
-    if (!clip) {
-      throw new Error(`Clip ID ${scene.clipId} used in scene ${i} not found in clip library`);
-    }
+    // Step 1: Format and burn subtitles on each clip separately
+    for (let i = 0; i < adjustedScenes.length; i++) {
+      const scene = adjustedScenes[i];
+      
+      // Check if the scene has B-roll assigned
+      const hasBroll = scene.clipId && scene.clipId !== 'original';
+      
+      let clipPath = null;
+      let clipStartOffset = 0;
+      let clipDuration = 0;
+      
+      if (hasBroll) {
+        const clip = clipsMap.get(scene.clipId);
+        if (!clip) {
+          throw new Error(`Clip ID ${scene.clipId} used in scene ${i} not found in clip library`);
+        }
+        clipPath = gcsService.isGcsEnabled() ? localClipsPaths.get(scene.clipId) : clip.path;
+        clipStartOffset = scene.clipStart || 0;
+        clipDuration = clip.duration;
+      } else if (!talkingHeadEnabled) {
+        // Fallback to backward compatibility: if talking head is disabled, show original video full screen
+        if (localOriginalVideoPath) {
+          clipPath = localOriginalVideoPath;
+          clipStartOffset = scene.start_time;
+          clipDuration = voiceoverDuration || 999999;
+        }
+      }
 
     const sceneDuration = scene.end_time - scene.start_time;
     const tempSceneClipPath = path.join(tempDir, `scene_${i}.mp4`);
@@ -1851,45 +2037,48 @@ export async function assembleVideo(options, onProgress) {
 
     const sourceDuration = isSpeedRamped ? s3 : effectiveSceneDuration;
 
-    // 2. Filter: Trim video to sourceDuration, reset PTS, pad if ends early, scale & crop/fit, then burn subtitles
-    let videoFilter = `setpts=PTS-STARTPTS,trim=duration=${sourceDuration}`;
-    const remainingClipDur = clip.duration - (scene.clipStart || 0);
-    const missingDur = sourceDuration - remainingClipDur;
-    if (missingDur > 0) {
-      const padFrames = Math.ceil(missingDur * targetFps);
-      videoFilter += `,tpad=stop_mode=clone:stop=${padFrames}`;
-    }
-
-    // Append speed ramping setpts filter if enabled
-    if (isSpeedRamped) {
-      const setptsExpr = `(if(lt(T, ${s1}), (-${v0} + sqrt(max(0, ${v0}*${v0} + 8*${a1}*T))) / (4*${a1}), if(lt(T, ${s2}), 0.25*${effectiveSceneDuration} + (T - ${s1}) / ${v1}, 0.75*${effectiveSceneDuration} + (-${v1} + sqrt(max(0, ${v1}*${v1} + 8*${a2}*(T - ${s2})))) / (4*${a2}))))/TB`;
-      videoFilter += `,setpts='${setptsExpr}'`;
-
-      // Apply fast frame blending if the speed drops below 1.0x (slow motion) to avoid buggy and slow optical flow motion estimation
-      const hasSlowMotion = v0 < 1.0 || v1 < 1.0 || v2 < 1.0;
-      if (hasSlowMotion) {
-        videoFilter += `,minterpolate=fps=${targetFps}:mi_mode=blend`;
+    // Build B-roll filter string (trim, tpad, speedRamp, scaling, cropping, zoom, ping-pong)
+    let brollFilterString = '';
+    if (clipPath) {
+      let brollFilter = `setpts=PTS-STARTPTS,trim=duration=${sourceDuration}`;
+      const remainingClipDur = clipDuration - clipStartOffset;
+      const missingDur = sourceDuration - remainingClipDur;
+      if (missingDur > 0) {
+        const padFrames = Math.ceil(missingDur * targetFps);
+        brollFilter += `,tpad=stop_mode=clone:stop=${padFrames}`;
       }
-    }
 
-    if (fillMode === 'crop') {
-      // Crop to fill (using -2 instead of -1 to ensure proportional scale is always even-dimensioned, and centering crop coordinates to even boundaries)
-      const scaleAndCrop = `scale=w='if(gte(iw/ih,${targetWidth}/${targetHeight}),-2,${targetWidth})':h='if(gte(iw/ih,${targetWidth}/${targetHeight}),${targetHeight},-2)',crop=${targetWidth}:${targetHeight}:2*trunc((iw-ow)/4):2*trunc((ih-oh)/4)`;
-      videoFilter += `,${scaleAndCrop}`;
-    } else {
-      // Fit with letterbox (black bars)
-      const scaleAndPad = `scale=w=${targetWidth}:h=${targetHeight}:force_original_aspect_ratio=decrease,pad=${targetWidth}:${targetHeight}:(ow-iw)/2:(oh-ih)/2:color=black`;
-      videoFilter += `,${scaleAndPad}`;
-    }
+      // Append speed ramping setpts filter if enabled
+      if (isSpeedRamped) {
+        const setptsExpr = `(if(lt(T, ${s1}), (-${v0} + sqrt(max(0, ${v0}*${v0} + 8*${a1}*T))) / (4*${a1}), if(lt(T, ${s2}), 0.25*${effectiveSceneDuration} + (T - ${s1}) / ${v1}, 0.75*${effectiveSceneDuration} + (-${v1} + sqrt(max(0, ${v1}*${v1} + 8*${a2}*(T - ${s2})))) / (4*${a2}))))/TB`;
+        brollFilter += `,setpts='${setptsExpr}'`;
 
-    // Ping-pong (Beat Bounce) split-reverse-concat (fixing PTS on reversed segment using targetFps to ensure monotonic increasing timestamps)
-    if (scene.pingPong) {
-      videoFilter += `[std];[std]split=2[fwd][rev_in];[rev_in]reverse,setpts=N/(${targetFps}*TB)[rev];[fwd][rev]concat=n=2:v=1:a=0`;
-    }
+        // Apply fast frame blending if the speed drops below 1.0x (slow motion)
+        const hasSlowMotion = v0 < 1.0 || v1 < 1.0 || v2 < 1.0;
+        if (hasSlowMotion) {
+          brollFilter += `,minterpolate=fps=${targetFps}:mi_mode=blend`;
+        }
+      }
 
-    // Apply Ken Burns zoom animation if enabled (forcing even dimensions and centered even crop coordinates to prevent green borders)
-    if (zoomAnimation) {
-      videoFilter += `,scale=w='2*trunc(((1+0.06*t/${sceneDuration})*${targetWidth})/2)':h='2*trunc(((1+0.06*t/${sceneDuration})*${targetHeight})/2)':eval=frame,crop=${targetWidth}:${targetHeight}:2*trunc((iw-ow)/4):2*trunc((ih-oh)/4)`;
+      if (fillMode === 'crop') {
+        const scaleAndCrop = `scale=w='if(gte(iw/ih,${targetWidth}/${targetHeight}),-2,${targetWidth})':h='if(gte(iw/ih,${targetWidth}/${targetHeight}),${targetHeight},-2)',crop=${targetWidth}:${targetHeight}:2*trunc((iw-ow)/4):2*trunc((ih-oh)/4)`;
+        brollFilter += `,${scaleAndCrop}`;
+      } else {
+        const scaleAndPad = `scale=w=${targetWidth}:h=${targetHeight}:force_original_aspect_ratio=decrease,pad=${targetWidth}:${targetHeight}:(ow-iw)/2:(oh-ih)/2:color=black`;
+        brollFilter += `,${scaleAndPad}`;
+      }
+
+      // Ping-pong (Beat Bounce)
+      if (scene.pingPong) {
+        brollFilter += `[std];[std]split=2[fwd][rev_in];[rev_in]reverse,setpts=N/(${targetFps}*TB)[rev];[fwd][rev]concat=n=2:v=1:a=0`;
+      }
+
+      // Apply Ken Burns zoom animation
+      if (zoomAnimation) {
+        brollFilter += `,scale=w='2*trunc(((1+0.06*t/${sceneDuration})*${targetWidth})/2)':h='2*trunc(((1+0.06*t/${sceneDuration})*${targetHeight})/2)':eval=frame,crop=${targetWidth}:${targetHeight}:2*trunc((iw-ow)/4):2*trunc((ih-oh)/4)`;
+      }
+      
+      brollFilterString = brollFilter;
     }
 
     // Resolve active transitions for this scene (governed by boundary definitions)
@@ -1919,25 +2108,27 @@ export async function assembleVideo(options, onProgress) {
     const incomingTransition = (i > 0) ? getTransition(adjustedScenes[i - 1].transition || clipTransition, i - 1) : 'none';
     const outgoingTransition = (i < adjustedScenes.length - 1) ? getTransition(adjustedScenes[i].transition || clipTransition, i) : 'none';
 
-    const td = Number(transitionDuration) || 0.3; // resolved transition duration
+    const tdTrans = Number(transitionDuration) || 0.3; // Transition duration
+
+    let sceneEffectsFilter = '';
 
     // 1. Fade Transitions
-    const incomingFadeDur = (incomingTransition === 'fade' || incomingTransition.endsWith('-fade')) ? Math.min(td, sceneDuration / 2) : 0;
-    const outgoingFadeDur = (outgoingTransition === 'fade' || outgoingTransition.endsWith('-fade')) ? Math.min(td, sceneDuration / 2) : 0;
+    const incomingFadeDur = (incomingTransition === 'fade' || incomingTransition.endsWith('-fade')) ? Math.min(tdTrans, sceneDuration / 2) : 0;
+    const outgoingFadeDur = (outgoingTransition === 'fade' || outgoingTransition.endsWith('-fade')) ? Math.min(tdTrans, sceneDuration / 2) : 0;
 
     if (incomingFadeDur > 0) {
-      videoFilter += `,fade=t=in:st=0:d=${incomingFadeDur.toFixed(3)}`;
+      sceneEffectsFilter += `,fade=t=in:st=0:d=${incomingFadeDur.toFixed(3)}`;
     }
     if (outgoingFadeDur > 0) {
-      videoFilter += `,fade=t=out:st=${(sceneDuration - outgoingFadeDur).toFixed(3)}:d=${outgoingFadeDur.toFixed(3)}`;
+      sceneEffectsFilter += `,fade=t=out:st=${(sceneDuration - outgoingFadeDur).toFixed(3)}:d=${outgoingFadeDur.toFixed(3)}`;
     }
 
     // 2. Motion Transitions (Slide/Pan)
     const incomingIsSlidePan = incomingTransition.includes('slide') || incomingTransition.includes('pan');
     const outgoingIsSlidePan = outgoingTransition.includes('slide') || outgoingTransition.includes('pan');
 
-    if ((incomingIsSlidePan || outgoingIsSlidePan) && sceneDuration > td * 2) {
-      const isPan = incomingTransition.includes('pan') || outgoingTransition.includes('pan'); // apply pan dampening if either is pan
+    if ((incomingIsSlidePan || outgoingIsSlidePan) && sceneDuration > tdTrans * 2) {
+      const isPan = incomingTransition.includes('pan') || outgoingTransition.includes('pan');
       const amp = isPan ? 0.2 : 1.0;
       let xExpr = String(targetWidth);
       let yExpr = String(targetHeight);
@@ -1946,9 +2137,9 @@ export async function assembleVideo(options, onProgress) {
       if (incomingIsSlidePan) {
         const inAmp = incomingTransition.includes('pan') ? 0.2 : 1.0;
         if (incomingTransition.includes('left')) {
-          xIn = `-${inAmp} * pow(1 - (t/${td}), 3)`;
+          xIn = `-${inAmp} * pow(1 - (t/${tdTrans}), 3)`;
         } else if (incomingTransition.includes('right')) {
-          xIn = `${inAmp} * pow(1 - (t/${td}), 3)`;
+          xIn = `${inAmp} * pow(1 - (t/${tdTrans}), 3)`;
         }
       }
 
@@ -1956,9 +2147,9 @@ export async function assembleVideo(options, onProgress) {
       if (outgoingIsSlidePan) {
         const outAmp = outgoingTransition.includes('pan') ? 0.2 : 1.0;
         if (outgoingTransition.includes('left')) {
-          xOut = `${outAmp} * pow((t - (${sceneDuration} - ${td}))/${td}, 3)`;
+          xOut = `${outAmp} * pow((t - (${sceneDuration} - ${tdTrans}))/${tdTrans}, 3)`;
         } else if (outgoingTransition.includes('right')) {
-          xOut = `-${outAmp} * pow((t - (${sceneDuration} - ${td}))/${td}, 3)`;
+          xOut = `-${outAmp} * pow((t - (${sceneDuration} - ${tdTrans}))/${tdTrans}, 3)`;
         }
       }
 
@@ -1966,9 +2157,9 @@ export async function assembleVideo(options, onProgress) {
       if (incomingIsSlidePan) {
         const inAmp = incomingTransition.includes('pan') ? 0.2 : 1.0;
         if (incomingTransition.includes('up')) {
-          yIn = `-${inAmp} * pow(1 - (t/${td}), 3)`;
+          yIn = `-${inAmp} * pow(1 - (t/${tdTrans}), 3)`;
         } else if (incomingTransition.includes('down')) {
-          yIn = `${inAmp} * pow(1 - (t/${td}), 3)`;
+          yIn = `${inAmp} * pow(1 - (t/${tdTrans}), 3)`;
         }
       }
 
@@ -1976,64 +2167,64 @@ export async function assembleVideo(options, onProgress) {
       if (outgoingIsSlidePan) {
         const outAmp = outgoingTransition.includes('pan') ? 0.2 : 1.0;
         if (outgoingTransition.includes('up')) {
-          yOut = `${outAmp} * pow((t - (${sceneDuration} - ${td}))/${td}, 3)`;
+          yOut = `${outAmp} * pow((t - (${sceneDuration} - ${tdTrans}))/${tdTrans}, 3)`;
         } else if (outgoingTransition.includes('down')) {
-          yOut = `-${outAmp} * pow((t - (${sceneDuration} - ${td}))/${td}, 3)`;
+          yOut = `-${outAmp} * pow((t - (${sceneDuration} - ${tdTrans}))/${tdTrans}, 3)`;
         }
       }
 
-      xExpr = `${targetWidth} * (1 + if(lt(t, ${td}), ${xIn}, if(gt(t, ${sceneDuration} - ${td}), ${xOut}, 0)))`;
-      yExpr = `${targetHeight} * (1 + if(lt(t, ${td}), ${yIn}, if(gt(t, ${sceneDuration} - ${td}), ${yOut}, 0)))`;
+      xExpr = `${targetWidth} * (1 + if(lt(t, ${tdTrans}), ${xIn}, if(gt(t, ${sceneDuration} - ${tdTrans}), ${xOut}, 0)))`;
+      yExpr = `${targetHeight} * (1 + if(lt(t, ${tdTrans}), ${yIn}, if(gt(t, ${sceneDuration} - ${tdTrans}), ${yOut}, 0)))`;
 
-      videoFilter += `,pad=w=3*${targetWidth}:h=3*${targetHeight}:x=${targetWidth}:y=${targetHeight}:color=black`;
-      videoFilter += `,crop=w=${targetWidth}:h=${targetHeight}:x='${xExpr}':y='${yExpr}'`;
+      sceneEffectsFilter += `,pad=w=3*${targetWidth}:h=3*${targetHeight}:x=${targetWidth}:y=${targetHeight}:color=black`;
+      sceneEffectsFilter += `,crop=w=${targetWidth}:h=${targetHeight}:x='${xExpr}':y='${yExpr}'`;
     }
 
     // 3. Zoom Transitions
     const incomingIsZoom = incomingTransition.includes('zoom');
     const outgoingIsZoom = outgoingTransition.includes('zoom');
 
-    if ((incomingIsZoom || outgoingIsZoom) && sceneDuration > td * 2) {
+    if ((incomingIsZoom || outgoingIsZoom) && sceneDuration > tdTrans * 2) {
       let sIn = '1.0';
       if (incomingIsZoom) {
         const inFactor = incomingTransition.includes('zoom-in') ? 0.3 : -0.3;
-        sIn = `1.0 + ${inFactor} * pow(1 - (t/${td}), 3)`;
+        sIn = `1.0 + ${inFactor} * pow(1 - (t/${tdTrans}), 3)`;
       }
 
       let sOut = '1.0';
       if (outgoingIsZoom) {
         const outFactor = outgoingTransition.includes('zoom-in') ? 0.3 : -0.3;
-        sOut = `1.0 + ${outFactor} * pow((t - (${sceneDuration} - ${td}))/${td}, 3)`;
+        sOut = `1.0 + ${outFactor} * pow((t - (${sceneDuration} - ${tdTrans}))/${tdTrans}, 3)`;
       }
 
-      const sExpr = `if(lt(t, ${td}), ${sIn}, if(gt(t, ${sceneDuration} - ${td}), ${sOut}, 1.0))`;
+      const sExpr = `if(lt(t, ${tdTrans}), ${sIn}, if(gt(t, ${sceneDuration} - ${tdTrans}), ${sOut}, 1.0))`;
 
-      videoFilter += `,scale=w='2*trunc(((${sExpr})*${targetWidth})/2)':h='2*trunc(((${sExpr})*${targetHeight})/2)':eval=frame`;
-      videoFilter += `,pad=w=3*${targetWidth}:h=3*${targetHeight}:x='2*trunc((3*${targetWidth}-iw)/4)':y='2*trunc((3*${targetHeight}-ih)/4)':color=black:eval=frame`;
-      videoFilter += `,crop=w=${targetWidth}:h=${targetHeight}:x=${targetWidth}:y=${targetHeight}`;
+      sceneEffectsFilter += `,scale=w='2*trunc(((${sExpr})*${targetWidth})/2)':h='2*trunc(((${sExpr})*${targetHeight})/2)':eval=frame`;
+      sceneEffectsFilter += `,pad=w=3*${targetWidth}:h=3*${targetHeight}:x='2*trunc((3*${targetWidth}-iw)/4)':y='2*trunc((3*${targetHeight}-ih)/4)':color=black:eval=frame`;
+      sceneEffectsFilter += `,crop=w=${targetWidth}:h=${targetHeight}:x=${targetWidth}:y=${targetHeight}`;
     }
 
     // 4. Blur Transitions
     const incomingIsBlur = incomingTransition.includes('blur');
     const outgoingIsBlur = outgoingTransition.includes('blur');
 
-    if (incomingIsBlur && sceneDuration > td * 2) {
-      const bs1 = (td / 3).toFixed(3);
-      const bs2 = (2 * td / 3).toFixed(3);
-      const bs3 = td.toFixed(3);
-      videoFilter += `,boxblur=lr=16:lp=1:enable='lt(t,${bs1})'`;
-      videoFilter += `,boxblur=lr=8:lp=1:enable='between(t,${bs1},${bs2})'`;
-      videoFilter += `,boxblur=lr=3:lp=1:enable='between(t,${bs2},${bs3})'`;
+    if (incomingIsBlur && sceneDuration > tdTrans * 2) {
+      const bs1 = (tdTrans / 3).toFixed(3);
+      const bs2 = (2 * tdTrans / 3).toFixed(3);
+      const bs3 = tdTrans.toFixed(3);
+      sceneEffectsFilter += `,boxblur=lr=16:lp=1:enable='lt(t,${bs1})'`;
+      sceneEffectsFilter += `,boxblur=lr=8:lp=1:enable='between(t,${bs1},${bs2})'`;
+      sceneEffectsFilter += `,boxblur=lr=3:lp=1:enable='between(t,${bs2},${bs3})'`;
     }
-    if (outgoingIsBlur && sceneDuration > td * 2) {
-      const t1 = (sceneDuration - td).toFixed(3);
-      const t2 = (sceneDuration - 2 * td / 3).toFixed(3);
-      const t3 = (sceneDuration - td / 3).toFixed(3);
-      videoFilter += `,boxblur=lr=3:lp=1:enable='between(t,${t1},${t2})'`;
-      videoFilter += `,boxblur=lr=8:lp=1:enable='between(t,${t2},${t3})'`;
-      videoFilter += `,boxblur=lr=16:lp=1:enable='gt(t,${t3})'`;
+    if (outgoingIsBlur && sceneDuration > tdTrans * 2) {
+      const t1 = (sceneDuration - tdTrans).toFixed(3);
+      const t2 = (sceneDuration - 2 * tdTrans / 3).toFixed(3);
+      const t3 = (sceneDuration - tdTrans / 3).toFixed(3);
+      sceneEffectsFilter += `,boxblur=lr=3:lp=1:enable='between(t,${t1},${t2})'`;
+      sceneEffectsFilter += `,boxblur=lr=8:lp=1:enable='between(t,${t2},${t3})'`;
+      sceneEffectsFilter += `,boxblur=lr=16:lp=1:enable='gt(t,${t3})'`;
     }
- 
+
     // Apply mini-beat visual effects (strobe/blink or camera shake)
     const activeMiniBeats = [];
     if (miniBeats && Array.isArray(miniBeats) && miniBeatEffect && miniBeatEffect !== 'none') {
@@ -2043,128 +2234,118 @@ export async function assembleVideo(options, onProgress) {
         }
       });
     }
- 
+
     if (activeMiniBeats.length > 0) {
       if (miniBeatEffect === 'blink' || miniBeatEffect === 'both') {
         const blinkEnable = activeMiniBeats.map(tm => `between(t,${tm},${(tm + 0.06).toFixed(3)})`).join('+');
-        videoFilter += `,eq=brightness='0-0.45*(${blinkEnable})':eval=frame`;
+        sceneEffectsFilter += `,eq=brightness='0-0.45*(${blinkEnable})':eval=frame`;
       }
       if (miniBeatEffect === 'shake' || miniBeatEffect === 'both') {
         const shakeEnable = activeMiniBeats.map(tm => `between(t,${tm},${(tm + 0.12).toFixed(3)})`).join('+');
-        // Scale up slightly to cushion edges (forcing even dimensions)
-        videoFilter += `,scale=w='2*trunc((1.06*${targetWidth})/2)':h='2*trunc((1.06*${targetHeight})/2)'`;
-        // Shake crop centered (forcing even coordinates to prevent green lines/borders)
+        sceneEffectsFilter += `,scale=w='2*trunc((1.06*${targetWidth})/2)':h='2*trunc((1.06*${targetHeight})/2)'`;
         const xShake = `'2*trunc(((iw-ow)/2+15*sin(2*PI*t*25)*(${shakeEnable}))/2)'`;
         const yShake = `'2*trunc(((ih-oh)/2+15*cos(2*PI*t*30)*(${shakeEnable}))/2)'`;
-        videoFilter += `,crop=${targetWidth}:${targetHeight}:x=${xShake}:y=${yShake}`;
+        sceneEffectsFilter += `,crop=${targetWidth}:${targetHeight}:x=${xShake}:y=${yShake}`;
       }
     }
 
     // ======== VIRAL BEAT EFFECTS ========
     
-    // Speed Ramp — freeze first frame briefly for dramatic beat-hit pause
+    // Speed Ramp — freeze first frame briefly
     if (bfx.speedRamp && sceneDuration > 0.3) {
       const hold = Math.min(Number(bfx.speedRampHold) || 0.1, sceneDuration * 0.3);
       const holdPts = hold.toFixed(4);
       const comp = (sceneDuration / (sceneDuration - hold)).toFixed(4);
-      // Freeze: output PTS=0 while input T < hold, then resume with speed compensation
-      videoFilter += `,setpts='if(lt(T,${holdPts}),0,${holdPts}/TB+(PTS-STARTPTS-${holdPts}/TB)/${comp})'`;
+      sceneEffectsFilter += `,setpts='if(lt(T,${holdPts}),0,${holdPts}/TB+(PTS-STARTPTS-${holdPts}/TB)/${comp})'`;
     }
     
-    // Bass Bounce — scale pulse on beat entry with elastic decay
+    // Bass Bounce — scale pulse on beat entry
     if (bfx.bassBounce && sceneDuration > 0.2) {
       const bScale = Number(bfx.bassBounceScale) || 1.06;
       const bounceExpr = `if(lt(t,0.15),1.0+(${bScale}-1.0)*pow(1-t/0.15,2),1.0)`;
-      videoFilter += `,scale=w='trunc((${bounceExpr})*${targetWidth}/2)*2':h='trunc((${bounceExpr})*${targetHeight}/2)*2':eval=frame`;
-      videoFilter += `,crop=${targetWidth}:${targetHeight}:2*trunc((iw-${targetWidth})/4):2*trunc((ih-${targetHeight})/4)`;
+      sceneEffectsFilter += `,scale=w='trunc((${bounceExpr})*${targetWidth}/2)*2':h='trunc((${bounceExpr})*${targetHeight}/2)*2':eval=frame`;
+      sceneEffectsFilter += `,crop=${targetWidth}:${targetHeight}:2*trunc((iw-${targetWidth})/4):2*trunc((ih-${targetHeight})/4)`;
     }
     
-    // Spin Transition — quick rotation on beat entry
+    // Spin Transition — quick rotation
     if (bfx.spinTransition && sceneDuration > 0.3) {
       const deg = Number(bfx.spinDegrees) || 90;
       const rad = (deg * Math.PI / 180).toFixed(4);
-      // Rotate in from angle, ease-out cubic to 0
-      videoFilter += `,rotate=a='if(lt(t,0.25),${rad}*pow(1-t/0.25,3),0)':ow=${targetWidth}:oh=${targetHeight}:c=black`;
+      sceneEffectsFilter += `,rotate=a='if(lt(t,0.25),${rad}*pow(1-t/0.25,3),0)':ow=${targetWidth}:oh=${targetHeight}:c=black`;
     }
     
-    // White Flash — bright flash on beat entry
+    // White Flash
     if (bfx.whiteFlash && sceneDuration > 0.1) {
       const intensity = Number(bfx.whiteFlashIntensity) || 0.6;
-      videoFilter += `,eq=brightness='${intensity}*if(lt(t,0.08),pow(1-t/0.08,2),0)':eval=frame`;
+      sceneEffectsFilter += `,eq=brightness='${intensity}*if(lt(t,0.08),pow(1-t/0.08,2),0)':eval=frame`;
     }
     
-    // RGB Split / Chromatic Aberration on beat entry — stepped static values (rgbashift rh/bh are int-only)
+    // RGB Split / Chromatic Aberration
     if (bfx.rgbSplit && sceneDuration > 0.12) {
       const px = Math.round(Number(bfx.rgbSplitPixels) || 6);
-      // Decaying chromatic shift: full → 2/3 → 1/3 → none over 0.1s
-      videoFilter += `,rgbashift=rh=${-px}:bh=${px}:edge=smear:enable='lt(t,0.033)'`;
-      videoFilter += `,rgbashift=rh=${-Math.round(px*0.66)}:bh=${Math.round(px*0.66)}:edge=smear:enable='between(t,0.033,0.066)'`;
-      videoFilter += `,rgbashift=rh=${-Math.round(px*0.33)}:bh=${Math.round(px*0.33)}:edge=smear:enable='between(t,0.066,0.1)'`;
+      sceneEffectsFilter += `,rgbashift=rh=${-px}:bh=${px}:edge=smear:enable='lt(t,0.033)'`;
+      sceneEffectsFilter += `,rgbashift=rh=${-Math.round(px*0.66)}:bh=${Math.round(px*0.66)}:edge=smear:enable='between(t,0.033,0.066)'`;
+      sceneEffectsFilter += `,rgbashift=rh=${-Math.round(px*0.33)}:bh=${Math.round(px*0.33)}:edge=smear:enable='between(t,0.066,0.1)'`;
     }
     
-    // Color Flash / Tint Pulse on beat entry
+    // Color Flash / Tint Pulse
     if (bfx.colorFlash && sceneDuration > 0.12) {
-      // Parse hex to RGB ratios for colorbalance
       const hex = bfx.colorFlashTint || '#FF6B00';
       const r = parseInt(hex.slice(1,3), 16) / 255;
       const g = parseInt(hex.slice(3,5), 16) / 255;
       const b = parseInt(hex.slice(5,7), 16) / 255;
-      // Shift highlights toward the tint color, decaying over 0.12s
       const rShift = ((r - 0.5) * 0.8).toFixed(3);
       const gShift = ((g - 0.5) * 0.8).toFixed(3);
       const bShift = ((b - 0.5) * 0.8).toFixed(3);
-      videoFilter += `,colorbalance=rh=${rShift}:gh=${gShift}:bh=${bShift}:enable='lt(t,0.12)'`;
+      sceneEffectsFilter += `,colorbalance=rh=${rShift}:gh=${gShift}:bh=${bShift}:enable='lt(t,0.12)'`;
     }
     
-    // Negative / Invert Flash — brief color inversion on beat
+    // Negative / Invert Flash
     if (bfx.negativeFlash && sceneDuration > 0.08) {
-      videoFilter += `,negate=enable='lt(t,0.06)'`;
+      sceneEffectsFilter += `,negate=enable='lt(t,0.06)'`;
     }
     
-    // Whip Pan — extreme blur on entry and exit for whip-camera feel
+    // Whip Pan
     if (bfx.whipPan && sceneDuration > 0.2) {
       const str = Math.round(Number(bfx.whipPanStrength) || 30);
-      // Entry blur (decaying)
-      videoFilter += `,boxblur=lr=${str}:lp=1:enable='lt(t,0.08)'`;
-      videoFilter += `,boxblur=lr=${Math.round(str*0.5)}:lp=1:enable='between(t,0.08,0.14)'`;
-      // Exit blur (accelerating)
+      sceneEffectsFilter += `,boxblur=lr=${str}:lp=1:enable='lt(t,0.08)'`;
+      sceneEffectsFilter += `,boxblur=lr=${Math.round(str*0.5)}:lp=1:enable='between(t,0.08,0.14)'`;
       const e1 = (sceneDuration - 0.14).toFixed(3);
       const e2 = (sceneDuration - 0.08).toFixed(3);
-      videoFilter += `,boxblur=lr=${Math.round(str*0.5)}:lp=1:enable='between(t,${e1},${e2})'`;
-      videoFilter += `,boxblur=lr=${str}:lp=1:enable='gt(t,${e2})'`;
+      sceneEffectsFilter += `,boxblur=lr=${Math.round(str*0.5)}:lp=1:enable='between(t,${e1},${e2})'`;
+      sceneEffectsFilter += `,boxblur=lr=${str}:lp=1:enable='gt(t,${e2})'`;
     }
     
-    // Glitch Tear — horizontal displacement on beat entry (stepped)
+    // Glitch Tear
     if (bfx.glitchTear && sceneDuration > 0.1) {
-      const gpx = 2 * Math.round((Number(bfx.glitchTearPixels) || 20) / 2); // Make sure gpx is always even for chroma alignment
-      // Phase 1: shift left for 0.04s, Phase 2: shift right for 0.04s
-      videoFilter += `,pad=w=${targetWidth + gpx * 2}:h=${targetHeight}:x=${gpx}:y=0:color=black`;
-      videoFilter += `,crop=${targetWidth}:${targetHeight}:x='${gpx}-${gpx}*if(lt(t,0.04),1,0)+${gpx}*if(between(t,0.04,0.08),1,0)':y=0`;
+      const gpx = 2 * Math.round((Number(bfx.glitchTearPixels) || 20) / 2);
+      sceneEffectsFilter += `,pad=w=${targetWidth + gpx * 2}:h=${targetHeight}:x=${gpx}:y=0:color=black`;
+      sceneEffectsFilter += `,crop=${targetWidth}:${targetHeight}:x='${gpx}-${gpx}*if(lt(t,0.04),1,0)+${gpx}*if(between(t,0.04,0.08),1,0)':y=0`;
     }
     
-    // Film Grain — always-on subtle noise overlay
+    // Film Grain
     if (bfx.filmGrain) {
       const amt = Math.round(Number(bfx.filmGrainAmount) || 12);
-      videoFilter += `,noise=alls=${amt}:allf=t`;
+      sceneEffectsFilter += `,noise=alls=${amt}:allf=t`;
     }
     
-    // Vignette Pulse — dark corners that intensify on beat entry
+    // Vignette Pulse
     if (bfx.vignettePulse) {
       const vigExpr = sceneDuration > 0.2
         ? `PI/4+0.4*if(lt(t,0.15),pow(1-t/0.15,2),0)`
         : 'PI/4';
-      videoFilter += `,vignette=a='${vigExpr}':eval=frame`;
+      sceneEffectsFilter += `,vignette=a='${vigExpr}':eval=frame`;
     }
     
-    // Letterbox — cinematic bars (always-on)
+    // Letterbox
     if (bfx.letterbox) {
       const barH = Math.round(Number(bfx.letterboxSize) || 50);
-      videoFilter += `,drawbox=x=0:y=0:w=${targetWidth}:h=${barH}:color=black:t=fill`;
-      videoFilter += `,drawbox=x=0:y=${targetHeight - barH}:w=${targetWidth}:h=${barH}:color=black:t=fill`;
+      sceneEffectsFilter += `,drawbox=x=0:y=0:w=${targetWidth}:h=${barH}:color=black:t=fill`;
+      sceneEffectsFilter += `,drawbox=x=0:y=${targetHeight - barH}:w=${targetWidth}:h=${barH}:color=black:t=fill`;
     }
 
     // Add subtitles filter using absolute fontsdir path to ensure custom fonts are loaded correctly
-    videoFilter += `,subtitles=sub_${i}.ass:fontsdir='${fontsDir}'`;
+    sceneEffectsFilter += `,subtitles=sub_${i}.ass:fontsdir='${fontsDir}'`;
 
     // Render color emojis centered above the active spoken keywords using movie + overlay filters
     const emojisToDraw = [];
@@ -2191,7 +2372,7 @@ export async function assembleVideo(options, onProgress) {
         const w = scene.words[j];
         const rawEmoji = getWordEmoji(w.word);
         if (rawEmoji) {
-          const cleanEmoji = rawEmoji; // Use full emoji string (including gender/joiners) for high-res Apple Color Emoji mapping
+          const cleanEmoji = rawEmoji;
           if (cleanEmoji) {
             try {
               const emojiPngPath = await ensureEmojiPngExists(cleanEmoji);
@@ -2202,7 +2383,6 @@ export async function assembleVideo(options, onProgress) {
                 let activeWordIdxInChunk = -1;
 
                 if (mode === 'smart-highlight') {
-                  // Re-create the chunks inside assembleVideo to align exactly
                   const localWords = scene.words.map(item => ({
                     word: item.word,
                     start: Math.max(0, item.start_time - scene.start_time),
@@ -2212,8 +2392,8 @@ export async function assembleVideo(options, onProgress) {
                   const chunks = [];
                   let currentChunk = [];
                   let currentLen = 0;
-                  for (let i = 0; i < localWords.length; i++) {
-                    const item = localWords[i];
+                  for (let idx = 0; idx < localWords.length; idx++) {
+                    const item = localWords[idx];
                     if (currentChunk.length >= 3 || (currentChunk.length > 0 && currentLen + item.word.length > 20)) {
                       chunks.push(currentChunk);
                       currentChunk = [item];
@@ -2272,8 +2452,8 @@ export async function assembleVideo(options, onProgress) {
                     
                     const lineLeft = X_pos - totalChunkWidth / 2;
                     let wordLeft = lineLeft;
-                    for (let i = 0; i < activeWordIdxInChunk; i++) {
-                      wordLeft += wordWidths[i] + spaceWidth;
+                    for (let idx = 0; idx < activeWordIdxInChunk; idx++) {
+                      wordLeft += wordWidths[idx] + spaceWidth;
                     }
                     const wordCenter = wordLeft + wordWidths[activeWordIdxInChunk] / 2;
                     emojiX = Math.round(wordCenter);
@@ -2319,25 +2499,191 @@ export async function assembleVideo(options, onProgress) {
       }
     }
 
-    if (emojisToDraw.length > 0) {
-      videoFilter += '[vbase]';
-      let currentStream = 'vbase';
-      for (let j = 0; j < emojisToDraw.length; j++) {
-        const em = emojisToDraw[j];
-        const nextStream = `v_em${j}`;
-        videoFilter += `;movie='${em.path}',scale=${em.size}:-1[e${j}];[${currentStream}][e${j}]overlay=x='${em.x}-w/2':y='${em.y}-h':enable='between(t,${em.start},${em.end})'[${nextStream}]`;
-        currentStream = nextStream;
-      }
-      videoFilter += `;[${currentStream}]fps=fps=${targetFps}`;
-    } else {
-      videoFilter += `,fps=fps=${targetFps}`;
+    // Build the dynamic input files list for this scene
+    const inputs = [];
+    let brollInputIdx = -1;
+    let talkingHeadInputIdx = -1;
+    let bgInputIdx = -1;
+
+    // B-Roll Layer Input
+    if (clipPath) {
+      brollInputIdx = inputs.length;
+      inputs.push({
+        args: ['-ss', String(clipStartOffset), '-i', clipPath]
+      });
     }
 
-    const args = [
-      '-ss', String(scene.clipStart || 0),
-      '-i', clip.path,
+    // Talking Head Layer Input
+    const hasTalkingHead = talkingHeadEnabled && localOriginalVideoPath && existsSync(localOriginalVideoPath);
+    if (hasTalkingHead) {
+      talkingHeadInputIdx = inputs.length;
+      inputs.push({
+        args: ['-ss', String(scene.start_time), '-i', localOriginalVideoPath]
+      });
+    }
+
+    // Background Layer Input
+    const resolvedBackgroundPath = gcsService.isGcsEnabled() ? localBackgroundClipPath : (backgroundPath ? resolvePath(backgroundPath) : null);
+    if (backgroundType === 'image' && resolvedBackgroundPath && existsSync(resolvedBackgroundPath)) {
+      bgInputIdx = inputs.length;
+      inputs.push({
+        args: ['-loop', '1', '-t', String(sceneDuration), '-i', resolvedBackgroundPath]
+      });
+    } else if (backgroundType === 'video' && resolvedBackgroundPath && existsSync(resolvedBackgroundPath)) {
+      bgInputIdx = inputs.length;
+      const bgStartOffset = scene.start_time % backgroundDuration;
+      inputs.push({
+        args: ['-ss', String(bgStartOffset), '-i', resolvedBackgroundPath]
+      });
+    }
+
+    // Build filter complex
+    let filterComplex = '';
+
+    // 1. Render Background
+    if (bgInputIdx !== -1) {
+      filterComplex += `[${bgInputIdx}:v]scale=w='if(gte(iw/ih,${targetWidth}/${targetHeight}),-2,${targetWidth})':h='if(gte(iw/ih,${targetWidth}/${targetHeight}),${targetHeight},-2)',crop=${targetWidth}:${targetHeight}:2*trunc((iw-ow)/4):2*trunc((ih-oh)/4)[bg_scaled_${i}]`;
+    } else {
+      const bgHexColor = backgroundColor.replace('#', '0x');
+      filterComplex += `color=c=${bgHexColor}:s=${targetWidth}x${targetHeight}:d=${sceneDuration}[bg_scaled_${i}]`;
+    }
+
+    // 2. Render B-roll layer and overlay on background
+    if (brollInputIdx !== -1) {
+      filterComplex += `;[${brollInputIdx}:v]${brollFilterString}[broll_processed_${i}]`;
+      filterComplex += `;[bg_scaled_${i}][broll_processed_${i}]overlay=0:0[composed_v_${i}]`;
+    } else {
+      filterComplex += `;[bg_scaled_${i}]split=1[composed_v_${i}]`;
+    }
+
+    // 3. Render scene transitions/effects and burn subtitles
+    const cleanEffects = sceneEffectsFilter.startsWith(',') ? sceneEffectsFilter.substring(1) : 'null';
+    filterComplex += `;[composed_v_${i}]${cleanEffects}[base_v_effects_${i}]`;
+
+    // 4. Render color emojis
+    let emojiStream = `base_v_effects_${i}`;
+    if (emojisToDraw.length > 0) {
+      for (let j = 0; j < emojisToDraw.length; j++) {
+        const em = emojisToDraw[j];
+        const nextStream = `v_em_${i}_${j}`;
+        filterComplex += `;movie='${em.path}',scale=${em.size}:-1[e_${i}_${j}];[${emojiStream}][e_${i}_${j}]overlay=x='${em.x}-w/2':y='${em.y}-h':enable='between(t,${em.start},${em.end})'[${nextStream}]`;
+        emojiStream = nextStream;
+      }
+    }
+
+    // 5. Render talking head on top of everything
+    let finalComposedLabel = emojiStream;
+    if (hasTalkingHead) {
+      const chromaColor = talkingHeadChromaColor.replace('#', '0x');
+      const outlineHex = talkingHeadOutlineColor || '#ffffff';
+      const rVal = parseInt(outlineHex.slice(1, 3), 16);
+      const gVal = parseInt(outlineHex.slice(3, 5), 16);
+      const bVal = parseInt(outlineHex.slice(5, 7), 16);
+      
+      const td = 0.4;
+      const sd = sceneDuration;
+      const hasPrevBroll = (i > 0) && (adjustedScenes[i - 1].clipId !== 'original' && !!adjustedScenes[i - 1].clipId);
+      const hasNextBroll = (i < adjustedScenes.length - 1) && (adjustedScenes[i + 1].clipId !== 'original' && !!adjustedScenes[i + 1].clipId);
+      const isOverlayFullFrame = !hasBroll;
+
+      let sizeExpr = '';
+      let fExpr = '';
+      if (isOverlayFullFrame && talkingHeadSize < 100) {
+        if (hasPrevBroll && hasNextBroll) {
+          fExpr = `if(lt(t, ${td}), (t/${td})*(t/${td})*(3 - 2*(t/${td})), if(gt(t, ${sd} - ${td}), ((${sd}-t)/${td})*((${sd}-t)/${td})*(3 - 2*((${sd}-t)/${td})), 1))`;
+        } else if (hasPrevBroll) {
+          fExpr = `if(lt(t, ${td}), (t/${td})*(t/${td})*(3 - 2*(t/${td})), 1)`;
+        } else if (hasNextBroll) {
+          fExpr = `if(gt(t, ${sd} - ${td}), ((${sd}-t)/${td})*((${sd}-t)/${td})*(3 - 2*((${sd}-t)/${td})), 1)`;
+        } else {
+          fExpr = '1';
+        }
+        sizeExpr = `(${talkingHeadSize} + (100 - ${talkingHeadSize}) * ${fExpr})`;
+      } else if (isOverlayFullFrame) {
+        sizeExpr = '100';
+        fExpr = '1';
+      } else {
+        sizeExpr = String(talkingHeadSize);
+        fExpr = '0';
+      }
+
+      const wScaleExpr = `2*trunc((${targetWidth} * ${sizeExpr}) / 200)`;
+      const hScaleExpr = `2*trunc((${targetWidth} * ${sizeExpr} * ${talkingHeadHeight}) / (200 * ${talkingHeadWidth}))`;
+
+      let X_small = 'W-w-20';
+      let Y_small = 'H-h-20';
+      switch (talkingHeadPosition) {
+        case 'center':
+          X_small = '(W-w)/2';
+          Y_small = '(H-h)/2';
+          break;
+        case 'top-left':
+          X_small = '20';
+          Y_small = '20';
+          break;
+        case 'top-right':
+          X_small = 'W-w-20';
+          Y_small = '20';
+          break;
+        case 'bottom-left':
+          X_small = '20';
+          Y_small = 'H-h-20';
+          break;
+        case 'bottom-right':
+          X_small = 'W-w-20';
+          Y_small = 'H-h-20';
+          break;
+        case 'custom':
+          X_small = `(W-w)*${talkingHeadPositionX}/100`;
+          Y_small = `(H-h)*${talkingHeadPositionY}/100`;
+          break;
+      }
+
+      const X_large = '(W-w)/2';
+      const Y_large = '(H-h)/2';
+      const overlayXExpr = `(${X_small}) + ((${X_large}) - (${X_small})) * ${fExpr}`;
+      const overlayYExpr = `(${Y_small}) + ((${Y_large}) - (${Y_small})) * ${fExpr}`;
+
+      // 1. First, apply chroma keying and format to RGBA on the talking head stream (running at fixed/original input resolution)
+      filterComplex += `;[${talkingHeadInputIdx}:v]fps=fps=${targetFps},chromakey=color=${chromaColor}:similarity=${talkingHeadChromaSimilarity}:blend=${talkingHeadChromaBlend},format=rgba[th_keyed_${i}]`;
+      
+      let thOutlineLabel = `[th_keyed_${i}]`;
+      if (talkingHeadOutlineEnabled && talkingHeadOutlineThickness > 0) {
+        const dilations = ',dilation'.repeat(talkingHeadOutlineThickness);
+        const outlineColorFF = talkingHeadOutlineColor.replace('#', '0x');
+        // Apply outline chain on the fixed-resolution stream
+        filterComplex += `;[th_keyed_${i}]split=3[th_sc1_${i}][th_sc2_${i}][th_sc3_${i}]`;
+        filterComplex += `;[th_sc1_${i}]alphaextract${dilations}[th_alpha_${i}]`;
+        filterComplex += `;[th_sc2_${i}]drawbox=x=0:y=0:w=iw:h=ih:color=${outlineColorFF}:t=fill[th_solid_${i}]`;
+        filterComplex += `;[th_solid_${i}][th_alpha_${i}]alphamerge[th_outline_${i}]`;
+        filterComplex += `;[th_outline_${i}][th_sc3_${i}]overlay=0:0[th_outlined_${i}]`;
+        thOutlineLabel = `[th_outlined_${i}]`;
+      }
+
+      // 2. Apply the dynamic scale filter AFTER the outline is merged, so scaling is the final step before overlaying
+      filterComplex += `;${thOutlineLabel}scale=w='${wScaleExpr}':h='${hScaleExpr}':eval=frame[th_final_${i}]`;
+      const talkingHeadOverlayInput = `[th_final_${i}]`;
+
+      // 3. Overlay the dynamically scaled, outlined talking head onto the main background canvas
+      filterComplex += `;[${emojiStream}]format=rgba[emoji_rgba_${i}]`;
+      filterComplex += `;[emoji_rgba_${i}]${talkingHeadOverlayInput}overlay=x='${overlayXExpr}':y='${overlayYExpr}':eval=frame,format=yuv420p[scene_final_${i}]`;
+      finalComposedLabel = `scene_final_${i}`;
+    }
+
+    // Standardize fps
+    filterComplex += `;[${finalComposedLabel}]fps=fps=${targetFps}`;
+
+    const args = [];
+    
+    // Push dynamic input files
+    for (const input of inputs) {
+      args.push(...input.args);
+    }
+
+    // Output settings
+    args.push(
       '-t', String(sceneDuration), // Limit the output of this scene to its target duration
-      '-vf', videoFilter,
+      '-filter_complex', filterComplex,
       '-c:v', 'libx264',
       '-profile:v', 'main',
       '-level', '4.0',
@@ -2347,7 +2693,7 @@ export async function assembleVideo(options, onProgress) {
       '-an', // Strip original audio
       '-y',
       `scene_${i}.mp4`
-    ];
+    );
 
     console.log(`Processing sub-clip for scene ${i}: ${args.join(' ')}`);
     
@@ -2425,92 +2771,121 @@ export async function assembleVideo(options, onProgress) {
     }
   }
 
-  // Step 3: Mix Audio and compile final render
-  const finalOutputPath = path.join(outputDir, `render_${jobId}.mp4`);
-  
-  let currentInputIndex = 0;
-  const renderArgs = [];
-  
-  renderArgs.push('-i', concatVideoOnlyPath); // input 0
-  currentInputIndex++;
-  
-  renderArgs.push('-i', voiceoverPath);       // input 1
-  currentInputIndex++;
-
-  let bgIndex = -1;
-  if (bgMusicPath && existsSync(bgMusicPath)) {
-    const bgOffset = Number(bgMusicStartOffset) || 0;
-    if (bgOffset > 0) {
-      renderArgs.push('-ss', String(bgOffset));
-    }
-    renderArgs.push('-i', bgMusicPath); // input 2
-    bgIndex = currentInputIndex;
+    // Step 3: Mix Audio and compile final render
+    const finalOutputPath = path.join(outputDir, `render_${jobId}.mp4`);
+    
+    let currentInputIndex = 0;
+    const renderArgs = [];
+    
+    renderArgs.push('-i', concatVideoOnlyPath); // input 0
     currentInputIndex++;
-  }
-
-  const sfxStartInputIndex = currentInputIndex;
-  for (let idx = 0; idx < activeSfxs.length; idx++) {
-    renderArgs.push('-i', activeSfxs[idx].path);
+    
+    renderArgs.push('-i', localVoiceoverPath);  // input 1
     currentInputIndex++;
-  }
 
-  const voVol = Number(voiceoverVolume) || 1.0;
-  
-  // Construct filter complex if we have BGM or SFX inputs
-  if (bgIndex !== -1 || activeSfxs.length > 0) {
-    let filterComplex = `[1:a]volume=${voVol}[vo]`;
-    const amixInputs = ['[vo]'];
-
-    if (bgIndex !== -1) {
-      filterComplex += `;[${bgIndex}:a]volume=${bgMusicVolume}[bg]`;
-      amixInputs.push('[bg]');
+    let bgIndex = -1;
+    if (localBgMusicPath && existsSync(localBgMusicPath)) {
+      const bgOffset = Number(bgMusicStartOffset) || 0;
+      if (bgOffset > 0) {
+        renderArgs.push('-ss', String(bgOffset));
+      }
+      renderArgs.push('-i', localBgMusicPath);  // input 2
+      bgIndex = currentInputIndex;
+      currentInputIndex++;
     }
 
+    const sfxStartInputIndex = currentInputIndex;
     for (let idx = 0; idx < activeSfxs.length; idx++) {
-      const delayMs = Math.round(activeSfxs[idx].playTime * 1000);
-      filterComplex += `;[${sfxStartInputIndex + idx}:a]volume=0.20,adelay=${delayMs}|${delayMs}[sfx_${idx}]`;
-      amixInputs.push(`[sfx_${idx}]`);
+      renderArgs.push('-i', activeSfxs[idx].path);
+      currentInputIndex++;
     }
 
-    filterComplex += `;${amixInputs.join('')}amix=inputs=${amixInputs.length}:duration=first:normalize=0[a]`;
-    renderArgs.push('-filter_complex', filterComplex);
-    renderArgs.push('-map', '0:v', '-map', '[a]');
-  } else {
-    // Just map the voiceover directly (with optional volume adjustment)
-    if (voVol !== 1.0) {
-      renderArgs.push('-filter_complex', `[1:a]volume=${voVol}[a]`);
+    const voVol = Number(voiceoverVolume) || 1.0;
+    
+    // Construct filter complex if we have BGM or SFX inputs
+    if (bgIndex !== -1 || activeSfxs.length > 0) {
+      let filterComplex = `[1:a]volume=${voVol}[vo]`;
+      const amixInputs = ['[vo]'];
+
+      if (bgIndex !== -1) {
+        filterComplex += `;[${bgIndex}:a]volume=${bgMusicVolume}[bg]`;
+        amixInputs.push('[bg]');
+      }
+
+      for (let idx = 0; idx < activeSfxs.length; idx++) {
+        const delayMs = Math.round(activeSfxs[idx].playTime * 1000);
+        filterComplex += `;[${sfxStartInputIndex + idx}:a]volume=0.20,adelay=${delayMs}|${delayMs}[sfx_${idx}]`;
+        amixInputs.push(`[sfx_${idx}]`);
+      }
+
+      filterComplex += `;${amixInputs.join('')}amix=inputs=${amixInputs.length}:duration=first:normalize=0[a]`;
+      renderArgs.push('-filter_complex', filterComplex);
       renderArgs.push('-map', '0:v', '-map', '[a]');
     } else {
-      renderArgs.push('-map', '0:v', '-map', '1:a');
+      // Just map the voiceover directly (with optional volume adjustment)
+      if (voVol !== 1.0) {
+        renderArgs.push('-filter_complex', `[1:a]volume=${voVol}[a]`);
+        renderArgs.push('-map', '0:v', '-map', '[a]');
+      } else {
+        renderArgs.push('-map', '0:v', '-map', '1:a');
+      }
+    }
+
+    renderArgs.push(
+      '-c:v', 'copy', // Copy video (zero encoding overhead, instant)
+      '-video_track_timescale', '90000', // Standardize final output timescale
+      '-c:a', 'aac',  // Encode mixed audio
+      '-y',
+      finalOutputPath
+    );
+
+    await runFFmpeg(renderArgs, { cwd: tempDir });
+
+    onProgress(98, 'Uploading final video to Google Cloud Storage...');
+    let resultVideoPath = finalOutputPath;
+    if (gcsService.isGcsEnabled()) {
+      resultVideoPath = await gcsService.uploadFile(finalOutputPath, `generated/render_${jobId}.mp4`);
+      // Delete the local compiled file from the disk to free up space
+      try {
+        if (existsSync(finalOutputPath)) {
+          await fs.unlink(finalOutputPath);
+        }
+      } catch (_) {}
+    }
+
+    onProgress(100, 'Video generation successfully complete!');
+    return resultVideoPath;
+  } finally {
+    // Clean up temporary GCS downloaded assets and local compilation files
+    if (gcsService.isGcsEnabled()) {
+      console.log(`[Video Engine] Cleaning up temporary local GCS assets for job ${jobId}...`);
+      try {
+        if (existsSync(gcsAssetsTempDir)) {
+          const files = await fs.readdir(gcsAssetsTempDir);
+          for (const file of files) {
+            await fs.unlink(path.join(gcsAssetsTempDir, file));
+          }
+          await fs.rmdir(gcsAssetsTempDir);
+          console.log(`[Video Engine] Cleaned up GCS asset temp directory: ${gcsAssetsTempDir}`);
+        }
+      } catch (err) {
+        console.warn(`[Video Engine Warning] Failed to clean up GCS asset temp dir:`, err.message);
+      }
+    }
+
+    try {
+      if (existsSync(tempDir)) {
+        const files = await fs.readdir(tempDir);
+        for (const file of files) {
+          await fs.unlink(path.join(tempDir, file));
+        }
+        await fs.rmdir(tempDir);
+        console.log(`[Video Engine] Cleaned up FFmpeg temp directory: ${tempDir}`);
+      }
+    } catch (err) {
+      console.warn(`[Video Engine Warning] Failed to clean up FFmpeg temp dir:`, err.message);
     }
   }
-
-  renderArgs.push(
-    '-c:v', 'copy', // Copy video (zero encoding overhead, instant)
-    '-video_track_timescale', '90000', // Standardize final output timescale
-    '-c:a', 'aac',  // Encode mixed audio
-    '-y',
-    finalOutputPath
-  );
-
-  await runFFmpeg(renderArgs, { cwd: tempDir });
-
-  // Cleanup temp files
-  onProgress(95, 'Cleaning up temporary render files (skipped for debugging)...');
-  /*
-  try {
-    const files = await fs.readdir(tempDir);
-    for (const file of files) {
-      await fs.unlink(path.join(tempDir, file));
-    }
-    await fs.rmdir(tempDir);
-  } catch (cleanupErr) {
-    console.warn('Temporary directory cleanup failed:', cleanupErr.message);
-  }
-  */
-
-  onProgress(100, 'Video generation successfully complete!');
-  return finalOutputPath;
 }
 
 /**

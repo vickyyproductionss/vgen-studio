@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Sparkles, RefreshCw, AlertTriangle, CheckCircle, Upload, Zap, Search, Play, Pause } from 'lucide-react';
+import { Sparkles, RefreshCw, AlertTriangle, CheckCircle, Upload, Zap, Search, Play, Pause, Video, Layers } from 'lucide-react';
 
 interface Voice {
   id: string;
@@ -92,9 +92,10 @@ interface VideoPreviewProps {
   thumbnail: string;
   clipStart: number;
   isActive: boolean;
+  videoUrl?: string;
 }
 
-const VideoPreview: React.FC<VideoPreviewProps> = ({ clipId, thumbnail, clipStart, isActive }) => {
+const VideoPreview: React.FC<VideoPreviewProps> = ({ clipId, thumbnail, clipStart, isActive, videoUrl }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
@@ -116,7 +117,7 @@ const VideoPreview: React.FC<VideoPreviewProps> = ({ clipId, thumbnail, clipStar
   return (
     <video
       ref={videoRef}
-      src={`/api/clips/${clipId}/video`}
+      src={videoUrl || `/api/clips/${clipId}/video`}
       preload="auto"
       muted
       playsInline
@@ -351,7 +352,30 @@ const SUBTITLE_PRESETS: SubtitlePreset[] = [
 ];
 
 export default function CreateProject({ projectId, onStartRender }: CreateProjectProps) {
-  const [sidebarTab, setSidebarTab] = useState<'subtitles' | 'video' | 'audio'>('subtitles');
+  const [projectType, setProjectType] = useState<'create' | 'talkinghead'>('create');
+  const [originalVideoPath, setOriginalVideoPath] = useState('');
+  const [originalVideoUrl, setOriginalVideoUrl] = useState('');
+  const [uploadingVideo, setUploadingVideo] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
+  const [sidebarTab, setSidebarTab] = useState<'subtitles' | 'video' | 'audio' | 'layers'>('subtitles');
+  
+  // Background layer state variables
+  const [backgroundType, setBackgroundType] = useState<'none' | 'image' | 'video'>('none');
+  const [backgroundColor, setBackgroundColor] = useState('#000000');
+  const [backgroundClipId, setBackgroundClipId] = useState('');
+
+  // Talking Head state variables
+  const [talkingHeadEnabled, setTalkingHeadEnabled] = useState(false);
+  const [talkingHeadChromaColor, setTalkingHeadChromaColor] = useState('#00ff00');
+  const [talkingHeadChromaSimilarity, setTalkingHeadChromaSimilarity] = useState(0.15);
+  const [talkingHeadChromaBlend, setTalkingHeadChromaBlend] = useState(0.10);
+  const [talkingHeadSize, setTalkingHeadSize] = useState(40);
+  const [talkingHeadPosition, setTalkingHeadPosition] = useState<'center' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'custom'>('bottom-right');
+  const [talkingHeadPositionX, setTalkingHeadPositionX] = useState(10);
+  const [talkingHeadPositionY, setTalkingHeadPositionY] = useState(10);
+  const [talkingHeadOutlineEnabled, setTalkingHeadOutlineEnabled] = useState(false);
+  const [talkingHeadOutlineColor, setTalkingHeadOutlineColor] = useState('#ffffff');
+  const [talkingHeadOutlineThickness, setTalkingHeadOutlineThickness] = useState(2);
   const [geminiKeySet, setGeminiKeySet] = useState(false);
   const [elevenLabsKeySet, setElevenLabsKeySet] = useState(false);
   const [clips, setClips] = useState<Clip[]>([]);
@@ -724,6 +748,7 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
         const payload = projectId ? {
           state: {
             scriptText, selectedVoice, audioSource, voiceoverPath, voiceoverUrl, scenes,
+            originalVideoPath, originalVideoUrl,
             aspectRatio, fillMode, bgMusicPath, bgMusicVolume, bgMusicStartOffset,
             voiceoverVolume, clipTransition, transitionDuration, zoomAnimation, subtitleMode,
             fontName, fontSize, fontColor, outlineColor, bold, italic, shadow, highlightColor,
@@ -733,10 +758,15 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
             normalStyle, highlightStyle, emojiStyle, elevenLabsModel, enhanceWithThoughtfulTags, originalScriptText,
             headingTitle, headingFontName, headingFontSize, headingFontColor, headingBoxColor, headingPadding, showTimer, headingTopOffset, headingLeftOffset,
             headingBoxOpacity, headingTextOpacity,
-            brandingTheme, seriesName, episodeNumber, nextEpisode
+            brandingTheme, seriesName, episodeNumber, nextEpisode,
+            backgroundType, backgroundColor, backgroundClipId,
+            talkingHeadEnabled, talkingHeadChromaColor, talkingHeadChromaSimilarity, talkingHeadChromaBlend,
+            talkingHeadSize, talkingHeadPosition, talkingHeadPositionX, talkingHeadPositionY,
+            talkingHeadOutlineEnabled, talkingHeadOutlineColor, talkingHeadOutlineThickness
           }
         } : {
           scriptText, selectedVoice, audioSource, voiceoverPath, voiceoverUrl, scenes,
+          originalVideoPath, originalVideoUrl,
           aspectRatio, fillMode, bgMusicPath, bgMusicVolume, bgMusicStartOffset,
           voiceoverVolume, clipTransition, transitionDuration, zoomAnimation, subtitleMode,
           fontName, fontSize, fontColor, outlineColor, bold, italic, shadow, highlightColor,
@@ -746,7 +776,11 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
           normalStyle, highlightStyle, emojiStyle, elevenLabsModel, enhanceWithThoughtfulTags, originalScriptText,
           headingTitle, headingFontName, headingFontSize, headingFontColor, headingBoxColor, headingPadding, showTimer, headingTopOffset, headingLeftOffset,
           headingBoxOpacity, headingTextOpacity,
-          brandingTheme, seriesName, episodeNumber, nextEpisode
+          brandingTheme, seriesName, episodeNumber, nextEpisode,
+          backgroundType, backgroundColor, backgroundClipId,
+          talkingHeadEnabled, talkingHeadChromaColor, talkingHeadChromaSimilarity, talkingHeadChromaBlend,
+          talkingHeadSize, talkingHeadPosition, talkingHeadPositionX, talkingHeadPositionY,
+          talkingHeadOutlineEnabled, talkingHeadOutlineColor, talkingHeadOutlineThickness
         };
 
         await fetch(endpoint, {
@@ -766,6 +800,7 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
     return () => clearTimeout(delayDebounce);
   }, [
     scriptText, selectedVoice, audioSource, voiceoverPath, voiceoverUrl, scenes, aspectRatio,
+    originalVideoPath, originalVideoUrl,
     fillMode, bgMusicPath, bgMusicVolume, bgMusicStartOffset, voiceoverVolume, clipTransition,
     transitionDuration, zoomAnimation, subtitleMode, fontName, fontSize, fontColor, outlineColor,
     bold, italic, shadow, highlightColor, showHighlightBox, boxColor, boxRounding, textFade,
@@ -775,7 +810,11 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
     elevenLabsModel, enhanceWithThoughtfulTags, originalScriptText, hasLoadedProject, projectId,
     headingTitle, headingFontName, headingFontSize, headingFontColor, headingBoxColor, headingPadding, showTimer, headingTopOffset, headingLeftOffset,
     headingBoxOpacity, headingTextOpacity,
-    brandingTheme, seriesName, episodeNumber, nextEpisode
+    brandingTheme, seriesName, episodeNumber, nextEpisode,
+    backgroundType, backgroundColor, backgroundClipId,
+    talkingHeadEnabled, talkingHeadChromaColor, talkingHeadChromaSimilarity, talkingHeadChromaBlend,
+    talkingHeadSize, talkingHeadPosition, talkingHeadPositionX, talkingHeadPositionY,
+    talkingHeadOutlineEnabled, talkingHeadOutlineColor, talkingHeadOutlineThickness
   ]);
 
   const fetchProjectState = async () => {
@@ -787,8 +826,11 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
         const project = projectId ? (data.state || {}) : data;
         if (projectId) {
           setProjectName(data.name || 'Untitled Project');
+          setProjectType(data.type || 'create');
         }
         
+        if (project.originalVideoPath !== undefined) setOriginalVideoPath(project.originalVideoPath);
+        if (project.originalVideoUrl !== undefined) setOriginalVideoUrl(project.originalVideoUrl);
         if (project.scriptText !== undefined) setScriptText(project.scriptText);
         if (project.selectedVoice !== undefined) setSelectedVoice(project.selectedVoice);
         if (project.audioSource !== undefined) setAudioSource(project.audioSource);
@@ -883,10 +925,24 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
         if (project.headingLeftOffset !== undefined) setHeadingLeftOffset(project.headingLeftOffset);
         if (project.headingBoxOpacity !== undefined) setHeadingBoxOpacity(project.headingBoxOpacity);
         if (project.headingTextOpacity !== undefined) setHeadingTextOpacity(project.headingTextOpacity);
-        if (project.brandingTheme !== undefined) setBrandingTheme(project.brandingTheme);
-        if (project.seriesName !== undefined) setSeriesName(project.seriesName);
         if (project.episodeNumber !== undefined) setEpisodeNumber(project.episodeNumber);
         if (project.nextEpisode !== undefined) setNextEpisode(project.nextEpisode);
+        
+        if (project.backgroundType !== undefined) setBackgroundType(project.backgroundType);
+        if (project.backgroundColor !== undefined) setBackgroundColor(project.backgroundColor);
+        if (project.backgroundClipId !== undefined) setBackgroundClipId(project.backgroundClipId);
+        
+        if (project.talkingHeadEnabled !== undefined) setTalkingHeadEnabled(project.talkingHeadEnabled);
+        if (project.talkingHeadChromaColor !== undefined) setTalkingHeadChromaColor(project.talkingHeadChromaColor);
+        if (project.talkingHeadChromaSimilarity !== undefined) setTalkingHeadChromaSimilarity(project.talkingHeadChromaSimilarity);
+        if (project.talkingHeadChromaBlend !== undefined) setTalkingHeadChromaBlend(project.talkingHeadChromaBlend);
+        if (project.talkingHeadSize !== undefined) setTalkingHeadSize(project.talkingHeadSize);
+        if (project.talkingHeadPosition !== undefined) setTalkingHeadPosition(project.talkingHeadPosition);
+        if (project.talkingHeadPositionX !== undefined) setTalkingHeadPositionX(project.talkingHeadPositionX);
+        if (project.talkingHeadPositionY !== undefined) setTalkingHeadPositionY(project.talkingHeadPositionY);
+        if (project.talkingHeadOutlineEnabled !== undefined) setTalkingHeadOutlineEnabled(project.talkingHeadOutlineEnabled);
+        if (project.talkingHeadOutlineColor !== undefined) setTalkingHeadOutlineColor(project.talkingHeadOutlineColor);
+        if (project.talkingHeadOutlineThickness !== undefined) setTalkingHeadOutlineThickness(project.talkingHeadOutlineThickness);
       }
     } catch (err) {
       console.error('Failed to load project state:', err);
@@ -1026,6 +1082,41 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
     }
   };
 
+  const handleVideoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploadingVideo(true);
+    setError('');
+    setSuccess('');
+
+    const formData = new FormData();
+    formData.append('video', file);
+
+    try {
+      const res = await fetch('/api/upload-talkinghead', {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!res.ok) {
+        throw await parseFetchError(res, 'Video upload and extraction failed.');
+      }
+
+      const data = await res.json();
+      setOriginalVideoPath(data.originalVideoPath);
+      setOriginalVideoUrl(data.originalVideoUrl);
+      setVoiceoverPath(data.audioPath);
+      setVoiceoverUrl(data.audioUrl);
+      setUploadedFileName(file.name);
+      setSuccess('Talking-head video uploaded and audio extracted successfully!');
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setUploadingVideo(false);
+    }
+  };
+
   const handleAudioUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1061,35 +1152,57 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
 
   const handleAlignScript = async () => {
     if (!voiceoverPath) {
-      setError('Voiceover audio is required. Please generate or upload audio first.');
+      setError(projectType === 'talkinghead' ? 'Original video is required. Please upload a video first.' : 'Voiceover audio is required. Please generate or upload audio first.');
       return;
     }
-    if (audioSource === 'generate' && !scriptText) {
+    if (projectType !== 'talkinghead' && audioSource === 'generate' && !scriptText) {
       setError('Script text is required to generate and align a voiceover.');
       return;
     }
 
-    setAligning(true);
+    if (projectType === 'talkinghead') {
+      setTranscribing(true);
+    } else {
+      setAligning(true);
+    }
     setError('');
 
     try {
       const res = await fetch('/api/align-script', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scriptText: scriptText || '', audioPath: voiceoverPath })
+        body: JSON.stringify({ scriptText: projectType === 'talkinghead' ? '' : scriptText, audioPath: voiceoverPath })
       });
 
       if (!res.ok) {
-        throw await parseFetchError(res, 'Failed to align script timings.');
+        throw await parseFetchError(res, projectType === 'talkinghead' ? 'Failed to transcribe and segment video.' : 'Failed to align script timings.');
       }
 
       const data = await res.json();
-      setScenes(data.segments);
-      setSuccess('Script timeline aligned successfully!');
+      const segments = data.segments || [];
+      if (projectType === 'talkinghead') {
+        const text = segments.map((s: any) => s.text).join(' ');
+        setScriptText(text);
+        
+        const mapped = segments.map((seg: any) => ({
+          ...seg,
+          clipId: 'original',
+          clipStart: seg.start_time
+        }));
+        setScenes(mapped);
+        setSuccess('Video transcribed and segmented successfully!');
+      } else {
+        setScenes(segments);
+        setSuccess('Script timeline aligned successfully!');
+      }
     } catch (err: any) {
       setError(err.message);
     } finally {
-      setAligning(false);
+      if (projectType === 'talkinghead') {
+        setTranscribing(false);
+      } else {
+        setAligning(false);
+      }
     }
   };
 
@@ -1110,7 +1223,7 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
       const res = await fetch('/api/match-clips', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scenes })
+        body: JSON.stringify({ scenes, talkingHead: projectType === 'talkinghead' })
       });
 
       if (!res.ok) {
@@ -1129,7 +1242,7 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
       });
 
       setScenes(updatedScenes);
-      setSuccess('AI storyboarding match complete!');
+      setSuccess(projectType === 'talkinghead' ? 'AI storyboarding match complete (B-roll & Talking Head)!' : 'AI storyboarding match complete!');
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -1373,7 +1486,12 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
         body: JSON.stringify({
           projectId, scenes, voiceoverPath, bgMusicPath, bgMusicVolume, bgMusicStartOffset,
           voiceoverVolume, aspectRatio, fillMode, clipTransition, transitionDuration, zoomAnimation,
-          exportResolution, exportFps, subtitleStyle: {
+          exportResolution, exportFps, originalVideoPath,
+          backgroundType, backgroundColor, backgroundClipId,
+          talkingHeadEnabled, talkingHeadChromaColor, talkingHeadChromaSimilarity, talkingHeadChromaBlend,
+          talkingHeadSize, talkingHeadPosition, talkingHeadPositionX, talkingHeadPositionY,
+          talkingHeadOutlineEnabled, talkingHeadOutlineColor, talkingHeadOutlineThickness,
+          subtitleStyle: {
             subtitleMode, fontName, fontSize, fontColor, outlineColor, bold, italic, shadow,
             highlightColor, showHighlightBox, boxColor, boxRounding, textFade, textTransition,
             textMotion, activeWordScale, wordDisplayTime, textPositionX, textPositionY, showEmojis,
@@ -1472,261 +1590,316 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
               display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold',
               fontSize: '11px', fontFamily: 'var(--font-sans)', flexShrink: 0
             }}>1</span>
-            Script & Voiceover
+            {projectType === 'talkinghead' ? 'Upload Talking Head Video' : 'Script & Voiceover'}
           </h3>
 
-          <div style={{ marginBottom: '20px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-              <label className="label" style={{ marginBottom: 0 }}>Script text</label>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <button
-                  type="button"
-                  onClick={handleEnhanceScript}
-                  disabled={enhancingScript || !scriptText}
-                  className="btn-secondary"
-                  style={{
-                    fontSize: '12px',
-                    padding: '4px 10.5px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px',
-                    borderColor: 'var(--accent-purple)',
-                    color: 'var(--accent-purple)',
-                    height: '28px'
-                  }}
-                >
-                  <Sparkles size={12} />
-                  {enhancingScript ? 'Enhancing...' : 'AI Enhance Script'}
-                </button>
-                {originalScriptText !== null && (
+          {projectType === 'talkinghead' ? (
+            <div>
+              <input
+                id="talkinghead-video-upload-input"
+                type="file"
+                accept="video/mp4,video/quicktime,video/*"
+                onChange={handleVideoUpload}
+                disabled={uploadingVideo}
+                style={{ display: 'none' }}
+              />
+              {originalVideoUrl ? (
+                <div>
+                  <video src={originalVideoUrl} controls style={{ width: '100%', borderRadius: '8px', border: '1px solid var(--border-light)', marginBottom: '16px' }} />
                   <button
                     type="button"
-                    onClick={handleRevertScript}
+                    onClick={() => document.getElementById('talkinghead-video-upload-input')?.click()}
                     className="btn-secondary"
-                    style={{
-                      fontSize: '12px',
-                      padding: '4px 10.5px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                      borderColor: '#ef4444',
-                      color: '#ef4444',
-                      height: '28px'
-                    }}
+                    disabled={uploadingVideo}
+                    style={{ width: '100%', height: '40px' }}
                   >
-                    Revert
+                    Change Video
                   </button>
-                )}
-              </div>
-            </div>
-            <textarea
-              id="script-textarea"
-              className="input-field"
-              rows={4}
-              placeholder="e.g. When performing a proper barbell squat, ensure your feet are shoulder-width apart. Focus on keeping your spine straight and descend slowly until your thighs are parallel to the floor."
-              value={scriptText}
-              onChange={(e) => setScriptText(e.target.value)}
-              style={{ resize: 'vertical', marginBottom: '8px' }}
-            />
-            {elevenLabsModel === 'eleven_v3' && (
-              <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
-                <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: '500' }}>Insert ElevenLabs V3 Tag:</span>
-                {['[thoughtful]', '[sigh]', '[gasp]', '[laughs]', '[whisper]', '[cry]'].map((tag) => (
-                  <button
-                    key={tag}
-                    type="button"
-                    onClick={() => insertExpressionTag(tag)}
-                    style={{
-                      fontSize: '11px',
-                      background: 'rgba(255, 255, 255, 0.04)',
-                      border: '1px solid var(--border-light)',
-                      borderRadius: '4px',
-                      padding: '2px 8px',
-                      color: 'var(--accent-purple)',
-                      cursor: 'pointer',
-                      transition: 'all 0.15s ease',
-                      fontWeight: '600',
-                      outline: 'none'
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
-                      e.currentTarget.style.borderColor = 'var(--accent-purple)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = 'rgba(255, 255, 255, 0.04)';
-                      e.currentTarget.style.borderColor = 'var(--border-light)';
-                    }}
-                  >
-                    {tag}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div style={{ display: 'flex', gap: '24px', marginBottom: '20px' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '14px' }}>
-              <input type="radio" name="audio-src" checked={audioSource === 'generate'} onChange={() => setAudioSource('generate')} />
-              Generate Voiceover (ElevenLabs)
-            </label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '14px' }}>
-              <input type="radio" name="audio-src" checked={audioSource === 'upload'} onChange={() => setAudioSource('upload')} />
-              Upload Audio Directly
-            </label>
-          </div>
-
-          {audioSource === 'generate' ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', alignItems: 'flex-end' }}>
-                <div style={{ flex: 1 }}>
-                  <label className="label">ElevenLabs Voice</label>
-                  {!elevenLabsKeySet ? (
-                    <div style={{ color: '#f87171', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <AlertTriangle size={14} /> ElevenLabs key not set. Go to Settings tab.
-                    </div>
-                  ) : (
-                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                      <select
-                        className="input-field"
-                        value={selectedVoice}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          setSelectedVoice(val);
-                          if (audioRef.current) {
-                            audioRef.current.pause();
-                            setPlayingVoiceId(null);
-                          }
-                          fetch('/api/settings', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ lastSelectedVoice: val })
-                          }).catch(err => console.error('Failed to save lastSelectedVoice:', err));
-                        }}
-                        style={{ flex: 1 }}
-                      >
-                        {voices.map(voice => (
-                          <option key={voice.id} value={voice.id}>
-                            {voice.name} ({voice.category})
-                          </option>
-                        ))}
-                      </select>
-                      {voices.find(v => v.id === selectedVoice)?.previewUrl && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const voiceObj = voices.find(v => v.id === selectedVoice);
-                            if (voiceObj) toggleVoicePreview(voiceObj);
-                          }}
-                          className="btn-secondary"
-                          style={{
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            width: '42px', height: '42px', padding: 0, borderRadius: '50%', flexShrink: 0
-                          }}
-                          title="Listen to voice sample"
-                        >
-                          {playingVoiceId === selectedVoice ? <Pause size={18} /> : <Play size={18} />}
-                        </button>
-                      )}
-                    </div>
-                  )}
                 </div>
-
-                <div style={{ flex: 1 }}>
-                  <label className="label">Synthesis Model</label>
-                  <select
-                    className="input-field"
-                    value={elevenLabsModel}
-                    onChange={(e) => {
-                      setElevenLabsModel(e.target.value);
-                      if (e.target.value !== 'eleven_v3') {
-                        setEnhanceWithThoughtfulTags(false);
-                      }
-                    }}
-                  >
-                    <option value="eleven_multilingual_v2">Multilingual v2 (Standard)</option>
-                    <option value="eleven_v3">Eleven v3 (Expressive)</option>
-                    <option value="eleven_flash_v2_5">Flash v2.5 (Fast)</option>
-                    <option value="eleven_turbo_v2_5">Turbo v2.5 (Balanced)</option>
-                  </select>
-                </div>
-              </div>
-
-              {elevenLabsModel === 'eleven_v3' && (
+              ) : (
                 <div 
-                  style={{ 
-                    display: 'flex', alignItems: 'center', gap: '8px', 
-                    background: 'rgba(255, 255, 255, 0.02)', padding: '12px 16px', 
-                    borderRadius: '8px', border: '1px solid var(--border-light)',
-                    marginTop: '-4px'
+                  onClick={() => document.getElementById('talkinghead-video-upload-input')?.click()}
+                  style={{
+                    border: '1px dashed var(--border-light)', borderRadius: '8px', padding: '40px 24px',
+                    textAlign: 'center', cursor: 'pointer', background: 'rgba(255, 255, 255, 0.01)',
+                    transition: 'all 0.2s ease', display: 'flex', flexDirection: 'column',
+                    alignItems: 'center', justifyContent: 'center', gap: '12px'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.15)';
+                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.02)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = 'var(--border-light)';
+                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.01)';
                   }}
                 >
-                  <input
-                    type="checkbox"
-                    id="enhance-thoughtful"
-                    checked={enhanceWithThoughtfulTags}
-                    onChange={(e) => setEnhanceWithThoughtfulTags(e.target.checked)}
-                    style={{ width: '16px', height: '16px', cursor: 'pointer' }}
-                  />
-                  <label htmlFor="enhance-thoughtful" style={{ fontSize: '13px', cursor: 'pointer', display: 'flex', flexDirection: 'column' }}>
-                    <span style={{ fontWeight: '500', color: 'var(--text-main)' }}>Enhance speech expression</span>
-                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Automatically injects a [thoughtful] style prompt for deeper and more emotional narration</span>
-                  </label>
+                  <Video size={32} style={{ color: 'var(--text-muted)' }} />
+                  <div style={{ fontSize: '14px', fontWeight: 500, color: 'white' }}>
+                    {uploadingVideo ? 'Uploading video & extracting audio...' : 'Select or drag Talking Head Video'}
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                    Supports .mp4, .mov, and other common formats.
+                  </div>
                 </div>
               )}
-
-              <button
-                onClick={handleGenerateVoiceover}
-                className="btn-primary"
-                disabled={generatingAudio || !elevenLabsKeySet || !scriptText}
-                style={{ height: '46px', width: '100%' }}
-              >
-                <Sparkles size={16} />
-                {generatingAudio ? 'Generating...' : 'Synthesize Voiceover'}
-              </button>
             </div>
           ) : (
             <div>
-              <label className="label">Upload Audio File (.mp3)</label>
-              <div 
-                onClick={() => document.getElementById('audio-upload-input')?.click()}
-                style={{
-                  border: '1px dashed var(--border-light)', borderRadius: '8px', padding: '24px',
-                  textAlign: 'center', cursor: 'pointer', background: 'rgba(255, 255, 255, 0.01)',
-                  transition: 'all 0.2s ease', display: 'flex', flexDirection: 'column',
-                  alignItems: 'center', justifyContent: 'center', gap: '8px'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.15)';
-                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.02)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = 'var(--border-light)';
-                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.01)';
-                }}
-              >
-                <input
-                  id="audio-upload-input"
-                  type="file"
-                  accept="audio/mp3,audio/mpeg,audio/*"
-                  onChange={handleAudioUpload}
-                  disabled={uploadingAudio}
-                  style={{ display: 'none' }}
+              <div style={{ marginBottom: '20px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <label className="label" style={{ marginBottom: 0 }}>Script text</label>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button
+                      type="button"
+                      onClick={handleEnhanceScript}
+                      disabled={enhancingScript || !scriptText}
+                      className="btn-secondary"
+                      style={{
+                        fontSize: '12px',
+                        padding: '4px 10.5px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        borderColor: 'var(--accent-purple)',
+                        color: 'var(--accent-purple)',
+                        height: '28px'
+                      }}
+                    >
+                      <Sparkles size={12} />
+                      {enhancingScript ? 'Enhancing...' : 'AI Enhance Script'}
+                    </button>
+                    {originalScriptText !== null && (
+                      <button
+                        type="button"
+                        onClick={handleRevertScript}
+                        className="btn-secondary"
+                        style={{
+                          fontSize: '12px',
+                          padding: '4px 10.5px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          borderColor: '#ef4444',
+                          color: '#ef4444',
+                          height: '28px'
+                        }}
+                      >
+                        Revert
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <textarea
+                  id="script-textarea"
+                  className="input-field"
+                  rows={4}
+                  placeholder="e.g. When performing a proper barbell squat, ensure your feet are shoulder-width apart. Focus on keeping your spine straight and descend slowly until your thighs are parallel to the floor."
+                  value={scriptText}
+                  onChange={(e) => setScriptText(e.target.value)}
+                  style={{ resize: 'vertical', marginBottom: '8px' }}
                 />
-                <Upload size={20} style={{ color: 'var(--text-muted)', marginBottom: '4px' }} />
-                <div style={{ fontSize: '13px', fontWeight: 500, color: 'white' }}>
-                  {uploadingAudio ? 'Uploading audio file...' : uploadedFileName ? 'Change audio file' : 'Select audio file'}
-                </div>
-                <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                  {uploadedFileName || 'Drag and drop or click to browse (.mp3)'}
-                </div>
+                {elevenLabsModel === 'eleven_v3' && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: '500' }}>Insert ElevenLabs V3 Tag:</span>
+                    {['[thoughtful]', '[sigh]', '[gasp]', '[laughs]', '[whisper]', '[cry]'].map((tag) => (
+                      <button
+                        key={tag}
+                        type="button"
+                        onClick={() => insertExpressionTag(tag)}
+                        style={{
+                          fontSize: '11px',
+                          background: 'rgba(255, 255, 255, 0.04)',
+                          border: '1px solid var(--border-light)',
+                          borderRadius: '4px',
+                          padding: '2px 8px',
+                          color: 'var(--accent-purple)',
+                          cursor: 'pointer',
+                          transition: 'all 0.15s ease',
+                          fontWeight: '600',
+                          outline: 'none'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
+                          e.currentTarget.style.borderColor = 'var(--accent-purple)';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = 'rgba(255, 255, 255, 0.04)';
+                          e.currentTarget.style.borderColor = 'var(--border-light)';
+                        }}
+                      >
+                        {tag}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
-            </div>
-          )}
 
-          {voiceoverUrl && (
-            <div style={{ marginTop: '20px', padding: '16px', background: 'rgba(255, 255, 255, 0.03)', borderRadius: '8px', border: '1px solid var(--border-light)' }}>
-              <span style={{ fontSize: '13px', display: 'block', color: 'var(--text-gray)', marginBottom: '8px' }}>Voiceover Preview:</span>
-              <audio src={voiceoverUrl} controls style={{ width: '100%' }} />
+              <div style={{ display: 'flex', gap: '24px', marginBottom: '20px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '14px' }}>
+                  <input type="radio" name="audio-src" checked={audioSource === 'generate'} onChange={() => setAudioSource('generate')} />
+                  Generate Voiceover (ElevenLabs)
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '14px' }}>
+                  <input type="radio" name="audio-src" checked={audioSource === 'upload'} onChange={() => setAudioSource('upload')} />
+                  Upload Audio Directly
+                </label>
+              </div>
+
+              {audioSource === 'generate' ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', alignItems: 'flex-end' }}>
+                    <div style={{ flex: 1 }}>
+                      <label className="label">ElevenLabs Voice</label>
+                      {!elevenLabsKeySet ? (
+                        <div style={{ color: '#f87171', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <AlertTriangle size={14} /> ElevenLabs key not set. Go to Settings tab.
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          <select
+                            className="input-field"
+                            value={selectedVoice}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setSelectedVoice(val);
+                              if (audioRef.current) {
+                                audioRef.current.pause();
+                                setPlayingVoiceId(null);
+                              }
+                              fetch('/api/settings', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ lastSelectedVoice: val })
+                              }).catch(err => console.error('Failed to save lastSelectedVoice:', err));
+                            }}
+                            style={{ flex: 1 }}
+                          >
+                            {voices.map(voice => (
+                              <option key={voice.id} value={voice.id}>
+                                {voice.name} ({voice.category})
+                              </option>
+                            ))}
+                          </select>
+                          {voices.find(v => v.id === selectedVoice)?.previewUrl && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const voiceObj = voices.find(v => v.id === selectedVoice);
+                                if (voiceObj) toggleVoicePreview(voiceObj);
+                              }}
+                              className="btn-secondary"
+                              style={{
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                width: '42px', height: '42px', padding: 0, borderRadius: '50%', flexShrink: 0
+                              }}
+                              title="Listen to voice sample"
+                            >
+                              {playingVoiceId === selectedVoice ? <Pause size={18} /> : <Play size={18} />}
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    <div style={{ flex: 1 }}>
+                      <label className="label">Synthesis Model</label>
+                      <select
+                        className="input-field"
+                        value={elevenLabsModel}
+                        onChange={(e) => {
+                          setElevenLabsModel(e.target.value);
+                          if (e.target.value !== 'eleven_v3') {
+                            setEnhanceWithThoughtfulTags(false);
+                          }
+                        }}
+                      >
+                        <option value="eleven_multilingual_v2">Multilingual v2 (Standard)</option>
+                        <option value="eleven_v3">Eleven v3 (Expressive)</option>
+                        <option value="eleven_flash_v2_5">Flash v2.5 (Fast)</option>
+                        <option value="eleven_turbo_v2_5">Turbo v2.5 (Balanced)</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {elevenLabsModel === 'eleven_v3' && (
+                    <div 
+                      style={{ 
+                        display: 'flex', alignItems: 'center', gap: '8px', 
+                        background: 'rgba(255, 255, 255, 0.02)', padding: '12px 16px', 
+                        borderRadius: '8px', border: '1px solid var(--border-light)',
+                        marginTop: '-4px'
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        id="enhance-thoughtful"
+                        checked={enhanceWithThoughtfulTags}
+                        onChange={(e) => setEnhanceWithThoughtfulTags(e.target.checked)}
+                        style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                      />
+                      <label htmlFor="enhance-thoughtful" style={{ fontSize: '13px', cursor: 'pointer', display: 'flex', flexDirection: 'column' }}>
+                        <span style={{ fontWeight: '500', color: 'var(--text-main)' }}>Enhance speech expression</span>
+                        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Automatically injects a [thoughtful] style prompt for deeper and more emotional narration</span>
+                      </label>
+                    </div>
+                  )}
+
+                  <button
+                    onClick={handleGenerateVoiceover}
+                    className="btn-primary"
+                    disabled={generatingAudio || !elevenLabsKeySet || !scriptText}
+                    style={{ height: '46px', width: '100%' }}
+                  >
+                    <Sparkles size={16} />
+                    {generatingAudio ? 'Generating...' : 'Synthesize Voiceover'}
+                  </button>
+                </div>
+              ) : (
+                <div>
+                  <label className="label">Upload Audio File (.mp3)</label>
+                  <div 
+                    onClick={() => document.getElementById('audio-upload-input')?.click()}
+                    style={{
+                      border: '1px dashed var(--border-light)', borderRadius: '8px', padding: '24px',
+                      textAlign: 'center', cursor: 'pointer', background: 'rgba(255, 255, 255, 0.01)',
+                      transition: 'all 0.2s ease', display: 'flex', flexDirection: 'column',
+                      alignItems: 'center', justifyContent: 'center', gap: '8px'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.15)';
+                      e.currentTarget.style.background = 'rgba(255, 255, 255, 0.02)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.borderColor = 'var(--border-light)';
+                      e.currentTarget.style.background = 'rgba(255, 255, 255, 0.01)';
+                    }}
+                  >
+                    <input
+                      id="audio-upload-input"
+                      type="file"
+                      accept="audio/mp3,audio/mpeg,audio/*"
+                      onChange={handleAudioUpload}
+                      disabled={uploadingAudio}
+                      style={{ display: 'none' }}
+                    />
+                    <Upload size={20} style={{ color: 'var(--text-muted)', marginBottom: '4px' }} />
+                    <div style={{ fontSize: '13px', fontWeight: 500, color: 'white' }}>
+                      {uploadingAudio ? 'Uploading audio file...' : uploadedFileName ? 'Change audio file' : 'Select audio file'}
+                    </div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                      {uploadedFileName || 'Drag and drop or click to browse (.mp3)'}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {voiceoverUrl && (
+                <div style={{ marginTop: '20px', padding: '16px', background: 'rgba(255, 255, 255, 0.03)', borderRadius: '8px', border: '1px solid var(--border-light)' }}>
+                  <span style={{ fontSize: '13px', display: 'block', color: 'var(--text-gray)', marginBottom: '8px' }}>Voiceover Preview:</span>
+                  <audio src={voiceoverUrl} controls style={{ width: '100%' }} />
+                </div>
+              )}
             </div>
           )}
         </section>
@@ -1744,7 +1917,7 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
               <button
                 type="button"
                 onClick={handleAlignScript}
-                disabled={aligning}
+                disabled={projectType === 'talkinghead' ? transcribing : aligning}
                 className="btn-secondary active-glow"
                 style={{
                   display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 24px',
@@ -1753,8 +1926,10 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                   color: 'var(--text-white)', transition: 'all 0.2s ease', height: '40px'
                 }}
               >
-                <RefreshCw size={14} className={aligning ? 'spin' : ''} style={{ animation: aligning ? 'spin-slow 2s linear infinite' : 'none' }} />
-                {aligning ? 'Aligning script with Gemini...' : 'Analyze Timestamps & Align'}
+                <RefreshCw size={14} className={(projectType === 'talkinghead' ? transcribing : aligning) ? 'spin' : ''} style={{ animation: (projectType === 'talkinghead' ? transcribing : aligning) ? 'spin-slow 2s linear infinite' : 'none' }} />
+                {projectType === 'talkinghead' 
+                  ? (transcribing ? 'Transcribing & Segmenting Video...' : 'Transcribe & Segment Video')
+                  : (aligning ? 'Aligning script with Gemini...' : 'Analyze Timestamps & Align')}
               </button>
             )}
             
@@ -1911,7 +2086,15 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                         borderBottom: '1px solid var(--border-medium)', overflow: 'hidden'
                       }}>
-                        {selectedClip ? (
+                        {scene.clipId === 'original' ? (
+                          <VideoPreview
+                            clipId="original"
+                            thumbnail="https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?w=500&auto=format&fit=crop&q=60"
+                            videoUrl={originalVideoUrl}
+                            clipStart={scene.start_time}
+                            isActive={hoveredSceneIdx === idx || activeSliderIdx === idx}
+                          />
+                        ) : selectedClip ? (
                           <VideoPreview
                             clipId={selectedClip.id}
                             thumbnail={selectedClip.thumbnail}
@@ -1948,6 +2131,9 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                             style={{ margin: 0, fontSize: '12px', height: '32px' }}
                           >
                             <option value="">-- Choose Video Clip --</option>
+                            {projectType === 'talkinghead' && (
+                              <option value="original">Original Video (Talking Head)</option>
+                            )}
                             {clips.map(clip => (
                               <option key={clip.id} value={clip.id}>
                                 {clip.name} ({clip.duration.toFixed(1)}s)
@@ -2165,7 +2351,8 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
             {[
               { id: 'subtitles', label: 'Subtitles' },
               { id: 'video', label: 'Visuals' },
-              { id: 'audio', label: 'Audio' }
+              { id: 'audio', label: 'Audio' },
+              { id: 'layers', label: 'Layers' }
             ].map(t => {
               const active = sidebarTab === t.id;
               return (
@@ -2476,6 +2663,29 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                         }}
                       />
                     ))}
+                    <div style={{
+                      position: 'relative', width: '16px', height: '16px', borderRadius: '50%',
+                      background: 'conic-gradient(red, yellow, lime, aqua, blue, magenta, red)',
+                      border: !['#FFFFFF', '#FFCC00', '#00FFFF', '#FF3333'].includes(fontColor) ? '1.5px solid var(--text-white)' : 'none',
+                      boxShadow: !['#FFFFFF', '#FFCC00', '#00FFFF', '#FF3333'].includes(fontColor) ? '0 0 4px var(--border-glow)' : 'none',
+                      cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      overflow: 'hidden'
+                    }} title="Choose custom color">
+                      <input
+                        type="color"
+                        value={fontColor}
+                        onChange={(e) => setFontColor(e.target.value)}
+                        style={{
+                          opacity: 0,
+                          position: 'absolute',
+                          width: '32px',
+                          height: '32px',
+                          cursor: 'pointer',
+                          border: 'none',
+                          padding: 0
+                        }}
+                      />
+                    </div>
                   </div>
                 </div>
 
@@ -3483,6 +3693,345 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                         style={{ width: '100%' }}
                       />
                     </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* TAB 4: LAYERS */}
+          {sidebarTab === 'layers' && (
+            <div style={{ animation: 'fadeIn 0.2s ease-out', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              
+              {/* SECTION 1: BACKGROUND LAYER */}
+              <div className="inspector-card">
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                  <Layers size={14} style={{ color: 'var(--accent-blue)' }} />
+                  <div className="inspector-sub-title" style={{ margin: 0 }}>Background Layer (Deep Back)</div>
+                </div>
+                
+                <div style={{ marginBottom: '14px' }}>
+                  <label className="label">Background Type</label>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px' }}>
+                    {(['none', 'image', 'video'] as const).map(t => (
+                      <button
+                        key={t} type="button"
+                        className={backgroundType === t ? 'btn-primary' : 'btn-secondary'}
+                        onClick={() => setBackgroundType(t)}
+                        style={{
+                          fontSize: '11px',
+                          padding: '6px 0',
+                          justifyContent: 'center',
+                          textTransform: 'capitalize',
+                          fontWeight: backgroundType === t ? 'bold' : 'normal',
+                          background: backgroundType === t ? 'var(--primary)' : 'rgba(255, 255, 255, 0.02)',
+                          borderColor: backgroundType === t ? 'var(--primary)' : 'var(--border-light)'
+                        }}
+                      >
+                        {t}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <div>
+                    <label className="label">Mat / Fallback Color</label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <input
+                        type="color"
+                        value={backgroundColor}
+                        onChange={(e) => setBackgroundColor(e.target.value)}
+                        style={{
+                          width: '36px',
+                          height: '36px',
+                          border: '1px solid var(--border-medium)',
+                          borderRadius: '50%',
+                          cursor: 'pointer',
+                          background: 'transparent',
+                          padding: 0
+                        }}
+                      />
+                      <input
+                        type="text"
+                        className="input-field"
+                        value={backgroundColor.toUpperCase()}
+                        onChange={(e) => setBackgroundColor(e.target.value)}
+                        style={{ width: '100px', fontFamily: 'monospace' }}
+                      />
+                    </div>
+                  </div>
+
+                  {backgroundType !== 'none' && (
+                    <div>
+                      <label className="label">Select {backgroundType === 'image' ? 'Image' : 'Video'} Clip</label>
+                      <select
+                        className="input-field"
+                        value={backgroundClipId}
+                        onChange={(e) => setBackgroundClipId(e.target.value)}
+                        style={{ fontSize: '12px', height: '34px' }}
+                      >
+                        <option value="">-- Choose Background Clip --</option>
+                        {clips.map(clip => (
+                          <option key={clip.id} value={clip.id}>
+                            {clip.name} ({clip.duration.toFixed(1)}s)
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* SECTION 2: TALKING HEAD LAYER */}
+              <div className="inspector-card">
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Video size={14} style={{ color: 'var(--accent-purple)' }} />
+                    <div className="inspector-sub-title" style={{ margin: 0 }}>Talking Head Layer (Top)</div>
+                  </div>
+                  <label style={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={talkingHeadEnabled}
+                      onChange={(e) => setTalkingHeadEnabled(e.target.checked)}
+                      style={{ display: 'none' }}
+                    />
+                    <div style={{
+                      width: '34px',
+                      height: '20px',
+                      background: talkingHeadEnabled ? 'var(--accent-purple)' : 'rgba(255,255,255,0.1)',
+                      borderRadius: '10px',
+                      position: 'relative',
+                      transition: 'background-color 0.2s ease'
+                    }}>
+                      <div style={{
+                        width: '14px',
+                        height: '14px',
+                        background: '#ffffff',
+                        borderRadius: '50%',
+                        position: 'absolute',
+                        top: '3px',
+                        left: talkingHeadEnabled ? '17px' : '3px',
+                        transition: 'left 0.2s ease'
+                      }} />
+                    </div>
+                  </label>
+                </div>
+
+                {talkingHeadEnabled && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', animation: 'fadeIn 0.2s ease-out' }}>
+                    
+                    {/* Chroma Key Settings */}
+                    <div style={{ borderTop: '1px solid var(--border-light)', paddingTop: '12px' }}>
+                      <div className="label" style={{ fontWeight: 600, color: 'var(--text-white)', marginBottom: '8px' }}>Chroma Key Removal</div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                        <div>
+                          <label className="label">Key Color (Green Screen)</label>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <input
+                              type="color"
+                              value={talkingHeadChromaColor}
+                              onChange={(e) => setTalkingHeadChromaColor(e.target.value)}
+                              style={{
+                                width: '36px',
+                                height: '36px',
+                                border: '1px solid var(--border-medium)',
+                                borderRadius: '50%',
+                                cursor: 'pointer',
+                                background: 'transparent',
+                                padding: 0
+                              }}
+                            />
+                            <input
+                              type="text"
+                              className="input-field"
+                              value={talkingHeadChromaColor.toUpperCase()}
+                              onChange={(e) => setTalkingHeadChromaColor(e.target.value)}
+                              style={{ width: '100px', fontFamily: 'monospace' }}
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                            <label className="label" style={{ margin: 0 }}>Similarity</label>
+                            <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{talkingHeadChromaSimilarity.toFixed(2)}</span>
+                          </div>
+                          <input
+                            type="range" min={0.01} max={0.5} step={0.01}
+                            value={talkingHeadChromaSimilarity}
+                            onChange={(e) => setTalkingHeadChromaSimilarity(parseFloat(e.target.value))}
+                            style={{ width: '100%' }}
+                          />
+                        </div>
+
+                        <div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                            <label className="label" style={{ margin: 0 }}>Blend Edge</label>
+                            <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{talkingHeadChromaBlend.toFixed(2)}</span>
+                          </div>
+                          <input
+                            type="range" min={0.01} max={0.3} step={0.01}
+                            value={talkingHeadChromaBlend}
+                            onChange={(e) => setTalkingHeadChromaBlend(parseFloat(e.target.value))}
+                            style={{ width: '100%' }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Scale and Position */}
+                    <div style={{ borderTop: '1px solid var(--border-light)', paddingTop: '12px' }}>
+                      <div className="label" style={{ fontWeight: 600, color: 'var(--text-white)', marginBottom: '8px' }}>Layout & Scaling</div>
+                      
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                        <div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                            <label className="label" style={{ margin: 0 }}>Base Size</label>
+                            <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{talkingHeadSize}%</span>
+                          </div>
+                          <input
+                            type="range" min={10} max={100} step={1}
+                            value={talkingHeadSize}
+                            onChange={(e) => setTalkingHeadSize(parseInt(e.target.value, 10))}
+                            style={{ width: '100%' }}
+                          />
+                        </div>
+
+                        <div>
+                          <label className="label">Overlay Position Preset</label>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px', marginBottom: '10px' }}>
+                            {(['top-left', 'center', 'top-right', 'bottom-left', 'custom', 'bottom-right'] as const).map(pos => (
+                              <button
+                                key={pos} type="button"
+                                className={talkingHeadPosition === pos ? 'btn-primary' : 'btn-secondary'}
+                                onClick={() => setTalkingHeadPosition(pos)}
+                                style={{
+                                  fontSize: '10px',
+                                  padding: '6px 2px',
+                                  justifyContent: 'center',
+                                  fontWeight: talkingHeadPosition === pos ? 'bold' : 'normal',
+                                  background: talkingHeadPosition === pos ? 'var(--accent-purple)' : 'rgba(255, 255, 255, 0.02)',
+                                  borderColor: talkingHeadPosition === pos ? 'var(--accent-purple)' : 'var(--border-light)',
+                                  color: 'var(--text-white)'
+                                }}
+                              >
+                                {pos.replace('-', ' ')}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {talkingHeadPosition === 'custom' && (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '8px', background: 'rgba(255,255,255,0.01)', borderRadius: '6px', border: '1px solid var(--border-light)' }}>
+                            <div>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                                <label className="label" style={{ margin: 0 }}>Position X</label>
+                                <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{talkingHeadPositionX}%</span>
+                              </div>
+                              <input
+                                type="range" min={0} max={100} step={1}
+                                value={talkingHeadPositionX}
+                                onChange={(e) => setTalkingHeadPositionX(parseInt(e.target.value, 10))}
+                                style={{ width: '100%' }}
+                              />
+                            </div>
+                            <div>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                                <label className="label" style={{ margin: 0 }}>Position Y</label>
+                                <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{talkingHeadPositionY}%</span>
+                              </div>
+                              <input
+                                type="range" min={0} max={100} step={1}
+                                value={talkingHeadPositionY}
+                                onChange={(e) => setTalkingHeadPositionY(parseInt(e.target.value, 10))}
+                                style={{ width: '100%' }}
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Mask Outline Settings */}
+                    <div style={{ borderTop: '1px solid var(--border-light)', paddingTop: '12px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+                        <div className="label" style={{ fontWeight: 600, color: 'var(--text-white)', margin: 0 }}>Boundary Outline</div>
+                        <label style={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer' }}>
+                          <input
+                            type="checkbox"
+                            checked={talkingHeadOutlineEnabled}
+                            onChange={(e) => setTalkingHeadOutlineEnabled(e.target.checked)}
+                            style={{ display: 'none' }}
+                          />
+                          <div style={{
+                            width: '30px',
+                            height: '16px',
+                            background: talkingHeadOutlineEnabled ? 'var(--accent-purple)' : 'rgba(255,255,255,0.1)',
+                            borderRadius: '8px',
+                            position: 'relative',
+                            transition: 'background-color 0.2s ease'
+                          }}>
+                            <div style={{
+                              width: '12px',
+                              height: '12px',
+                              background: '#ffffff',
+                              borderRadius: '50%',
+                              position: 'absolute',
+                              top: '2px',
+                              left: talkingHeadOutlineEnabled ? '16px' : '2px',
+                              transition: 'left 0.2s ease'
+                            }} />
+                          </div>
+                        </label>
+                      </div>
+
+                      {talkingHeadOutlineEnabled && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', animation: 'fadeIn 0.2s ease-out' }}>
+                          <div>
+                            <label className="label">Outline Color</label>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                              <input
+                                type="color"
+                                value={talkingHeadOutlineColor}
+                                onChange={(e) => setTalkingHeadOutlineColor(e.target.value)}
+                                style={{
+                                  width: '36px',
+                                  height: '36px',
+                                  border: '1px solid var(--border-medium)',
+                                  borderRadius: '50%',
+                                  cursor: 'pointer',
+                                  background: 'transparent',
+                                  padding: 0
+                                }}
+                              />
+                              <input
+                                type="text"
+                                className="input-field"
+                                value={talkingHeadOutlineColor.toUpperCase()}
+                                onChange={(e) => setTalkingHeadOutlineColor(e.target.value)}
+                                style={{ width: '100px', fontFamily: 'monospace' }}
+                              />
+                            </div>
+                          </div>
+
+                          <div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                              <label className="label" style={{ margin: 0 }}>Thickness</label>
+                              <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{talkingHeadOutlineThickness}px</span>
+                            </div>
+                            <input
+                              type="range" min={1} max={5} step={1}
+                              value={talkingHeadOutlineThickness}
+                              onChange={(e) => setTalkingHeadOutlineThickness(parseInt(e.target.value, 10))}
+                              style={{ width: '100%' }}
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
                   </div>
                 )}
               </div>

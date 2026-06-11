@@ -12,6 +12,17 @@ build/
 .env.production
 backend/.env
 
+# GCP Service Account Keys (NEVER commit these!)
+*.json
+!package.json
+!package-lock.json
+!backend/package.json
+!backend/package-lock.json
+!tsconfig.json
+!tsconfig.app.json
+!tsconfig.node.json
+!backend/nodemon.json
+
 # Logs
 *.log
 npm-debug.log*

@@ -14,6 +14,8 @@ import { getVoices, generateSpeech } from './services/elevenlabs.js';
 import { getVideoDuration, generateThumbnail, assembleVideo, ensureFontExists, extractAudioFromVideo, getLocalWordTimings } from './services/video.js';
 import { detectBeats } from './services/beats.js';
 import { getGcpWordTimings, assignTimestampsToWords, mapTimestamps } from './services/speech.js';
+import { dbService } from './services/firestore.js';
+import { gcsService } from './services/gcs.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -80,36 +82,7 @@ app.use('/uploads', express.static(UPLOADS_DIR));
 // Serve React frontend static files in production
 app.use(express.static(path.join(__dirname, '../dist')));
 
-// Database Helpers (Synchronous read/write for simplicity)
-const DB_PATH = path.join(__dirname, 'db.json');
-
-function getDb() {
-  if (!existsSync(DB_PATH)) {
-    writeFileSync(DB_PATH, JSON.stringify({ settings: { geminiApiKey: '', elevenLabsApiKey: '', defaultOutputDir: GENERATED_DIR, lastActiveProjectId: '' }, clips: [], bgms: [], projects: [], users: [] }, null, 2));
-  }
-  const db = JSON.parse(readFileSync(DB_PATH, 'utf-8'));
-  let updated = false;
-  if (!db.bgms) {
-    db.bgms = [];
-    updated = true;
-  }
-  if (!db.projects) {
-    db.projects = [];
-    updated = true;
-  }
-  if (!db.users) {
-    db.users = [];
-    updated = true;
-  }
-  if (updated) {
-    saveDb(db);
-  }
-  return db;
-}
-
-function saveDb(data) {
-  writeFileSync(DB_PATH, JSON.stringify(data, null, 2), 'utf-8');
-}
+// Database Helpers (Obsolete: Firestore/dbService is used instead)
 
 // Multer storage configuration
 const storage = multer.diskStorage({
@@ -148,56 +121,72 @@ function getUserId(req) {
   return 'local-user';
 }
 
-app.post('/api/auth/register', (req, res) => {
+// ==========================================
+// Health Check (Cloud Run)
+// ==========================================
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+
+app.post('/api/auth/register', async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) {
     return res.status(400).json({ error: 'Email and password are required.' });
   }
-  const db = getDb();
-  const exists = db.users.some(u => u.email.toLowerCase() === email.toLowerCase());
-  if (exists) {
-    return res.status(400).json({ error: 'User already exists.' });
+  try {
+    const exists = await dbService.checkUserExists(email);
+    if (exists) {
+      return res.status(400).json({ error: 'User already exists.' });
+    }
+    const newUser = {
+      uid: email,
+      email,
+      password, // stored plain for mock simulation
+      plan: 'free',
+      credits: 100,
+      createdAt: new Date().toISOString()
+    };
+    await dbService.saveUser(newUser);
+    res.json({ success: true, user: { email: newUser.email, plan: newUser.plan, credits: newUser.credits } });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
-  const newUser = {
-    uid: email,
-    email,
-    password, // stored plain for mock simulation
-    plan: 'free',
-    credits: 100,
-    createdAt: new Date().toISOString()
-  };
-  db.users.push(newUser);
-  saveDb(db);
-  res.json({ success: true, user: { email: newUser.email, plan: newUser.plan, credits: newUser.credits } });
 });
 
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) {
     return res.status(400).json({ error: 'Email and password are required.' });
   }
-  const db = getDb();
-  const user = db.users.find(u => u.email.toLowerCase() === email.toLowerCase() && u.password === password);
-  if (!user) {
-    return res.status(401).json({ error: 'Invalid email or password.' });
+  try {
+    const user = await dbService.getUserByEmailAndPassword(email, password);
+    if (!user) {
+      return res.status(401).json({ error: 'Invalid email or password.' });
+    }
+    res.json({ success: true, user: { email: user.email, plan: user.plan, credits: user.credits } });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
-  res.json({ success: true, user: { email: user.email, plan: user.plan, credits: user.credits } });
 });
 
-app.get('/api/auth/me', (req, res) => {
+app.get('/api/auth/me', async (req, res) => {
   const userId = getUserId(req);
   if (userId === 'local-user') {
     return res.json({ email: 'local-user', plan: 'local', credits: 999999 });
   }
-  const db = getDb();
-  const user = db.users.find(u => u.uid === userId);
-  if (!user) {
-    return res.status(404).json({ error: 'User not found.' });
+  try {
+    const user = await dbService.getUser(userId);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found.' });
+    }
+    res.json({ email: user.email, plan: user.plan, credits: user.credits });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
-  res.json({ email: user.email, plan: user.plan, credits: user.credits });
 });
 
-app.post('/api/billing/upgrade', (req, res) => {
+app.post('/api/billing/upgrade', async (req, res) => {
   const userId = getUserId(req);
   if (userId === 'local-user') {
     return res.status(400).json({ error: 'Cannot upgrade local user account.' });
@@ -206,25 +195,27 @@ app.post('/api/billing/upgrade', (req, res) => {
   if (!['free', 'pro', 'business'].includes(plan)) {
     return res.status(400).json({ error: 'Invalid plan selected.' });
   }
-  const db = getDb();
-  const userIdx = db.users.findIndex(u => u.uid === userId);
-  if (userIdx === -1) {
-    return res.status(404).json({ error: 'User not found.' });
+  try {
+    const user = await dbService.getUser(userId);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found.' });
+    }
+    user.plan = plan;
+    if (plan === 'pro') {
+      user.credits += 1000;
+    } else if (plan === 'business') {
+      user.credits += 5000;
+    } else if (plan === 'free') {
+      user.credits = 100;
+    }
+    await dbService.saveUser(user);
+    res.json({ success: true, user: { email: user.email, plan: user.plan, credits: user.credits } });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
-  const user = db.users[userIdx];
-  user.plan = plan;
-  if (plan === 'pro') {
-    user.credits += 1000;
-  } else if (plan === 'business') {
-    user.credits += 5000;
-  } else if (plan === 'free') {
-    user.credits = 100;
-  }
-  saveDb(db);
-  res.json({ success: true, user: { email: user.email, plan: user.plan, credits: user.credits } });
 });
 
-app.post('/api/billing/add-credits', (req, res) => {
+app.post('/api/billing/add-credits', async (req, res) => {
   const userId = getUserId(req);
   if (userId === 'local-user') {
     return res.status(400).json({ error: 'Cannot buy credits for local account.' });
@@ -234,81 +225,75 @@ app.post('/api/billing/add-credits', (req, res) => {
   if (isNaN(creditsToAdd) || creditsToAdd <= 0) {
     return res.status(400).json({ error: 'Invalid credit amount.' });
   }
-  const db = getDb();
-  const userIdx = db.users.findIndex(u => u.uid === userId);
-  if (userIdx === -1) {
-    return res.status(404).json({ error: 'User not found.' });
+  try {
+    const user = await dbService.getUser(userId);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found.' });
+    }
+    user.credits += creditsToAdd;
+    await dbService.saveUser(user);
+    res.json({ success: true, user: { email: user.email, plan: user.plan, credits: user.credits } });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
-  const user = db.users[userIdx];
-  user.credits += creditsToAdd;
-  saveDb(db);
-  res.json({ success: true, user: { email: user.email, plan: user.plan, credits: user.credits } });
 });
 
 // ==========================================
 // Settings API
 // ==========================================
-app.get('/api/settings', (req, res) => {
-  const db = getDb();
-  const settings = { ...db.settings };
-  if (process.env.GEMINI_API_KEY) {
-    settings.geminiApiKey = settings.geminiApiKey || '•••••••• (Set by Environment)';
+app.get('/api/settings', async (req, res) => {
+  try {
+    const settings = await dbService.getSettings();
+    const cleanSettings = { ...settings };
+    if (process.env.GEMINI_API_KEY) {
+      cleanSettings.geminiApiKey = cleanSettings.geminiApiKey || '•••••••• (Set by Environment)';
+    }
+    if (process.env.ELEVENLABS_API_KEY) {
+      cleanSettings.elevenLabsApiKey = cleanSettings.elevenLabsApiKey || '•••••••• (Set by Environment)';
+    }
+    res.json(cleanSettings);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
-  if (process.env.ELEVENLABS_API_KEY) {
-    settings.elevenLabsApiKey = settings.elevenLabsApiKey || '•••••••• (Set by Environment)';
-  }
-  res.json(settings);
 });
 
-app.post('/api/settings', (req, res) => {
-  const db = getDb();
-  db.settings = { ...db.settings, ...req.body };
-  saveDb(db);
-  res.json(db.settings);
+app.post('/api/settings', async (req, res) => {
+  try {
+    const settings = await dbService.saveSettings(req.body);
+    res.json(settings);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // ==========================================
 // Project State API
 // ==========================================
-app.get('/api/project', (req, res) => {
-  const db = getDb();
-  res.json(db.project || {});
+app.get('/api/project', async (req, res) => {
+  try {
+    const project = await dbService.getLegacyProject();
+    res.json(project);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
-app.post('/api/project', (req, res) => {
-  const db = getDb();
-  db.project = { ...db.project, ...req.body };
-  saveDb(db);
-  res.json({ success: true, project: db.project });
+app.post('/api/project', async (req, res) => {
+  try {
+    const result = await dbService.saveLegacyProject(req.body);
+    res.json({ success: true, project: result });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
-app.delete('/api/project', (req, res) => {
-  const db = getDb();
-  db.project = {
-    scriptText: "",
-    selectedVoice: db.settings.lastSelectedVoice || "",
-    audioSource: "generate",
-    voiceoverPath: "",
-    voiceoverUrl: "",
-    scenes: [],
-    aspectRatio: "9:16",
-    fillMode: "crop",
-    bgMusicPath: "",
-    bgMusicVolume: 0.15,
-    fontName: "Arial",
-    fontSize: 24,
-    fontColor: "#FFFFFF",
-    outlineColor: "#000000",
-    bold: true,
-    italic: false,
-    shadow: true,
-    textFade: true,
-    textTransition: "none",
-    textMotion: "none",
-    activeWordScale: 1.15
-  };
-  saveDb(db);
-  res.json({ success: true, project: db.project });
+app.delete('/api/project', async (req, res) => {
+  try {
+    const result = await dbService.deleteLegacyProject();
+    res.json({ success: true, project: result });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // ==========================================
@@ -338,177 +323,226 @@ function getProjectDiskSize(project) {
   return totalSize;
 }
 
-app.get('/api/projects', (req, res) => {
+app.get('/api/projects', async (req, res) => {
   const userId = getUserId(req);
-  const db = getDb();
-  const userProjects = (db.projects || []).filter(p => (p.userId || 'local-user') === userId);
-  const projects = userProjects.map(p => {
-    return {
-      ...p,
-      diskSize: getProjectDiskSize(p)
-    };
-  });
-  res.json(projects);
+  try {
+    const projects = await dbService.getProjects(userId);
+    const projectsWithSize = projects.map(p => {
+      return {
+        ...p,
+        diskSize: getProjectDiskSize(p)
+      };
+    });
+    res.json(projectsWithSize);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
-app.get('/api/projects/:id', (req, res) => {
+app.get('/api/projects/:id', async (req, res) => {
   const userId = getUserId(req);
-  const db = getDb();
-  const project = db.projects.find(p => p.id === req.params.id && (p.userId || 'local-user') === userId);
-  if (!project) {
-    return res.status(404).json({ error: 'Project not found' });
-  }
-  res.json({
-    ...project,
-    diskSize: getProjectDiskSize(project)
-  });
-});
-
-app.post('/api/projects', (req, res) => {
-  const { name, type } = req.body;
-  if (!type || !['create', 'beatsync'].includes(type)) {
-    return res.status(400).json({ error: 'Valid project type is required (create or beatsync).' });
-  }
-  
-  const userId = getUserId(req);
-  const db = getDb();
-  const newProject = {
-    id: uuidv4(),
-    userId,
-    name: name || `Untitled ${type === 'beatsync' ? 'Beat Sync' : 'Voiceover'} Project`,
-    type,
-    updatedAt: new Date().toISOString(),
-    state: type === 'beatsync' ? {
-      audioSource: "upload",
-      audioPath: "",
-      audioUrl: "",
-      audioName: "",
-      audioDuration: 0,
-      syncMode: "beats",
-      threshold: 1.4,
-      boundaries: [],
-      scenes: [],
-      aspectRatio: "9:16",
-      fillMode: "crop",
-      clipTransition: "none",
-      zoomAnimation: true,
-      exportResolution: "1080p",
-      exportFps: 30,
-      miniBeats: [],
-      miniBeatEffect: "none",
-      selectedVideoClipId: "",
-      subtitleMode: "smart-highlight",
-      fontName: "Arial",
-      fontSize: 24,
-      fontColor: "#FFFFFF",
-      outlineColor: "#000000",
-      bold: true,
-      italic: false,
-      shadow: true,
-      highlightColor: "#FFFF00",
-      showHighlightBox: false,
-      boxColor: "#8A4BF3",
-      boxRounding: 8,
-      textFade: true,
-      textTransition: "none",
-      textMotion: "none",
-      activeWordScale: 1.15,
-      wordDisplayTime: 1.0,
-      textPositionX: 0,
-      textPositionY: -70
-    } : {
-      scriptText: "",
-      selectedVoice: db.settings.lastSelectedVoice || "",
-      audioSource: "generate",
-      voiceoverPath: "",
-      voiceoverUrl: "",
-      scenes: [],
-      aspectRatio: "9:16",
-      fillMode: "crop",
-      bgMusicPath: "",
-      bgMusicVolume: 0.15,
-      fontName: "Arial",
-      fontSize: 24,
-      fontColor: "#FFFFFF",
-      outlineColor: "#000000",
-      bold: true,
-      italic: false,
-      shadow: true,
-      textFade: true,
-      textTransition: "none",
-      textMotion: "none",
-      activeWordScale: 1.15,
-      exportResolution: "1080p",
-      exportFps: 30
+  try {
+    const project = await dbService.getProject(req.params.id);
+    if (!project || (project.userId || 'local-user') !== userId) {
+      return res.status(404).json({ error: 'Project not found' });
     }
-  };
-  
-  db.projects = db.projects || [];
-  db.projects.push(newProject);
-  
-  db.settings.lastActiveProjectId = newProject.id;
-  saveDb(db);
-  
-  res.json(newProject);
+    res.json({
+      ...project,
+      diskSize: getProjectDiskSize(project)
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
-app.put('/api/projects/:id', (req, res) => {
+app.post('/api/projects', async (req, res) => {
+  const { name, type } = req.body;
+  if (!type || !['create', 'beatsync', 'talkinghead'].includes(type)) {
+    return res.status(400).json({ error: 'Valid project type is required (create, beatsync, or talkinghead).' });
+  }
+  
+  const userId = getUserId(req);
+  try {
+    const settings = await dbService.getSettings();
+    let defaultName = `Untitled Voiceover Project`;
+    if (type === 'beatsync') defaultName = `Untitled Beat Sync Project`;
+    else if (type === 'talkinghead') defaultName = `Untitled Talking Head Project`;
+
+    const newProject = {
+      id: uuidv4(),
+      userId,
+      name: name || defaultName,
+      type,
+      updatedAt: new Date().toISOString(),
+      state: type === 'beatsync' ? {
+        audioSource: "upload",
+        audioPath: "",
+        audioUrl: "",
+        audioName: "",
+        audioDuration: 0,
+        syncMode: "beats",
+        threshold: 1.4,
+        boundaries: [],
+        scenes: [],
+        aspectRatio: "9:16",
+        fillMode: "crop",
+        clipTransition: "none",
+        zoomAnimation: true,
+        exportResolution: "1080p",
+        exportFps: 30,
+        miniBeats: [],
+        miniBeatEffect: "none",
+        selectedVideoClipId: "",
+        subtitleMode: "smart-highlight",
+        fontName: "Arial",
+        fontSize: 24,
+        fontColor: "#FFFFFF",
+        outlineColor: "#000000",
+        bold: true,
+        italic: false,
+        shadow: true,
+        highlightColor: "#FFFF00",
+        showHighlightBox: false,
+        boxColor: "#8A4BF3",
+        boxRounding: 8,
+        textFade: true,
+        textTransition: "none",
+        textMotion: "none",
+        activeWordScale: 1.15,
+        wordDisplayTime: 1.0,
+        textPositionX: 0,
+        textPositionY: -70
+      } : type === 'talkinghead' ? {
+        originalVideoPath: "",
+        originalVideoUrl: "",
+        voiceoverPath: "",
+        voiceoverUrl: "",
+        scenes: [],
+        aspectRatio: "9:16",
+        fillMode: "crop",
+        bgMusicPath: "",
+        bgMusicVolume: 0.15,
+        bgMusicStartOffset: 0,
+        voiceoverVolume: 1.0,
+        clipTransition: "none",
+        transitionDuration: 0.3,
+        zoomAnimation: false, 
+        exportResolution: "1080p",
+        exportFps: 30,
+        subtitleMode: "classic",
+        fontName: "Arial",
+        fontSize: 24,
+        fontColor: "#FFFFFF",
+        outlineColor: "#000000",
+        bold: true,
+        italic: false,
+        shadow: true,
+        highlightColor: "#FFFF00",
+        showHighlightBox: false,
+        boxColor: "#8A4BF3",
+        boxRounding: 8,
+        textFade: true,
+        textTransition: "none",
+        textMotion: "none",
+        activeWordScale: 1.0, 
+        wordDisplayTime: 1.0,
+        textPositionX: 0,
+        textPositionY: -70
+      } : {
+        scriptText: "",
+        selectedVoice: settings.lastSelectedVoice || "",
+        audioSource: "generate",
+        voiceoverPath: "",
+        voiceoverUrl: "",
+        scenes: [],
+        aspectRatio: "9:16",
+        fillMode: "crop",
+        bgMusicPath: "",
+        bgMusicVolume: 0.15,
+        fontName: "Arial",
+        fontSize: 24,
+        fontColor: "#FFFFFF",
+        outlineColor: "#000000",
+        bold: true,
+        italic: false,
+        shadow: true,
+        textFade: true,
+        textTransition: "none",
+        textMotion: "none",
+        activeWordScale: 1.15,
+        exportResolution: "1080p",
+        exportFps: 30
+      }
+    };
+    
+    await dbService.saveProject(newProject);
+    await dbService.saveSettings({ lastActiveProjectId: newProject.id });
+    res.json(newProject);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put('/api/projects/:id', async (req, res) => {
   const userId = getUserId(req);
   const { name, state } = req.body;
-  const db = getDb();
-  const project = db.projects.find(p => p.id === req.params.id && (p.userId || 'local-user') === userId);
-  if (!project) {
-    return res.status(404).json({ error: 'Project not found' });
+  try {
+    const project = await dbService.getProject(req.params.id);
+    if (!project || (project.userId || 'local-user') !== userId) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+    
+    if (name !== undefined) project.name = name;
+    if (state !== undefined) project.state = { ...project.state, ...state };
+    project.updatedAt = new Date().toISOString();
+    
+    await dbService.saveProject(project);
+    await dbService.saveSettings({ lastActiveProjectId: project.id });
+    
+    res.json({ success: true, project });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
-  
-  if (name !== undefined) project.name = name;
-  if (state !== undefined) project.state = { ...project.state, ...state };
-  project.updatedAt = new Date().toISOString();
-  
-  db.settings.lastActiveProjectId = project.id;
-  saveDb(db);
-  
-  res.json({ success: true, project });
 });
 
-app.delete('/api/projects/:id', (req, res) => {
+app.delete('/api/projects/:id', async (req, res) => {
   const userId = getUserId(req);
-  const db = getDb();
-  const idx = db.projects.findIndex(p => p.id === req.params.id && (p.userId || 'local-user') === userId);
-  if (idx === -1) {
-    return res.status(404).json({ error: 'Project not found' });
-  }
-  
-  const project = db.projects[idx];
-  
-  // Clean up associated files on disk
-  const filesToDelete = [];
-  if (project.state) {
-    if (project.state.voiceoverPath) filesToDelete.push(project.state.voiceoverPath);
-    if (project.state.audioPath) filesToDelete.push(project.state.audioPath);
-    if (project.state.lastRenderedVideoPath) filesToDelete.push(project.state.lastRenderedVideoPath);
-  }
-  
-  for (const filePath of filesToDelete) {
-    const resolved = resolvePath(filePath);
-    if (resolved && existsSync(resolved)) {
+  try {
+    const project = await dbService.getProject(req.params.id);
+    if (!project || (project.userId || 'local-user') !== userId) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+    
+    // Clean up associated files on GCS/disk
+    const filesToDelete = [];
+    if (project.state) {
+      if (project.state.voiceoverPath) filesToDelete.push(project.state.voiceoverPath);
+      if (project.state.audioPath) filesToDelete.push(project.state.audioPath);
+      if (project.state.lastRenderedVideoPath) filesToDelete.push(project.state.lastRenderedVideoPath);
+    }
+    
+    for (const filePath of filesToDelete) {
       try {
-        unlinkSync(resolved);
-        console.log(`Deleted project file: ${resolved}`);
+        await gcsService.deleteFile(filePath);
       } catch (err) {
-        console.error(`Failed to delete project file: ${resolved}`, err);
+        console.error(`Failed to delete project file: ${filePath}`, err.message);
       }
     }
+    
+    await dbService.deleteProject(req.params.id);
+    
+    const settings = await dbService.getSettings();
+    if (settings.lastActiveProjectId === req.params.id) {
+      const remainingProjects = await dbService.getProjects(userId);
+      await dbService.saveSettings({
+        lastActiveProjectId: remainingProjects.length > 0 ? remainingProjects[remainingProjects.length - 1].id : ''
+      });
+    }
+    
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
-  
-  db.projects.splice(idx, 1);
-  
-  if (db.settings.lastActiveProjectId === req.params.id) {
-    db.settings.lastActiveProjectId = db.projects.length > 0 ? db.projects[db.projects.length - 1].id : '';
-  }
-  
-  saveDb(db);
-  res.json({ success: true });
 });
 
 // ==========================================
@@ -516,8 +550,8 @@ app.delete('/api/projects/:id', (req, res) => {
 // ==========================================
 app.get('/api/voices', async (req, res) => {
   try {
-    const db = getDb();
-    const apiKey = req.query.apiKey || process.env.ELEVENLABS_API_KEY || db.settings.elevenLabsApiKey;
+    const settings = await dbService.getSettings();
+    const apiKey = req.query.apiKey || process.env.ELEVENLABS_API_KEY || settings.elevenLabsApiKey;
     if (!apiKey) {
       return res.status(400).json({ error: 'ElevenLabs API key is missing. Please configure it in Settings.' });
     }
@@ -531,18 +565,22 @@ app.get('/api/voices', async (req, res) => {
 // ==========================================
 // Clips Library API
 // ==========================================
-app.get('/api/clips', (req, res) => {
+app.get('/api/clips', async (req, res) => {
   const userId = getUserId(req);
-  const db = getDb();
-  const userClips = (db.clips || []).filter(c => (c.userId || 'local-user') === userId);
-  const clipsWithStatus = userClips.map(clip => {
-    const resolved = resolvePath(clip.path);
-    return {
-      ...clip,
-      exists: resolved ? existsSync(resolved) : false
-    };
-  });
-  res.json(clipsWithStatus);
+  try {
+    const clips = await dbService.getClips(userId);
+    const clipsWithStatus = clips.map(clip => {
+      const isGcs = gcsService.isGcsEnabled();
+      const exists = isGcs ? !!clip.path : existsSync(resolvePath(clip.path));
+      return {
+        ...clip,
+        exists
+      };
+    });
+    res.json(clipsWithStatus);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Add clip via absolute local path (extremely fast for local workflows)
@@ -553,39 +591,49 @@ app.post('/api/clips/add-path', async (req, res) => {
   }
 
   const userId = getUserId(req);
-  const db = getDb();
-  const apiKey = process.env.GEMINI_API_KEY || db.settings.geminiApiKey;
-  if (!apiKey && !process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-    return res.status(400).json({ error: 'Gemini API key or Vertex AI credentials are required.' });
-  }
-
-  const clipId = uuidv4();
-  const filename = path.basename(absolutePath);
-  const thumbnailFilename = `${clipId}.jpg`;
-  const thumbnailPath = path.join(THUMBNAILS_DIR, thumbnailFilename);
-
   try {
+    const settings = await dbService.getSettings();
+    const apiKey = process.env.GEMINI_API_KEY || settings.geminiApiKey;
+    if (!apiKey && !process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+      return res.status(400).json({ error: 'Gemini API key or Vertex AI credentials are required.' });
+    }
+
+    const clipId = uuidv4();
+    const filename = path.basename(absolutePath);
+    const thumbnailFilename = `${clipId}.jpg`;
+    const thumbnailPath = path.join(THUMBNAILS_DIR, thumbnailFilename);
+
     // 1. Get Video Duration
     const duration = await getVideoDuration(absolutePath);
 
     // 2. Generate Thumbnail
     await generateThumbnail(absolutePath, thumbnailPath);
 
+    let finalVideoPath = absolutePath;
+    let finalThumbnailUrl = `/uploads/thumbnails/${thumbnailFilename}`;
+
+    if (gcsService.isGcsEnabled()) {
+      finalVideoPath = await gcsService.uploadFile(absolutePath, `clips/${clipId}${path.extname(filename)}`);
+      finalThumbnailUrl = await gcsService.uploadFile(thumbnailPath, `thumbnails/${thumbnailFilename}`);
+      try {
+        await fs.unlink(thumbnailPath);
+      } catch (_) {}
+    }
+
     // 3. Create clip record in DB with analyzing status
     const newClip = {
       id: clipId,
       userId,
-      path: absolutePath,
+      path: finalVideoPath,
       name: filename,
-      thumbnail: `/uploads/thumbnails/${thumbnailFilename}`,
+      thumbnail: finalThumbnailUrl,
       duration,
       description: 'Analyzing clip content...',
       tags: [],
       status: 'analyzing'
     };
 
-    db.clips.push(newClip);
-    saveDb(db);
+    await dbService.saveClip(newClip);
 
     // 4. Trigger Gemini analysis in background
     analyzeVideoInBackground(clipId, absolutePath, apiKey);
@@ -603,15 +651,15 @@ app.post('/api/clips/upload', upload.array('videos', 20), async (req, res) => {
   }
 
   const userId = getUserId(req);
-  const db = getDb();
-  const apiKey = process.env.GEMINI_API_KEY || db.settings.geminiApiKey;
-  if (!apiKey && !process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-    return res.status(400).json({ error: 'Gemini API key or Vertex AI credentials are required.' });
-  }
-
-  const importedClips = [];
-
   try {
+    const settings = await dbService.getSettings();
+    const apiKey = process.env.GEMINI_API_KEY || settings.geminiApiKey;
+    if (!apiKey && !process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+      return res.status(400).json({ error: 'Gemini API key or Vertex AI credentials are required.' });
+    }
+
+    const importedClips = [];
+
     for (const file of req.files) {
       const absolutePath = file.path;
       const clipId = path.basename(file.filename, path.extname(file.filename));
@@ -621,25 +669,35 @@ app.post('/api/clips/upload', upload.array('videos', 20), async (req, res) => {
       const duration = await getVideoDuration(absolutePath);
       await generateThumbnail(absolutePath, thumbnailPath);
 
+      let finalVideoPath = absolutePath;
+      let finalThumbnailUrl = `/uploads/thumbnails/${thumbnailFilename}`;
+
+      if (gcsService.isGcsEnabled()) {
+        finalVideoPath = await gcsService.uploadFile(absolutePath, `clips/${clipId}${path.extname(file.originalname)}`);
+        finalThumbnailUrl = await gcsService.uploadFile(thumbnailPath, `thumbnails/${thumbnailFilename}`);
+        try {
+          await fs.unlink(thumbnailPath);
+        } catch (_) {}
+      }
+
       const newClip = {
         id: clipId,
         userId,
-        path: absolutePath,
+        path: finalVideoPath,
         name: file.originalname,
-        thumbnail: `/uploads/thumbnails/${thumbnailFilename}`,
+        thumbnail: finalThumbnailUrl,
         duration,
         description: 'Analyzing clip content...',
         tags: [],
         status: 'analyzing'
       };
 
-      db.clips.push(newClip);
+      await dbService.saveClip(newClip);
       importedClips.push(newClip);
 
       analyzeVideoInBackground(clipId, absolutePath, apiKey);
     }
 
-    saveDb(db);
     res.json(importedClips);
   } catch (error) {
     res.status(500).json({ error: `Failed to upload files: ${error.message}` });
@@ -660,8 +718,8 @@ app.post('/api/clips/add-folder', async (req, res) => {
     }
 
     const userId = getUserId(req);
-    const db = getDb();
-    const apiKey = process.env.GEMINI_API_KEY || db.settings.geminiApiKey;
+    const settings = await dbService.getSettings();
+    const apiKey = process.env.GEMINI_API_KEY || settings.geminiApiKey;
     if (!apiKey && !process.env.GOOGLE_APPLICATION_CREDENTIALS) {
       return res.status(400).json({ error: 'Gemini API key or Vertex AI credentials are required.' });
     }
@@ -680,12 +738,13 @@ app.post('/api/clips/add-folder', async (req, res) => {
     }
 
     const importedClips = [];
+    const existingClips = await dbService.getClips(userId);
     
     for (const filename of videoFiles) {
       const fileFullPath = path.join(absolutePath, filename);
       
       // Prevent importing duplicates
-      const exists = db.clips.some(c => c.path === fileFullPath && (c.userId || 'local-user') === userId);
+      const exists = existingClips.some(c => c.path === fileFullPath || c.name === filename);
       if (exists) continue;
 
       const clipId = uuidv4();
@@ -696,19 +755,30 @@ app.post('/api/clips/add-folder', async (req, res) => {
         const duration = await getVideoDuration(fileFullPath);
         await generateThumbnail(fileFullPath, thumbnailPath);
 
+        let finalVideoPath = fileFullPath;
+        let finalThumbnailUrl = `/uploads/thumbnails/${thumbnailFilename}`;
+
+        if (gcsService.isGcsEnabled()) {
+          finalVideoPath = await gcsService.uploadFile(fileFullPath, `clips/${clipId}${path.extname(filename)}`);
+          finalThumbnailUrl = await gcsService.uploadFile(thumbnailPath, `thumbnails/${thumbnailFilename}`);
+          try {
+            await fs.unlink(thumbnailPath);
+          } catch (_) {}
+        }
+
         const newClip = {
           id: clipId,
           userId,
-          path: fileFullPath,
+          path: finalVideoPath,
           name: filename,
-          thumbnail: `/uploads/thumbnails/${thumbnailFilename}`,
+          thumbnail: finalThumbnailUrl,
           duration,
           description: 'Analyzing clip content...',
           tags: [],
           status: 'analyzing'
         };
 
-        db.clips.push(newClip);
+        await dbService.saveClip(newClip);
         importedClips.push(newClip);
         
         // Trigger background analysis
@@ -716,11 +786,6 @@ app.post('/api/clips/add-folder', async (req, res) => {
       } catch (clipErr) {
         console.error(`Failed to process clip ${filename} in folder import:`, clipErr);
       }
-    }
-
-    // Save database once after queueing all clips
-    if (importedClips.length > 0) {
-      saveDb(db);
     }
 
     res.json({
@@ -734,102 +799,137 @@ app.post('/api/clips/add-folder', async (req, res) => {
 });
 
 // Stream clip video file directly
-app.get('/api/clips/:id/video', (req, res) => {
+app.get('/api/clips/:id/video', async (req, res) => {
   const { id } = req.params;
   const userId = getUserId(req);
-  const db = getDb();
-  const clip = db.clips.find(c => c.id === id && (c.userId || 'local-user') === userId);
-  if (!clip) {
-    return res.status(404).json({ error: 'Clip not found' });
-  }
+  try {
+    const clip = await dbService.getClip(id);
+    if (!clip || (clip.userId || 'local-user') !== userId) {
+      return res.status(404).json({ error: 'Clip not found' });
+    }
 
-  const resolved = resolvePath(clip.path);
-  if (!resolved || !existsSync(resolved)) {
-    return res.status(404).json({ error: 'Clip video file does not exist on disk' });
-  }
+    if (gcsService.isGcsEnabled() && clip.path.startsWith('http')) {
+      // Redirect browser to GCS signed URL
+      return res.redirect(clip.path);
+    }
 
-  res.sendFile(resolved);
+    const resolved = resolvePath(clip.path);
+    if (!resolved || !existsSync(resolved)) {
+      return res.status(404).json({ error: 'Clip video file does not exist on disk' });
+    }
+
+    res.sendFile(resolved);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Delete clip
 app.delete('/api/clips/:id', async (req, res) => {
   const { id } = req.params;
   const userId = getUserId(req);
-  const db = getDb();
-  const clipIdx = db.clips.findIndex(c => c.id === id && (c.userId || 'local-user') === userId);
-  if (clipIdx === -1) {
-    return res.status(404).json({ error: 'Clip not found' });
-  }
-
-  const clip = db.clips[clipIdx];
-  db.clips.splice(clipIdx, 1);
-  saveDb(db);
-
-  // Attempt to delete downloaded/uploaded file if it resides in our uploads folder
-  if (clip.path.includes('uploads/clips')) {
-    try {
-      await fs.unlink(clip.path);
-    } catch (_) {}
-  }
-  // Delete thumbnail
-  const thumbPath = path.join(THUMBNAILS_DIR, `${id}.jpg`);
   try {
-    await fs.unlink(thumbPath);
-  } catch (_) {}
+    const clip = await dbService.getClip(id);
+    if (!clip || (clip.userId || 'local-user') !== userId) {
+      return res.status(404).json({ error: 'Clip not found' });
+    }
 
-  res.json({ success: true });
+    // Attempt to delete files from GCS/local
+    await gcsService.deleteFile(clip.path);
+    await gcsService.deleteFile(clip.thumbnail);
+
+    // Delete thumbnail from local cache just in case
+    const thumbPath = path.join(THUMBNAILS_DIR, `${id}.jpg`);
+    try {
+      await fs.unlink(thumbPath);
+    } catch (_) {}
+
+    await dbService.deleteClip(id);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Force re-analyze all clips in the library (runs the new segment-based analysis)
-app.post('/api/clips/reanalyze-all', (req, res) => {
+app.post('/api/clips/reanalyze-all', async (req, res) => {
   const userId = getUserId(req);
-  const db = getDb();
-  const apiKey = db.settings.geminiApiKey;
-  if (!apiKey && !process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-    return res.status(400).json({ error: 'Gemini API key or Vertex AI credentials are required.' });
+  try {
+    const settings = await dbService.getSettings();
+    const apiKey = settings.geminiApiKey;
+    if (!apiKey && !process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+      return res.status(400).json({ error: 'Gemini API key or Vertex AI credentials are required.' });
+    }
+
+    const clips = await dbService.getClips(userId);
+    const clipsToAnalyze = clips.filter(clip => !clip.segments || clip.segments.length === 0);
+
+    if (clipsToAnalyze.length === 0) {
+      return res.json({ success: true, count: 0, message: 'All clips already have segment analysis.' });
+    }
+
+    for (const clip of clipsToAnalyze) {
+      clip.status = 'analyzing';
+      clip.description = 'Re-analyzing clip content with timelines...';
+      clip.tags = [];
+      clip.segments = [];
+      await dbService.saveClip(clip);
+
+      let localPath = clip.path;
+      if (gcsService.isGcsEnabled() && clip.path.startsWith('http')) {
+        localPath = path.join(CLIPS_DIR, `${clip.id}.mp4`);
+        await gcsService.downloadFile(clip.path, localPath);
+      }
+
+      analyzeVideoInBackground(clip.id, localPath, apiKey);
+    }
+
+    res.json({ success: true, count: clipsToAnalyze.length });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
-
-  // Only select clips that do NOT have segment analysis populated yet
-  const clipsToAnalyze = db.clips.filter(clip => (clip.userId || 'local-user') === userId && (!clip.segments || clip.segments.length === 0));
-
-  if (clipsToAnalyze.length === 0) {
-    return res.json({ success: true, count: 0, message: 'All clips already have segment analysis.' });
-  }
-
-  // Set selected statuses to analyzing and trigger background job
-  clipsToAnalyze.forEach(clip => {
-    clip.status = 'analyzing';
-    clip.description = 'Re-analyzing clip content with timelines...';
-    clip.tags = [];
-    clip.segments = [];
-    analyzeVideoInBackground(clip.id, clip.path, apiKey);
-  });
-
-  saveDb(db);
-  res.json({ success: true, count: clipsToAnalyze.length });
 });
 
 // Background Analysis Worker
 async function analyzeVideoInBackground(clipId, filePath, apiKey) {
+  let localPath = filePath;
+  let isTempDownloaded = false;
   try {
-    const analysis = await analyzeVideo(filePath, apiKey);
-    const db = getDb();
-    const clip = db.clips.find(c => c.id === clipId);
+    if (gcsService.isGcsEnabled() && (filePath.startsWith('http') || filePath.startsWith('gs://'))) {
+      const ext = path.extname(filePath.split('?')[0]) || '.mp4';
+      localPath = path.join(CLIPS_DIR, `${clipId}${ext}`);
+      console.log(`[Background Worker] Clip file is remote. Downloading from GCS to local path for analysis: ${localPath}`);
+      await gcsService.downloadFile(filePath, localPath);
+      isTempDownloaded = true;
+    }
+    const analysis = await analyzeVideo(localPath, apiKey);
+    const clip = await dbService.getClip(clipId);
     if (clip) {
       clip.description = analysis.description;
       clip.tags = analysis.tags;
       clip.segments = analysis.segments || [];
       clip.status = 'ready';
-      saveDb(db);
+      await dbService.saveClip(clip);
     }
   } catch (error) {
     console.error(`Error analyzing clip ${clipId}:`, error);
-    const db = getDb();
-    const clip = db.clips.find(c => c.id === clipId);
-    if (clip) {
-      clip.description = `Analysis failed: ${error.message}`;
-      clip.status = 'failed';
-      saveDb(db);
+    try {
+      const clip = await dbService.getClip(clipId);
+      if (clip) {
+        clip.description = `Analysis failed: ${error.message}`;
+        clip.status = 'failed';
+        await dbService.saveClip(clip);
+      }
+    } catch (_) {}
+  } finally {
+    // If running in GCS mode, delete the local temp upload video file to free up container space
+    if (gcsService.isGcsEnabled()) {
+      if (isTempDownloaded || (localPath.includes('uploads/clips') && existsSync(localPath))) {
+        try {
+          await fs.unlink(localPath);
+          console.log(`[Background Worker] Cleaned up temporary local clip file: ${localPath}`);
+        } catch (_) {}
+      }
     }
   }
 }
@@ -868,11 +968,14 @@ app.get('/api/sfx', async (req, res) => {
 // ==========================================
 // Music Library API (No Analysis)
 // ==========================================
-app.get('/api/bgms', (req, res) => {
+app.get('/api/bgms', async (req, res) => {
   const userId = getUserId(req);
-  const db = getDb();
-  const userBgms = (db.bgms || []).filter(b => (b.userId || 'local-user') === userId);
-  res.json(userBgms);
+  try {
+    const bgms = await dbService.getBgms(userId);
+    res.json(bgms);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 app.get('/api/bgms/duration', async (req, res) => {
@@ -881,7 +984,21 @@ app.get('/api/bgms/duration', async (req, res) => {
     return res.status(400).json({ error: 'path parameter is required.' });
   }
   try {
-    const duration = await getVideoDuration(filePath);
+    // If it's a GCS URL, download to temp path first to read duration
+    let tempPath = filePath;
+    if (gcsService.isGcsEnabled() && filePath.startsWith('http')) {
+      tempPath = path.join(MUSIC_DIR, `temp_dur_${uuidv4()}.mp3`);
+      await gcsService.downloadFile(filePath, tempPath);
+    }
+
+    const duration = await getVideoDuration(tempPath);
+
+    if (tempPath !== filePath) {
+      try {
+        await fs.unlink(tempPath);
+      } catch (_) {}
+    }
+
     res.json({ duration });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -896,25 +1013,26 @@ app.post('/api/bgms/add-path', async (req, res) => {
   }
 
   const userId = getUserId(req);
-  const db = getDb();
   const bgmId = uuidv4();
   const filename = path.basename(absolutePath);
 
   try {
     const duration = await getVideoDuration(absolutePath);
+    let finalPath = absolutePath;
+
+    if (gcsService.isGcsEnabled()) {
+      finalPath = await gcsService.uploadFile(absolutePath, `music/${bgmId}${path.extname(filename)}`);
+    }
 
     const newBgm = {
       id: bgmId,
       userId,
-      path: absolutePath,
+      path: finalPath,
       name: filename,
       duration
     };
 
-    db.bgms = db.bgms || [];
-    db.bgms.push(newBgm);
-    saveDb(db);
-
+    await dbService.saveBgm(newBgm);
     res.json(newBgm);
   } catch (error) {
     res.status(500).json({ error: `Failed to import BGM: ${error.message}` });
@@ -937,32 +1055,36 @@ app.post('/api/bgms/add-folder', async (req, res) => {
     const files = await fs.readdir(absolutePath);
     const audioExtensions = ['.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac'];
     const userId = getUserId(req);
-    const db = getDb();
-    db.bgms = db.bgms || [];
+    const existingBgms = await dbService.getBgms(userId);
 
     const imported = [];
     for (const file of files) {
       const ext = path.extname(file).toLowerCase();
       if (audioExtensions.includes(ext)) {
         const fileFullPath = path.join(absolutePath, file);
-        const exists = db.bgms.some(b => b.path === fileFullPath && (b.userId || 'local-user') === userId);
+        const exists = existingBgms.some(b => b.path === fileFullPath || b.name === file);
         if (!exists) {
           const bgmId = uuidv4();
           const duration = await getVideoDuration(fileFullPath);
+          
+          let finalPath = fileFullPath;
+          if (gcsService.isGcsEnabled()) {
+            finalPath = await gcsService.uploadFile(fileFullPath, `music/${bgmId}${ext}`);
+          }
+
           const newBgm = {
             id: bgmId,
             userId,
-            path: fileFullPath,
+            path: finalPath,
             name: file,
             duration
           };
-          db.bgms.push(newBgm);
+          await dbService.saveBgm(newBgm);
           imported.push(newBgm);
         }
       }
     }
 
-    saveDb(db);
     res.json({ success: true, count: imported.length, bgms: imported });
   } catch (error) {
     res.status(500).json({ error: `Failed to scan BGM folder: ${error.message}` });
@@ -976,25 +1098,31 @@ app.post('/api/bgms/upload', uploadMusic.array('bgms', 20), async (req, res) => 
   }
 
   const userId = getUserId(req);
-  const db = getDb();
-  db.bgms = db.bgms || [];
   const importedBgms = [];
 
   try {
     for (const file of req.files) {
       const bgmId = uuidv4();
       const duration = await getVideoDuration(file.path);
+      
+      let finalPath = file.path;
+      if (gcsService.isGcsEnabled()) {
+        finalPath = await gcsService.uploadFile(file.path, `music/${bgmId}${path.extname(file.originalname)}`);
+        try {
+          await fs.unlink(file.path);
+        } catch (_) {}
+      }
+
       const newBgm = {
         id: bgmId,
         userId,
-        path: file.path,
+        path: finalPath,
         name: file.originalname,
         duration
       };
-      db.bgms.push(newBgm);
+      await dbService.saveBgm(newBgm);
       importedBgms.push(newBgm);
     }
-    saveDb(db);
     res.json(importedBgms);
   } catch (error) {
     res.status(500).json({ error: `Failed to import uploaded BGMs: ${error.message}` });
@@ -1005,29 +1133,21 @@ app.post('/api/bgms/upload', uploadMusic.array('bgms', 20), async (req, res) => 
 app.delete('/api/bgms/:id', async (req, res) => {
   const { id } = req.params;
   const userId = getUserId(req);
-  const db = getDb();
-  db.bgms = db.bgms || [];
-  const bgmIdx = db.bgms.findIndex(b => b.id === id && (b.userId || 'local-user') === userId);
-
-  if (bgmIdx === -1) {
-    return res.status(404).json({ error: 'BGM not found.' });
-  }
-
-  const bgm = db.bgms[bgmIdx];
-  db.bgms.splice(bgmIdx, 1);
-  saveDb(db);
-
-  // Clean up uploaded file if it resides in our uploads directory
-  const resolved = resolvePath(bgm.path);
-  if (resolved && resolved.includes(path.join('uploads', 'music'))) {
-    try {
-      await fs.unlink(resolved);
-    } catch (err) {
-      console.warn(`Could not delete file on disk: ${resolved}`);
+  try {
+    const bgms = await dbService.getBgms(userId);
+    const bgm = bgms.find(b => b.id === id);
+    if (!bgm) {
+      return res.status(404).json({ error: 'BGM not found.' });
     }
-  }
 
-  res.json({ success: true });
+    // Clean up file via GCS service
+    await gcsService.deleteFile(bgm.path);
+    await dbService.deleteBgm(id);
+
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // ==========================================
@@ -1041,49 +1161,71 @@ app.post('/api/generate-voiceover', async (req, res) => {
     return res.status(400).json({ error: 'Script text and Voice ID are required.' });
   }
 
-  const db = getDb();
-  const apiKey = process.env.ELEVENLABS_API_KEY || db.settings.elevenLabsApiKey;
-  if (!apiKey) {
-    return res.status(400).json({ error: 'ElevenLabs API key is missing. Please configure it in Settings.' });
-  }
-
-  const userId = getUserId(req);
-  let user = null;
-  if (userId !== 'local-user') {
-    user = db.users.find(u => u.uid === userId);
-    if (!user) {
-      return res.status(404).json({ error: 'User account not found.' });
-    }
-    const estimatedSeconds = Math.max(1, Math.ceil(text.length / 15));
-    if (user.credits < estimatedSeconds) {
-      return res.status(403).json({ error: `Insufficient credits. Need ${estimatedSeconds} credits, but you only have ${user.credits} remaining.` });
-    }
-  }
-
-  // Save last selected voice in settings
-  db.settings.lastSelectedVoice = voiceId;
-  saveDb(db);
-
-  const audioId = uuidv4();
-  const audioFilename = `voiceover_${audioId}.mp3`;
-  const audioPath = path.join(GENERATED_DIR, audioFilename);
-
-  const finalModelId = modelId || 'eleven_multilingual_v2';
-  let ttsText = text;
-  if (finalModelId === 'eleven_v3' && enhanceSpeech) {
-    ttsText = `[thoughtful] ${text}`;
-  }
-
   try {
-    await generateSpeech(ttsText, voiceId, apiKey, audioPath, finalModelId);
+    const settings = await dbService.getSettings();
+    const apiKey = process.env.ELEVENLABS_API_KEY || settings.elevenLabsApiKey;
+    if (!apiKey) {
+      return res.status(400).json({ error: 'ElevenLabs API key is missing. Please configure it in Settings.' });
+    }
+
+    const userId = getUserId(req);
+    let user = null;
+    if (userId !== 'local-user') {
+      user = await dbService.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ error: 'User account not found.' });
+      }
+      const estimatedSeconds = Math.max(1, Math.ceil(text.length / 15));
+      if (user.credits < estimatedSeconds) {
+        return res.status(403).json({ error: `Insufficient credits. Need ${estimatedSeconds} credits, but you only have ${user.credits} remaining.` });
+      }
+    }
+
+    // Save last selected voice in settings
+    await dbService.saveSettings({ lastSelectedVoice: voiceId });
+
+    const audioId = uuidv4();
+    const audioFilename = `voiceover_${audioId}.mp3`;
+    const localAudioPath = path.join(GENERATED_DIR, audioFilename);
+
+    const finalModelId = modelId || 'eleven_multilingual_v2';
+    let ttsText = text;
+    if (finalModelId === 'eleven_v3' && enhanceSpeech) {
+      ttsText = `[thoughtful] ${text}`;
+    }
+
+    await generateSpeech(ttsText, voiceId, apiKey, localAudioPath, finalModelId);
     
+    let finalAudioPath = localAudioPath;
+    let finalAudioUrl = `/uploads/generated/${audioFilename}`;
+
+    if (gcsService.isGcsEnabled()) {
+      finalAudioPath = await gcsService.uploadFile(localAudioPath, `generated/${audioFilename}`);
+      finalAudioUrl = finalAudioPath; // Return signed GCS URL
+      try {
+        await fs.unlink(localAudioPath);
+      } catch (_) {}
+    }
+
     // Deduct credits if applicable
     if (user) {
       try {
-        const duration = await getVideoDuration(audioPath);
+        let tempPathForDur = finalAudioPath;
+        if (gcsService.isGcsEnabled() && finalAudioPath.startsWith('http')) {
+          tempPathForDur = path.join(GENERATED_DIR, `temp_dur_${audioId}.mp3`);
+          await gcsService.downloadFile(finalAudioPath, tempPathForDur);
+        }
+
+        const duration = await getVideoDuration(tempPathForDur);
         const creditsToDeduct = Math.max(1, Math.ceil(duration));
         user.credits = Math.max(0, user.credits - creditsToDeduct);
-        saveDb(db);
+        await dbService.saveUser(user);
+
+        if (tempPathForDur !== finalAudioPath) {
+          try {
+            await fs.unlink(tempPathForDur);
+          } catch (_) {}
+        }
       } catch (durErr) {
         console.warn('[Billing] Failed to get voiceover duration for credit deduction:', durErr);
       }
@@ -1091,8 +1233,8 @@ app.post('/api/generate-voiceover', async (req, res) => {
 
     res.json({
       success: true,
-      audioPath: audioPath,
-      audioUrl: `/uploads/generated/${audioFilename}`
+      audioPath: finalAudioPath,
+      audioUrl: finalAudioUrl
     });
   } catch (error) {
     console.error('Error in /api/generate-voiceover:', error);
@@ -1120,33 +1262,102 @@ app.post('/api/upload-audio', audioUpload.single('audio'), async (req, res) => {
   const ext = path.extname(req.file.originalname).toLowerCase();
   const videoExtensions = ['.mp4', '.mov', '.m4v', '.webm', '.mkv', '.avi'];
 
-  if (videoExtensions.includes(ext)) {
-    const audioOutputFilename = `voiceover_${uuidv4()}.mp3`;
-    const audioOutputPath = path.join(GENERATED_DIR, audioOutputFilename);
+  try {
+    let absolutePath = req.file.path;
+    let finalFilename = req.file.filename;
 
-    try {
+    if (videoExtensions.includes(ext)) {
+      const audioOutputFilename = `voiceover_${uuidv4()}.mp3`;
+      const audioOutputPath = path.join(GENERATED_DIR, audioOutputFilename);
+
       const finalAudioPath = await extractAudioFromVideo(req.file.path, audioOutputPath);
-      const finalFilename = path.basename(finalAudioPath);
+      absolutePath = finalAudioPath;
+      finalFilename = path.basename(finalAudioPath);
       
       // Cleanup uploaded video to save disk space
       await fs.unlink(req.file.path).catch(() => {});
-
-      return res.json({
-        success: true,
-        audioPath: finalAudioPath,
-        audioUrl: `/uploads/generated/${finalFilename}`
-      });
-    } catch (err) {
-      logErrorToFile('/api/upload-audio [Video Extraction]', err);
-      return res.status(500).json({ error: `Failed to extract audio from video: ${err.message}` });
     }
+
+    let finalAudioPath = absolutePath;
+    let finalAudioUrl = `/uploads/generated/${finalFilename}`;
+
+    if (gcsService.isGcsEnabled()) {
+      finalAudioPath = await gcsService.uploadFile(absolutePath, `generated/${finalFilename}`);
+      finalAudioUrl = finalAudioPath;
+      try {
+        await fs.unlink(absolutePath);
+      } catch (_) {}
+    }
+
+    res.json({
+      success: true,
+      audioPath: finalAudioPath,
+      audioUrl: finalAudioUrl
+    });
+  } catch (err) {
+    logErrorToFile('/api/upload-audio', err);
+    return res.status(500).json({ error: `Failed to process uploaded file: ${err.message}` });
+  }
+});
+
+// Multer configuration for talking head video upload
+const talkingHeadVideoUpload = multer({
+  storage: multer.diskStorage({
+    destination: GENERATED_DIR,
+    filename: (req, file, cb) => {
+      cb(null, `talkinghead_${uuidv4()}${path.extname(file.originalname)}`);
+    }
+  })
+});
+
+// 2c. Talking Head Video upload endpoint (extracts audio, keeps original video)
+app.post('/api/upload-talkinghead', talkingHeadVideoUpload.single('video'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'No video file provided.' });
   }
 
-  res.json({
-    success: true,
-    audioPath: req.file.path,
-    audioUrl: `/uploads/generated/${req.file.filename}`
-  });
+  const ext = path.extname(req.file.originalname).toLowerCase();
+  const videoExtensions = ['.mp4', '.mov', '.m4v', '.webm', '.mkv', '.avi'];
+
+  if (!videoExtensions.includes(ext)) {
+    await fs.unlink(req.file.path).catch(() => {});
+    return res.status(400).json({ error: 'Uploaded file must be a valid video format.' });
+  }
+
+  const audioOutputFilename = `voiceover_${uuidv4()}.mp3`;
+  const audioOutputPath = path.join(GENERATED_DIR, audioOutputFilename);
+
+  try {
+    const finalAudioPath = await extractAudioFromVideo(req.file.path, audioOutputPath);
+    const finalFilename = path.basename(finalAudioPath);
+    
+    let finalVideoPath = req.file.path;
+    let finalVideoUrl = `/uploads/generated/${req.file.filename}`;
+    let finalAudioGcsPath = finalAudioPath;
+    let finalAudioGcsUrl = `/uploads/generated/${finalFilename}`;
+
+    if (gcsService.isGcsEnabled()) {
+      finalVideoPath = await gcsService.uploadFile(req.file.path, `generated/${req.file.filename}`);
+      finalVideoUrl = finalVideoPath;
+      finalAudioGcsPath = await gcsService.uploadFile(finalAudioPath, `generated/${finalFilename}`);
+      finalAudioGcsUrl = finalAudioGcsPath;
+      try {
+        await fs.unlink(req.file.path);
+        await fs.unlink(finalAudioPath);
+      } catch (_) {}
+    }
+
+    res.json({
+      success: true,
+      originalVideoPath: finalVideoPath,
+      originalVideoUrl: finalVideoUrl,
+      audioPath: finalAudioGcsPath,
+      audioUrl: finalAudioGcsUrl
+    });
+  } catch (err) {
+    logErrorToFile('/api/upload-talkinghead [Video Extraction]', err);
+    return res.status(500).json({ error: `Failed to extract audio from video: ${err.message}` });
+  }
 });
 
 // 2b. Extract audio from Library Video Clip endpoint
@@ -1156,28 +1367,50 @@ app.post('/api/clips/extract-audio', async (req, res) => {
     return res.status(400).json({ error: 'clipId is required.' });
   }
 
-  const db = getDb();
-  const clip = db.clips.find(c => c.id === clipId);
-  if (!clip) {
-    return res.status(404).json({ error: 'Clip not found.' });
-  }
-
-  const resolved = resolvePath(clip.path);
-  if (!resolved || !existsSync(resolved)) {
-    return res.status(404).json({ error: 'Clip source file does not exist on disk.' });
-  }
-
-  const audioOutputFilename = `extracted_${clipId}.mp3`;
-  const audioOutputPath = path.join(GENERATED_DIR, audioOutputFilename);
-
   try {
+    const clip = await dbService.getClip(clipId);
+    if (!clip) {
+      return res.status(404).json({ error: 'Clip not found.' });
+    }
+
+    let tempVideoPath = clip.path;
+    if (gcsService.isGcsEnabled() && clip.path.startsWith('http')) {
+      tempVideoPath = path.join(CLIPS_DIR, `temp_extract_${uuidv4()}.mp4`);
+      await gcsService.downloadFile(clip.path, tempVideoPath);
+    }
+
+    const resolved = resolvePath(tempVideoPath);
+    if (!resolved || !existsSync(resolved)) {
+      return res.status(404).json({ error: 'Clip source file does not exist on disk.' });
+    }
+
+    const audioOutputFilename = `extracted_${clipId}.mp3`;
+    const audioOutputPath = path.join(GENERATED_DIR, audioOutputFilename);
+
     const finalAudioPath = await extractAudioFromVideo(resolved, audioOutputPath);
     const finalFilename = path.basename(finalAudioPath);
     
+    let finalAudioGcsPath = finalAudioPath;
+    let finalAudioGcsUrl = `/uploads/generated/${finalFilename}`;
+
+    if (gcsService.isGcsEnabled()) {
+      finalAudioGcsPath = await gcsService.uploadFile(finalAudioPath, `generated/${finalFilename}`);
+      finalAudioGcsUrl = finalAudioGcsPath;
+      try {
+        await fs.unlink(finalAudioPath);
+      } catch (_) {}
+    }
+
+    if (tempVideoPath !== clip.path) {
+      try {
+        await fs.unlink(tempVideoPath);
+      } catch (_) {}
+    }
+
     res.json({
       success: true,
-      audioPath: finalAudioPath,
-      audioUrl: `/uploads/generated/${finalFilename}`
+      audioPath: finalAudioGcsPath,
+      audioUrl: finalAudioGcsUrl
     });
   } catch (err) {
     logErrorToFile('/api/clips/extract-audio', err);
@@ -1191,13 +1424,13 @@ app.post('/api/enhance-script', async (req, res) => {
     return res.status(400).json({ error: 'Script text is required.' });
   }
 
-  const db = getDb();
-  const apiKey = process.env.GEMINI_API_KEY || db.settings.geminiApiKey;
-  if (!apiKey && !process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-    return res.status(400).json({ error: 'Gemini API key or Vertex AI credentials are required.' });
-  }
-
   try {
+    const settings = await dbService.getSettings();
+    const apiKey = process.env.GEMINI_API_KEY || settings.geminiApiKey;
+    if (!apiKey && !process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+      return res.status(400).json({ error: 'Gemini API key or Vertex AI credentials are required.' });
+    }
+
     const enhancedText = await enhanceScriptWithTags(scriptText, apiKey);
     res.json({ success: true, enhancedText });
   } catch (error) {
@@ -1209,19 +1442,28 @@ app.post('/api/enhance-script', async (req, res) => {
 
 // 3. Script segmentation and time alignment (via Gemini)
 app.post('/api/align-script', async (req, res) => {
-  const { scriptText, audioPath } = req.body;
+  const { scriptText, audioPath, mergeShortScenes } = req.body;
   if (!audioPath) {
     return res.status(400).json({ error: 'Audio file path is required.' });
   }
 
-  const db = getDb();
-  const apiKey = process.env.GEMINI_API_KEY || db.settings.geminiApiKey;
-  if (!apiKey && !process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-    return res.status(400).json({ error: 'Gemini API key or Vertex AI credentials are required.' });
-  }
-
+  let tempLocalAudioPath = null;
   try {
-    const resolved = resolvePath(audioPath);
+    const settings = await dbService.getSettings();
+    const apiKey = process.env.GEMINI_API_KEY || settings.geminiApiKey;
+    if (!apiKey && !process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+      return res.status(400).json({ error: 'Gemini API key or Vertex AI credentials are required.' });
+    }
+
+    let resolved = null;
+    if (gcsService.isGcsEnabled() && audioPath.startsWith('http')) {
+      tempLocalAudioPath = path.join(GENERATED_DIR, `temp_align_${uuidv4()}.mp3`);
+      await gcsService.downloadFile(audioPath, tempLocalAudioPath);
+      resolved = tempLocalAudioPath;
+    } else {
+      resolved = resolvePath(audioPath);
+    }
+
     const rawSegments = await alignScriptAndAudio(scriptText || '', resolved, apiKey);
     
     // Try using Google Cloud Speech-to-Text for near-perfect 99% word timings (with automatic fallback to Gemini)
@@ -1526,7 +1768,9 @@ app.post('/api/align-script', async (req, res) => {
       return result;
     };
 
-    const mergedSegments = enforceMinimumSegmentDuration(rawSegments);
+    const mergedSegments = mergeShortScenes !== false
+      ? enforceMinimumSegmentDuration(rawSegments)
+      : rawSegments;
 
     // Process and interpolate word timings if they are missing
     const segments = mergedSegments.map(seg => {
@@ -1572,6 +1816,13 @@ app.post('/api/align-script', async (req, res) => {
     console.error('Error in /api/align-script:', error);
     logErrorToFile('/api/align-script', error);
     res.status(500).json({ error: error.message });
+  } finally {
+    if (tempLocalAudioPath && existsSync(tempLocalAudioPath)) {
+      try {
+        await fs.unlink(tempLocalAudioPath);
+        console.log(`[Align Script] Cleaned up temporary align file: ${tempLocalAudioPath}`);
+      } catch (_) {}
+    }
   }
 });
 
@@ -1581,8 +1832,17 @@ app.post('/api/beat-sync/analyze', async (req, res) => {
     return res.status(400).json({ error: 'Audio file path is required.' });
   }
 
+  let tempLocalAudioPath = null;
   try {
-    const resolved = resolvePath(audioPath);
+    let resolved = null;
+    if (gcsService.isGcsEnabled() && audioPath.startsWith('http')) {
+      tempLocalAudioPath = path.join(MUSIC_DIR, `temp_beat_${uuidv4()}.mp3`);
+      await gcsService.downloadFile(audioPath, tempLocalAudioPath);
+      resolved = tempLocalAudioPath;
+    } else {
+      resolved = resolvePath(audioPath);
+    }
+
     const thresh = threshold !== undefined ? Number(threshold) : 1.4;
     // Detect Major Beats (default minDistance = 0.4s)
     const beats = await detectBeats(resolved, thresh, 0.4);
@@ -1601,40 +1861,49 @@ app.post('/api/beat-sync/analyze', async (req, res) => {
     console.error('Error in /api/beat-sync/analyze:', error);
     logErrorToFile('/api/beat-sync/analyze', error);
     res.status(500).json({ error: error.message });
+  } finally {
+    if (tempLocalAudioPath && existsSync(tempLocalAudioPath)) {
+      try {
+        await fs.unlink(tempLocalAudioPath);
+      } catch (_) {}
+    }
   }
 });
 
 // 4. Storyboard clip matching (via Gemini)
 app.post('/api/match-clips', async (req, res) => {
-  const { scenes } = req.body;
+  const { scenes, talkingHead } = req.body;
   if (!scenes || !Array.isArray(scenes)) {
     return res.status(400).json({ error: 'Storyboard scenes list is required.' });
   }
 
-  const db = getDb();
-  const apiKey = process.env.GEMINI_API_KEY || db.settings.geminiApiKey;
-  if (!apiKey && !process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-    return res.status(400).json({ error: 'Gemini API key or Vertex AI credentials are required.' });
-  }
-
-  // Only match against "ready" status clips
-  const readyClips = db.clips
-    .filter(c => c.status === 'ready')
-    .map(c => ({
-      id: c.id,
-      name: c.name,
-      description: c.description,
-      tags: c.tags,
-      duration: c.duration,
-      segments: c.segments || []
-    }));
-
-  if (readyClips.length === 0) {
-    return res.status(400).json({ error: 'No analyzed clips found in the library. Please import and analyze video clips first.' });
-  }
-
   try {
-    const matches = await matchClipsToScenes(scenes, readyClips, apiKey);
+    const settings = await dbService.getSettings();
+    const apiKey = process.env.GEMINI_API_KEY || settings.geminiApiKey;
+    if (!apiKey && !process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+      return res.status(400).json({ error: 'Gemini API key or Vertex AI credentials are required.' });
+    }
+
+    const userId = getUserId(req);
+    const clips = await dbService.getClips(userId);
+
+    // Only match against "ready" status clips
+    const readyClips = clips
+      .filter(c => c.status === 'ready')
+      .map(c => ({
+        id: c.id,
+        name: c.name,
+        description: c.description,
+        tags: c.tags,
+        duration: c.duration,
+        segments: c.segments || []
+      }));
+
+    if (readyClips.length === 0) {
+      return res.status(400).json({ error: 'No analyzed clips found in the library. Please import and analyze video clips first.' });
+    }
+
+    const matches = await matchClipsToScenes(scenes, readyClips, apiKey, !!talkingHead);
     res.json({ success: true, matches });
   } catch (error) {
     console.error('Error in /api/match-clips:', error);
@@ -1665,6 +1934,7 @@ app.post('/api/generate-video', async (req, res) => {
     projectId,
     scenes,
     voiceoverPath,
+    originalVideoPath,
     bgMusicPath,
     bgMusicVolume,
     bgMusicStartOffset,
@@ -1679,91 +1949,145 @@ app.post('/api/generate-video', async (req, res) => {
     exportFps,
     miniBeats,
     miniBeatEffect,
-    beatEffects
+    beatEffects,
+    backgroundType,
+    backgroundColor,
+    backgroundClipId,
+    talkingHeadEnabled,
+    talkingHeadChromaColor,
+    talkingHeadChromaSimilarity,
+    talkingHeadChromaBlend,
+    talkingHeadSize,
+    talkingHeadPosition,
+    talkingHeadPositionX,
+    talkingHeadPositionY,
+    talkingHeadOutlineEnabled,
+    talkingHeadOutlineColor,
+    talkingHeadOutlineThickness
   } = req.body;
 
   if (!scenes || !voiceoverPath) {
     return res.status(400).json({ error: 'Scenes and voiceover file path are required.' });
   }
 
-  const db = getDb();
   const userId = getUserId(req);
   let user = null;
   let estimatedCredits = 0;
-
-  const resolvedVoiceoverPath = resolvePath(voiceoverPath);
-  const resolvedBgMusicPath = resolvePath(bgMusicPath);
-
-  if (userId !== 'local-user') {
-    user = db.users.find(u => u.uid === userId);
-    if (!user) {
-      return res.status(404).json({ error: 'User account not found.' });
-    }
-    
-    try {
-      if (resolvedVoiceoverPath && existsSync(resolvedVoiceoverPath)) {
-        const duration = await getVideoDuration(resolvedVoiceoverPath);
-        estimatedCredits = Math.max(1, Math.ceil(duration));
-      } else {
-        return res.status(400).json({ error: `Voiceover audio file does not exist: ${voiceoverPath}` });
-      }
-    } catch (err) {
-      return res.status(500).json({ error: `Failed to determine audio duration: ${err.message}` });
-    }
-
-    if (user.credits < estimatedCredits) {
-      return res.status(403).json({ error: `Insufficient credits. Need ${estimatedCredits} credits, but you only have ${user.credits} remaining.` });
-    }
-
-    // Deduct credits upfront
-    user.credits = Math.max(0, user.credits - estimatedCredits);
-    saveDb(db);
-  }
-
   const jobId = uuidv4();
 
-  // Create job structure
-  const jobState = {
-    id: jobId,
-    projectId: projectId || null,
-    progress: 0,
-    status: 'Queued',
-    resultUrl: null,
-    error: null
-  };
+  let tempLocalVoiceoverPath = null;
+  let resolvedVoiceoverPath = voiceoverPath;
 
-  activeJobs.set(jobId, jobState);
+  try {
+    if (gcsService.isGcsEnabled() && voiceoverPath.startsWith('http')) {
+      tempLocalVoiceoverPath = path.join(GENERATED_DIR, `temp_dur_gen_${jobId}.mp3`);
+      await gcsService.downloadFile(voiceoverPath, tempLocalVoiceoverPath);
+      resolvedVoiceoverPath = tempLocalVoiceoverPath;
+    } else {
+      resolvedVoiceoverPath = resolvePath(voiceoverPath);
+    }
 
-  // Trigger video compilation in background
-  runVideoCompilation(jobId, {
-    projectId,
-    userId,
-    estimatedCredits,
-    scenes,
-    clips: db.clips.map(c => ({
-      ...c,
-      path: resolvePath(c.path)
-    })),
-    voiceoverPath: resolvedVoiceoverPath,
-    bgMusicPath: resolvedBgMusicPath,
-    bgMusicVolume,
-    bgMusicStartOffset,
-    voiceoverVolume,
-    aspectRatio,
-    fillMode,
-    subtitleStyle,
-    clipTransition,
-    transitionDuration,
-    zoomAnimation,
-    exportResolution,
-    exportFps,
-    miniBeats,
-    miniBeatEffect,
-    beatEffects,
-    outputDir: GENERATED_DIR
-  });
+    const resolvedBgMusicPath = bgMusicPath ? resolvePath(bgMusicPath) : null;
 
-  res.json({ success: true, jobId });
+    if (userId !== 'local-user') {
+      user = await dbService.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ error: 'User account not found.' });
+      }
+      
+      try {
+        if (resolvedVoiceoverPath && existsSync(resolvedVoiceoverPath)) {
+          const duration = await getVideoDuration(resolvedVoiceoverPath);
+          estimatedCredits = Math.max(1, Math.ceil(duration));
+        } else {
+          return res.status(400).json({ error: `Voiceover audio file does not exist: ${voiceoverPath}` });
+        }
+      } catch (err) {
+        return res.status(500).json({ error: `Failed to determine audio duration: ${err.message}` });
+      }
+
+      if (user.credits < estimatedCredits) {
+        return res.status(403).json({ error: `Insufficient credits. Need ${estimatedCredits} credits, but you only have ${user.credits} remaining.` });
+      }
+
+      // Deduct credits upfront
+      user.credits = Math.max(0, user.credits - estimatedCredits);
+      await dbService.saveUser(user);
+    }
+
+    // Clean up temporary voiceover file used for duration check
+    if (tempLocalVoiceoverPath && existsSync(tempLocalVoiceoverPath)) {
+      try {
+        await fs.unlink(tempLocalVoiceoverPath);
+      } catch (_) {}
+    }
+
+    const jobState = {
+      id: jobId,
+      projectId: projectId || null,
+      progress: 0,
+      status: 'Queued',
+      resultUrl: null,
+      error: null
+    };
+
+    activeJobs.set(jobId, jobState);
+
+    const clips = await dbService.getClips(userId);
+
+    // Trigger video compilation in background
+    runVideoCompilation(jobId, {
+      projectId,
+      userId,
+      estimatedCredits,
+      scenes,
+      clips: clips.map(c => ({
+        ...c,
+        path: gcsService.isGcsEnabled() ? c.path : resolvePath(c.path)
+      })),
+      voiceoverPath: gcsService.isGcsEnabled() ? voiceoverPath : resolvePath(voiceoverPath),
+      originalVideoPath: originalVideoPath ? (gcsService.isGcsEnabled() ? originalVideoPath : resolvePath(originalVideoPath)) : null,
+      bgMusicPath: bgMusicPath ? (gcsService.isGcsEnabled() ? bgMusicPath : resolvePath(bgMusicPath)) : null,
+      bgMusicVolume,
+      bgMusicStartOffset,
+      voiceoverVolume,
+      aspectRatio,
+      fillMode,
+      subtitleStyle,
+      clipTransition,
+      transitionDuration,
+      zoomAnimation,
+      exportResolution,
+      exportFps,
+      miniBeats,
+      miniBeatEffect,
+      beatEffects,
+      backgroundType,
+      backgroundColor,
+      backgroundClipId,
+      talkingHeadEnabled,
+      talkingHeadChromaColor,
+      talkingHeadChromaSimilarity,
+      talkingHeadChromaBlend,
+      talkingHeadSize,
+      talkingHeadPosition,
+      talkingHeadPositionX,
+      talkingHeadPositionY,
+      talkingHeadOutlineEnabled,
+      talkingHeadOutlineColor,
+      talkingHeadOutlineThickness,
+      outputDir: GENERATED_DIR
+    });
+
+    res.json({ success: true, jobId });
+  } catch (error) {
+    if (tempLocalVoiceoverPath && existsSync(tempLocalVoiceoverPath)) {
+      try {
+        await fs.unlink(tempLocalVoiceoverPath);
+      } catch (_) {}
+    }
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Background Video Assembler
@@ -1779,20 +2103,18 @@ async function runVideoCompilation(jobId, options) {
       job.status = statusText;
     });
 
-    const outputFilename = path.basename(outputPath);
     job.progress = 100;
     job.status = 'Completed';
-    job.resultUrl = `/uploads/generated/${outputFilename}`;
+    job.resultUrl = outputPath.startsWith('http') ? outputPath : `/uploads/generated/${path.basename(outputPath)}`;
 
     // Associate rendered video path with project
     if (options.projectId) {
-      const db = getDb();
-      const proj = db.projects.find(p => p.id === options.projectId);
+      const proj = await dbService.getProject(options.projectId);
       if (proj) {
         proj.state = proj.state || {};
         proj.state.lastRenderedVideoPath = outputPath;
         proj.updatedAt = new Date().toISOString();
-        saveDb(db);
+        await dbService.saveProject(proj);
       }
     }
   } catch (error) {
@@ -1805,11 +2127,10 @@ async function runVideoCompilation(jobId, options) {
     // Refund credits on failure
     if (userId && userId !== 'local-user' && estimatedCredits > 0) {
       try {
-        const db = getDb();
-        const user = db.users.find(u => u.uid === userId);
+        const user = await dbService.getUser(userId);
         if (user) {
           user.credits += estimatedCredits;
-          saveDb(db);
+          await dbService.saveUser(user);
           console.log(`[Billing] Refunded ${estimatedCredits} credits to user ${userId} due to compilation failure.`);
         }
       } catch (refundErr) {
@@ -1884,17 +2205,19 @@ app.listen(PORT, () => {
   console.log(`=================================================`);
 
   // Auto-resume any interrupted clip analysis tasks on boot
-  try {
-    const db = getDb();
-    const interruptedClips = db.clips.filter(c => c.status === 'analyzing');
-    const apiKey = process.env.GEMINI_API_KEY || db.settings.geminiApiKey;
-    if (interruptedClips.length > 0 && (apiKey || process.env.GOOGLE_APPLICATION_CREDENTIALS)) {
-      console.log(`[Startup Recovery] Found ${interruptedClips.length} interrupted analysis tasks. Resuming background analysis...`);
-      interruptedClips.forEach(clip => {
-        analyzeVideoInBackground(clip.id, clip.path, apiKey);
-      });
+  (async () => {
+    try {
+      const settings = await dbService.getSettings();
+      const interruptedClips = await dbService.getClipsByStatus('analyzing');
+      const apiKey = process.env.GEMINI_API_KEY || settings.geminiApiKey;
+      if (interruptedClips.length > 0 && (apiKey || process.env.GOOGLE_APPLICATION_CREDENTIALS)) {
+        console.log(`[Startup Recovery] Found ${interruptedClips.length} interrupted analysis tasks. Resuming background analysis...`);
+        interruptedClips.forEach(clip => {
+          analyzeVideoInBackground(clip.id, clip.path, apiKey);
+        });
+      }
+    } catch (err) {
+      console.error('[Startup Recovery] Failed to check for interrupted tasks:', err.message);
     }
-  } catch (err) {
-    console.error('[Startup Recovery] Failed to check for interrupted tasks:', err.message);
-  }
+  })();
 });

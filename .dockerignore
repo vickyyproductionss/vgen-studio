@@ -1,0 +1,49 @@
+# Dependencies (will be installed fresh inside the container)
+node_modules/
+backend/node_modules/
+
+# Build output (will be rebuilt inside the container)
+dist/
+build/
+
+# Git history (not needed in the image)
+.git/
+.gitignore
+
+# Environment & credentials (set via Cloud Run env vars instead)
+.env
+.env.*
+backend/.env
+*.json
+!package.json
+!package-lock.json
+!backend/package.json
+!backend/package-lock.json
+!tsconfig.json
+!tsconfig.app.json
+!tsconfig.node.json
+!backend/nodemon.json
+
+# Local database (Firestore replaces this)
+backend/db.json
+
+# Local uploads (GCS replaces this)
+backend/uploads/
+backend/data/
+
+# OS / Editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Test files
+backend/test-*
+backend/scratch/
+*.log
+
+# Stitch design reference
+stitch_v_gen_studio_redesign/
+
+# Eslint report
+eslint_report.txt

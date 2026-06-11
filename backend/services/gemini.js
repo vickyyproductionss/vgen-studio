@@ -252,7 +252,7 @@ async function alignScriptAndAudioInternal(scriptText, audioPath, apiKey) {
 
 And the uploaded audio file which is a reading of this script. The total duration of this audio file is exactly ${audioDuration.toFixed(2)} seconds.
 Analyze the audio, match it to the script, and segment the script into logical clips/sentences. 
-CRITICAL: Every segment MUST be between 2.0 and 4.0 seconds long (aim for 2.0 to 4.0 seconds per segment). If a sentence or phrase naturally takes less than 2.0 seconds to speak, you MUST group it with the adjacent sentence/phrase to create a combined segment that is at least 2.0 seconds long. Never output a segment shorter than 2.0 seconds, and never output a segment longer than 4.0 seconds (unless the total audio duration itself is less than 2.0 seconds, in which case output a single segment spanning the entire audio).
+CRITICAL: Segment the script naturally at sentence boundaries or major phrase boundaries. Do NOT force a minimum duration for the segments. Keep the segments as natural, individual sentences/phrases (even if they are short, e.g., 1.0 to 2.0 seconds long). Do not group sentences together unless they naturally flow as a single spoken phrase in the audio.
 
 For each segment, you MUST generate and provide the transcripts in both Hindi and Hinglish:
 1. text_hindi: The transcribed spoken dialogue in Devanagari Hindi script.
@@ -267,7 +267,7 @@ For each segment, you MUST generate and provide the transcripts in both Hindi an
 Ensure that the segments cover the whole audio timeline, and the start/end times are highly accurate based on the audio recording of ${audioDuration.toFixed(2)} seconds.`
     : `You are an audio transcriber and timing generator. 
 Analyze the uploaded audio file, transcribe it, and segment the transcribed text into logical clips/phrases. The total duration of this audio file is exactly ${audioDuration.toFixed(2)} seconds.
-CRITICAL: Every segment MUST be between 2.0 and 4.0 seconds long (aim for 2.0 to 4.0 seconds per segment). If a spoken phrase naturally takes less than 2.0 seconds to speak, you MUST group it with the adjacent spoken phrase to create a combined segment that is at least 2.0 seconds long. Never output a segment shorter than 2.0 seconds, and never output a segment longer than 4.0 seconds (unless the total audio duration itself is less than 2.0 seconds, in which case output a single segment spanning the entire audio).
+CRITICAL: Segment the speech naturally at logical pauses, sentence boundaries, or major phrase boundaries. Do NOT force a minimum duration for the segments. Keep the segments as natural, individual spoken phrases/sentences (even if they are short, e.g., 1.0 to 2.0 seconds long). Do not group spoken phrases together unless they naturally flow as a single spoken statement in the audio.
 
 For each segment, you MUST generate and provide the transcripts in both Hindi and Hinglish:
 1. text_hindi: The transcribed spoken dialogue in Devanagari Hindi script.
@@ -356,7 +356,7 @@ Ensure that the segments cover the whole audio timeline, and the start/end times
 /**
  * Matches video clips to storyboard scenes semantically
  */
-export async function matchClipsToScenes(scenes, clips, apiKey) {
+export async function matchClipsToScenes(scenes, clips, apiKey, isTalkingHead = false) {
   // Using global Vertex AI 'ai' instance
 
 
@@ -386,11 +386,16 @@ ${JSON.stringify(scenes.map((s, idx) => ({
 
 Rules:
 1. For each scene, pick the SINGLE best video clip that visually matches the scene's context.
-2. Review the clip's "segments" array. You MUST use the segment-based data to precisely match the moments described in the clip's segments to the scene's text context. Set "clipStart" to match the "start_time" of the specific matching segment inside that clip. Do not just match the general clip context or default to 0 if a more specific segment is available.
-3. IMPORTANT (Clip Reuse Limit): Try to maximize the variety of clips used. Avoid using more than one segment from the same clip in the video, unless you run out of unique clips. If you must reuse a clip, you can use different/distinct segments of that clip.
-4. IMPORTANT (Exact Segment Limit): Never repeat or reuse the EXACT SAME piece/segment (i.e. same clipId and same clipStart range) more than once in the entire output array of scene matches (each segment must be used at most once). Only repeat if you absolutely run out of clips and segments.
-5. IMPORTANT (No Back-to-Back): Never assign the same clip+segment (same clipId AND same clipStart) to two consecutive scenes in a row. Adjacent scenes must always use different clips or at least a different segment of the same clip.
-6. Explain your matching decision briefly in "reason" (e.g. "Matched scene text with segment X of clip Y starting at Zs").
+${isTalkingHead ? `
+2. SPECIAL RULE FOR TALKING HEAD VIDEO: You are editing a video of a person talking, and you want to insert library B-roll clips only when there is a strong visual keyword or concept matching a library B-roll clip.
+   - If a scene contains a clear visual action, object, or concept that can be illustrated by one of the B-roll clips in the library, match it to that clip.
+   - If a scene is general dialogue, introductory, or has no clear visual match in the B-roll library, set "clipId" to "original". Do NOT force a B-roll clip if it does not fit the dialogue context.
+` : ''}
+3. Review the clip's "segments" array. You MUST use the segment-based data to precisely match the moments described in the clip's segments to the scene's text context. Set "clipStart" to match the "start_time" of the specific matching segment inside that clip. Do not just match the general clip context or default to 0 if a more specific segment is available.
+4. IMPORTANT (Clip Reuse Limit): Try to maximize the variety of clips used. Avoid using more than one segment from the same clip in the video, unless you run out of unique clips. If you must reuse a clip, you can use different/distinct segments of that clip.
+5. IMPORTANT (Exact Segment Limit): Never repeat or reuse the EXACT SAME piece/segment (i.e. same clipId and same clipStart range) more than once in the entire output array of scene matches (each segment must be used at most once). Only repeat if you absolutely run out of clips and segments.
+6. IMPORTANT (No Back-to-Back): Never assign the same clip+segment (same clipId AND same clipStart) to two consecutive scenes in a row. Adjacent scenes must always use different clips or at least a different segment of the same clip.
+7. Explain your matching decision briefly in "reason" (e.g. "Matched scene text with segment X of clip Y starting at Zs"${isTalkingHead ? `, or "Keep original talking head video"` : ''}).
 
 Return a JSON array of matches matching the requested schema.`;
 
@@ -440,6 +445,7 @@ function enforceSegmentLimit(matches, clips, scenes) {
   const getSegKey = (clipId, start) => `${clipId}_${Number(start).toFixed(1)}`;
 
   for (const match of matches) {
+    if (match.clipId === 'original') continue; // Ignore original talking head clips
     const key = getSegKey(match.clipId, match.clipStart);
     segmentUsage[key] = (segmentUsage[key] || 0) + 1;
   }
@@ -451,6 +457,7 @@ function enforceSegmentLimit(matches, clips, scenes) {
   // --- Pass 1: Enforce max repetitions ---
   for (let i = 0; i < matches.length; i++) {
     const match = matches[i];
+    if (match.clipId === 'original') continue; // Ignore original talking head clips
     const key = getSegKey(match.clipId, match.clipStart);
 
     if (segmentUsage[key] > maxRepetitions) {
@@ -466,6 +473,7 @@ function enforceSegmentLimit(matches, clips, scenes) {
   for (let i = 1; i < sortedMatches.length; i++) {
     const prev = sortedMatches[i - 1];
     const curr = sortedMatches[i];
+    if (prev.clipId === 'original' || curr.clipId === 'original') continue; // Ignore original talking head clips
     const prevKey = getSegKey(prev.clipId, prev.clipStart);
     const currKey = getSegKey(curr.clipId, curr.clipStart);
 
@@ -491,6 +499,7 @@ function enforceSegmentLimit(matches, clips, scenes) {
  */
 function reassignMatch(matchIdx, matches, clips, scenes, segmentUsage, maxRepetitions, getSegKey, excludeKey) {
   const match = matches[matchIdx];
+  if (match.clipId === 'original') return false; // Do not reassign original clips
   const oldKey = getSegKey(match.clipId, match.clipStart);
   const scene = scenes[match.sceneIndex];
   const sceneText = (scene?.text || '').toLowerCase();

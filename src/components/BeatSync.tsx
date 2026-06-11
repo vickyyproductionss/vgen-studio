@@ -218,6 +218,85 @@ interface BeatSyncProps {
   onStartRender: (jobId: string) => void;
 }
 
+const enforceMinimumSegmentDuration = (segs: any[]) => {
+  if (!segs || segs.length <= 1) return segs;
+  
+  const minDuration = 2.0;
+  const result: any[] = [];
+  const segsCopy = segs.map(s => ({ ...s }));
+  
+  for (let i = 0; i < segsCopy.length; i++) {
+    const current = segsCopy[i];
+    const dur = current.end_time - current.start_time;
+    
+    if (dur < minDuration) {
+      if (result.length > 0) {
+        const prev = result[result.length - 1];
+        prev.end_time = Number(current.end_time.toFixed(3));
+        prev.text = ((prev.text || '') + ' ' + (current.text || '')).trim();
+        prev.text_hindi = ((prev.text_hindi || '') + ' ' + (current.text_hindi || '')).trim();
+        prev.text_hinglish = ((prev.text_hinglish || '') + ' ' + (current.text_hinglish || '')).trim();
+        
+        prev.words = [...(prev.words || []), ...(current.words || [])];
+        prev.words_hindi = [...(prev.words_hindi || []), ...(current.words_hindi || [])];
+        prev.words_hinglish = [...(prev.words_hinglish || []), ...(current.words_hinglish || [])];
+        
+        if (current.isBeatSyncOnly && prev.isBeatSyncOnly) {
+          prev.isBeatSyncOnly = true;
+        } else {
+          delete prev.isBeatSyncOnly;
+        }
+      } else if (i + 1 < segsCopy.length) {
+        const next = segsCopy[i + 1];
+        next.start_time = Number(current.start_time.toFixed(3));
+        next.text = ((current.text || '') + ' ' + (next.text || '')).trim();
+        next.text_hindi = ((current.text_hindi || '') + ' ' + (next.text_hindi || '')).trim();
+        next.text_hinglish = ((current.text_hinglish || '') + ' ' + (next.text_hinglish || '')).trim();
+        
+        next.words = [...(current.words || []), ...(next.words || [])];
+        next.words_hindi = [...(current.words_hindi || []), ...(next.words_hindi || [])];
+        next.words_hinglish = [...(current.words_hinglish || []), ...(next.words_hinglish || [])];
+        
+        if (current.isBeatSyncOnly && next.isBeatSyncOnly) {
+          next.isBeatSyncOnly = true;
+        } else {
+          delete next.isBeatSyncOnly;
+        }
+      } else {
+        result.push(current);
+      }
+    } else {
+      result.push(current);
+    }
+  }
+  
+  if (result.length > 1) {
+    const lastIdx = result.length - 1;
+    const last = result[lastIdx];
+    const lastDur = last.end_time - last.start_time;
+    if (lastDur < minDuration) {
+      const prev = result[lastIdx - 1];
+      prev.end_time = Number(last.end_time.toFixed(3));
+      prev.text = ((prev.text || '') + ' ' + (last.text || '')).trim();
+      prev.text_hindi = ((prev.text_hindi || '') + ' ' + (last.text_hindi || '')).trim();
+      prev.text_hinglish = ((prev.text_hinglish || '') + ' ' + (last.text_hinglish || '')).trim();
+      
+      prev.words = [...(prev.words || []), ...(last.words || [])];
+      prev.words_hindi = [...(prev.words_hindi || []), ...(last.words_hindi || [])];
+      prev.words_hinglish = [...(prev.words_hinglish || []), ...(last.words_hinglish || [])];
+      
+      if (last.isBeatSyncOnly && prev.isBeatSyncOnly) {
+        prev.isBeatSyncOnly = true;
+      } else {
+        delete prev.isBeatSyncOnly;
+      }
+      result.pop();
+    }
+  }
+  
+  return result;
+};
+
 export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
   // Library lists
   const [clips, setClips] = useState<Clip[]>([]);
@@ -237,10 +316,45 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
   const [threshold, setThreshold] = useState(1.4);
   const [geminiKeySet, setGeminiKeySet] = useState(false);
   const [activeLang, setActiveLang] = useState<'hinglish' | 'hindi'>('hinglish');
-  
-  // Editor boundaries & scenes list
+  const [mergeShortScenes, setMergeShortScenes] = useState(true);
+  const [rawScenes, setRawScenes] = useState<BeatScene[]>([]);
   const [boundaries, setBoundaries] = useState<number[]>([]);
   const [scenes, setScenes] = useState<BeatScene[]>([]);
+
+  const handleToggleMergeScenes = (shouldMerge: boolean) => {
+    setMergeShortScenes(shouldMerge);
+    if (rawScenes && rawScenes.length > 0) {
+      const processed = shouldMerge 
+        ? enforceMinimumSegmentDuration(rawScenes)
+        : rawScenes;
+      
+      // Rebuild boundaries
+      const bounds: number[] = [0.0];
+      processed.forEach((seg: any) => {
+        bounds.push(seg.end_time);
+      });
+      bounds.push(audioDuration);
+      const sortedBounds = Array.from(new Set(bounds)).sort((a, b) => a - b);
+      
+      setBoundaries(sortedBounds);
+      
+      const mappedScenes: BeatScene[] = processed.map((seg: any) => ({
+        text: activeLang === 'hindi' ? (seg.text_hindi || seg.text || '') : (seg.text_hinglish || seg.text || ''),
+        text_hindi: seg.text_hindi || '',
+        text_hinglish: seg.text_hinglish || '',
+        start_time: seg.start_time,
+        end_time: seg.end_time,
+        clipId: seg.clipId || '',
+        clipStart: seg.clipStart || 0,
+        reason: seg.reason || '',
+        words: activeLang === 'hindi' ? (seg.words_hindi || seg.words || []) : (seg.words_hinglish || seg.words || []),
+        words_hindi: seg.words_hindi || [],
+        words_hinglish: seg.words_hinglish || [],
+        isBeatSyncOnly: seg.isBeatSyncOnly || false
+      }));
+      setScenes(mappedScenes);
+    }
+  };
   const [sfxList, setSfxList] = useState<{ id: string; name: string }[]>([]);
 
   useEffect(() => {
@@ -471,6 +585,12 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
         if (state.syncMode !== undefined) setSyncMode(state.syncMode);
         if (state.threshold !== undefined) setThreshold(state.threshold);
         if (state.activeLang !== undefined) setActiveLang(state.activeLang);
+        if (state.mergeShortScenes !== undefined) setMergeShortScenes(state.mergeShortScenes);
+        if (state.rawScenes !== undefined) {
+          setRawScenes(state.rawScenes);
+        } else if (state.scenes !== undefined) {
+          setRawScenes(state.scenes);
+        }
         if (state.boundaries !== undefined) setBoundaries(state.boundaries);
         if (state.scenes !== undefined) setScenes(state.scenes);
         if (state.miniBeats !== undefined) setMiniBeats(state.miniBeats);
@@ -586,6 +706,8 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
               syncMode,
               threshold,
               activeLang,
+              mergeShortScenes,
+              rawScenes,
               boundaries,
               scenes,
               miniBeats,
@@ -668,6 +790,8 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
     syncMode,
     threshold,
     activeLang,
+    mergeShortScenes,
+    rawScenes,
     boundaries,
     scenes,
     miniBeats,
@@ -1044,7 +1168,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
         const res = await fetch('/api/align-script', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ scriptText: '', audioPath })
+          body: JSON.stringify({ scriptText: '', audioPath, mergeShortScenes: false })
         });
 
         if (!res.ok) {
@@ -1053,10 +1177,15 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
 
         const data = await res.json();
         const segments = data.segments || [];
+        setRawScenes(segments);
+
+        const processedSegments = mergeShortScenes
+          ? enforceMinimumSegmentDuration(segments)
+          : segments;
 
         // Build boundaries from dialogue segment timings
         const bounds: number[] = [0.0];
-        segments.forEach((seg: any) => {
+        processedSegments.forEach((seg: any) => {
           bounds.push(seg.end_time);
         });
         bounds.push(audioDuration);
@@ -1065,7 +1194,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
         setBoundaries(sortedBounds);
 
         // Map dialogue segments directly to scenes
-        const mappedScenes: BeatScene[] = segments.map((seg: any) => ({
+        const mappedScenes: BeatScene[] = processedSegments.map((seg: any) => ({
           text: activeLang === 'hindi' ? (seg.text_hindi || seg.text || '') : (seg.text_hinglish || seg.text || ''),
           text_hindi: seg.text_hindi || '',
           text_hinglish: seg.text_hinglish || '',
@@ -1283,7 +1412,9 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
 
     const newBounds = [...boundaries, midPoint].sort((a, b) => a - b);
     setBoundaries(newBounds);
-    setScenes(rebuildScenes(newBounds, scenes));
+    const rebuilt = rebuildScenes(newBounds, scenes);
+    setScenes(rebuilt);
+    setRawScenes(rebuilt);
     setSuccess('Segment split successfully.');
   };
 
@@ -1292,9 +1423,11 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
     if (idx >= scenes.length - 1) return; // cannot merge last segment
     
     // The boundary to remove is at index idx + 1
-    const newBounds = boundaries.filter((_, i) => i !== idx + 1);
+    const newBounds = boundaries.filter((_: number, i: number) => i !== idx + 1);
     setBoundaries(newBounds);
-    setScenes(rebuildScenes(newBounds, scenes));
+    const rebuilt = rebuildScenes(newBounds, scenes);
+    setScenes(rebuilt);
+    setRawScenes(rebuilt);
     setSuccess('Merged adjacent segments.');
   };
 
@@ -1748,6 +1881,21 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
                     >
                       Hindi
                     </button>
+                  </div>
+                )}
+
+                {syncMode === 'dialogue' && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginRight: '8px', background: 'rgba(255, 255, 255, 0.02)', padding: '0 12px', borderRadius: '24px', border: '1px solid var(--border-medium)', height: '32px' }}>
+                    <input
+                      type="checkbox"
+                      id="merge-short-scenes-storyboard"
+                      checked={mergeShortScenes}
+                      onChange={(e) => handleToggleMergeScenes(e.target.checked)}
+                      style={{ width: '14px', height: '14px', cursor: 'pointer' }}
+                    />
+                    <label htmlFor="merge-short-scenes-storyboard" style={{ fontSize: '11px', fontWeight: '500', cursor: 'pointer', color: 'var(--text-white)', userSelect: 'none' }}>
+                      Merge short (&lt; 2s)
+                    </label>
                   </div>
                 )}
 
@@ -2308,6 +2456,29 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
                         onChange={(e) => setThreshold(parseFloat(e.target.value))}
                         style={{ width: '100%' }}
                       />
+                    </div>
+                  )}
+
+                  {syncMode === 'dialogue' && (
+                    <div 
+                      style={{ 
+                        display: 'flex', alignItems: 'center', gap: '8px', 
+                        background: 'rgba(255, 255, 255, 0.02)', padding: '10px 12px', 
+                        borderRadius: '6px', border: '1px solid var(--border-light)',
+                        marginBottom: '14px'
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        id="merge-short-scenes"
+                        checked={mergeShortScenes}
+                        onChange={(e) => handleToggleMergeScenes(e.target.checked)}
+                        style={{ width: '14px', height: '14px', cursor: 'pointer' }}
+                      />
+                      <label htmlFor="merge-short-scenes" style={{ fontSize: '11px', cursor: 'pointer', display: 'flex', flexDirection: 'column', textAlign: 'left' }}>
+                        <span style={{ fontWeight: '500', color: 'var(--text-main)' }}>Merge short scenes</span>
+                        <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Merge scenes shorter than 2.0 seconds into adjacent scenes</span>
+                      </label>
                     </div>
                   )}
 

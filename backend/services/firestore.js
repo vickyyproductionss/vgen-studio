@@ -1,0 +1,510 @@
+import { Firestore } from '@google-cloud/firestore';
+import { existsSync, readFileSync, writeFileSync } from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const DB_PATH = path.resolve(__dirname, '..', 'db.json');
+const PROJECT_ID = 'flowsocial-498207';
+
+let firestore = null;
+let useLocalDb = false;
+
+// Initialize Firestore if credentials or environment variables are present
+try {
+  if (process.env.GOOGLE_APPLICATION_CREDENTIALS || process.env.K_SERVICE) {
+    const firestoreConfig = { projectId: PROJECT_ID };
+    
+    // In local development, if we have a path to credentials, pass it explicitly if needed
+    // (though the GCP SDK automatically handles GOOGLE_APPLICATION_CREDENTIALS)
+    firestore = new Firestore(firestoreConfig);
+    console.log(`[Database] Initialized GCP Cloud Firestore in project "${PROJECT_ID}".`);
+  } else {
+    console.log('[Database] No GCP credentials detected. Running in local fallback mode (db.json).');
+    useLocalDb = true;
+  }
+} catch (err) {
+  console.warn('[Database] Failed to initialize Firestore client:', err.message);
+  console.log('[Database] Falling back to local db.json.');
+  useLocalDb = true;
+}
+
+// ==========================================
+// Local db.json Fallback Helpers
+// ==========================================
+function getLocalDb() {
+  if (!existsSync(DB_PATH)) {
+    const defaultData = {
+      settings: {
+        geminiApiKey: '',
+        elevenLabsApiKey: '',
+        defaultOutputDir: path.resolve(__dirname, '..', 'uploads', 'generated'),
+        lastActiveProjectId: '',
+        lastSelectedVoice: ''
+      },
+      project: {}, // singular legacy project
+      clips: [],
+      bgms: [],
+      projects: [],
+      users: []
+    };
+    writeFileSync(DB_PATH, JSON.stringify(defaultData, null, 2), 'utf-8');
+  }
+  return JSON.parse(readFileSync(DB_PATH, 'utf-8'));
+}
+
+function saveLocalDb(data) {
+  writeFileSync(DB_PATH, JSON.stringify(data, null, 2), 'utf-8');
+}
+
+// ==========================================
+// Unified DB Service Interface
+// ==========================================
+export const dbService = {
+  // --- Settings APIs ---
+  async getSettings() {
+    if (useLocalDb) {
+      const db = getLocalDb();
+      return db.settings || {};
+    }
+    try {
+      const doc = await firestore.collection('settings').doc('global').get();
+      if (!doc.exists) {
+        return {};
+      }
+      return doc.data();
+    } catch (err) {
+      console.error('[Database Error] Failed to get settings:', err.message);
+      return {};
+    }
+  },
+
+  async saveSettings(settings) {
+    if (useLocalDb) {
+      const db = getLocalDb();
+      db.settings = { ...db.settings, ...settings };
+      saveLocalDb(db);
+      return db.settings;
+    }
+    try {
+      const docRef = firestore.collection('settings').doc('global');
+      await docRef.set(settings, { merge: true });
+      const updated = await docRef.get();
+      return updated.data();
+    } catch (err) {
+      console.error('[Database Error] Failed to save settings:', err.message);
+      throw err;
+    }
+  },
+
+  // --- Singular/Legacy Project state ---
+  async getLegacyProject() {
+    if (useLocalDb) {
+      const db = getLocalDb();
+      return db.project || {};
+    }
+    try {
+      const doc = await firestore.collection('settings').doc('projectState').get();
+      if (!doc.exists) {
+        return {};
+      }
+      return doc.data();
+    } catch (err) {
+      console.error('[Database Error] Failed to get legacy project:', err.message);
+      return {};
+    }
+  },
+
+  async saveLegacyProject(projectState) {
+    if (useLocalDb) {
+      const db = getLocalDb();
+      db.project = { ...db.project, ...projectState };
+      saveLocalDb(db);
+      return db.project;
+    }
+    try {
+      await firestore.collection('settings').doc('projectState').set(projectState, { merge: true });
+      return projectState;
+    } catch (err) {
+      console.error('[Database Error] Failed to save legacy project:', err.message);
+      throw err;
+    }
+  },
+
+  async deleteLegacyProject() {
+    const emptyProject = {
+      scriptText: "",
+      selectedVoice: "",
+      audioSource: "generate",
+      voiceoverPath: "",
+      voiceoverUrl: "",
+      scenes: [],
+      aspectRatio: "9:16",
+      fillMode: "crop",
+      bgMusicPath: "",
+      bgMusicVolume: 0.15,
+      fontName: "Arial",
+      fontSize: 24,
+      fontColor: "#FFFFFF",
+      outlineColor: "#000000",
+      bold: true,
+      italic: false,
+      shadow: true,
+      textFade: true,
+      textTransition: "none",
+      textMotion: "none",
+      activeWordScale: 1.15
+    };
+    if (useLocalDb) {
+      const db = getLocalDb();
+      db.project = emptyProject;
+      saveLocalDb(db);
+      return emptyProject;
+    }
+    try {
+      await firestore.collection('settings').doc('projectState').set(emptyProject);
+      return emptyProject;
+    } catch (err) {
+      console.error('[Database Error] Failed to delete legacy project:', err.message);
+      throw err;
+    }
+  },
+
+  // --- Multi-Project History APIs ---
+  async getProjects(userId = 'local-user') {
+    if (useLocalDb) {
+      const db = getLocalDb();
+      return (db.projects || []).filter(p => (p.userId || 'local-user') === userId);
+    }
+    try {
+      const snapshot = await firestore.collection('projects')
+        .where('userId', '==', userId)
+        .get();
+      const projects = [];
+      snapshot.forEach(doc => {
+        projects.push({ id: doc.id, ...doc.data() });
+      });
+      // Sort projects by updatedAt desc
+      return projects.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+    } catch (err) {
+      console.error('[Database Error] Failed to get projects:', err.message);
+      return [];
+    }
+  },
+
+  async getProject(projectId) {
+    if (useLocalDb) {
+      const db = getLocalDb();
+      return db.projects.find(p => p.id === projectId);
+    }
+    try {
+      const doc = await firestore.collection('projects').doc(projectId).get();
+      if (!doc.exists) return null;
+      return { id: doc.id, ...doc.data() };
+    } catch (err) {
+      console.error('[Database Error] Failed to get project:', err.message);
+      return null;
+    }
+  },
+
+  async saveProject(project) {
+    if (!project.id) {
+      throw new Error('Project must have a unique ID.');
+    }
+    project.updatedAt = new Date().toISOString();
+    
+    if (useLocalDb) {
+      const db = getLocalDb();
+      db.projects = db.projects || [];
+      const idx = db.projects.findIndex(p => p.id === project.id);
+      if (idx !== -1) {
+        db.projects[idx] = { ...db.projects[idx], ...project };
+      } else {
+        db.projects.push(project);
+      }
+      saveLocalDb(db);
+      return project;
+    }
+    try {
+      const docRef = firestore.collection('projects').doc(project.id);
+      await docRef.set(project, { merge: true });
+      return project;
+    } catch (err) {
+      console.error('[Database Error] Failed to save project:', err.message);
+      throw err;
+    }
+  },
+
+  async deleteProject(projectId) {
+    if (useLocalDb) {
+      const db = getLocalDb();
+      db.projects = db.projects || [];
+      const idx = db.projects.findIndex(p => p.id === projectId);
+      if (idx !== -1) {
+        db.projects.splice(idx, 1);
+        saveLocalDb(db);
+        return true;
+      }
+      return false;
+    }
+    try {
+      await firestore.collection('projects').doc(projectId).delete();
+      return true;
+    } catch (err) {
+      console.error('[Database Error] Failed to delete project:', err.message);
+      throw err;
+    }
+  },
+
+  // --- Clips Library APIs ---
+  async getClips(userId = 'local-user') {
+    if (useLocalDb) {
+      const db = getLocalDb();
+      return (db.clips || []).filter(c => (c.userId || 'local-user') === userId);
+    }
+    try {
+      const snapshot = await firestore.collection('clips')
+        .where('userId', '==', userId)
+        .get();
+      const clips = [];
+      snapshot.forEach(doc => {
+        clips.push({ id: doc.id, ...doc.data() });
+      });
+      return clips;
+    } catch (err) {
+      console.error('[Database Error] Failed to get clips:', err.message);
+      return [];
+    }
+  },
+
+  async getClipsByStatus(status) {
+    if (useLocalDb) {
+      const db = getLocalDb();
+      return (db.clips || []).filter(c => c.status === status);
+    }
+    try {
+      const snapshot = await firestore.collection('clips')
+        .where('status', '==', status)
+        .get();
+      const clips = [];
+      snapshot.forEach(doc => {
+        clips.push({ id: doc.id, ...doc.data() });
+      });
+      return clips;
+    } catch (err) {
+      console.error('[Database Error] Failed to get clips by status:', err.message);
+      return [];
+    }
+  },
+
+  async getClip(clipId) {
+    if (useLocalDb) {
+      const db = getLocalDb();
+      return db.clips.find(c => c.id === clipId);
+    }
+    try {
+      const doc = await firestore.collection('clips').doc(clipId).get();
+      if (!doc.exists) return null;
+      return { id: doc.id, ...doc.data() };
+    } catch (err) {
+      console.error('[Database Error] Failed to get clip:', err.message);
+      return null;
+    }
+  },
+
+  async saveClip(clip) {
+    if (!clip.id) {
+      throw new Error('Clip must have a unique ID.');
+    }
+    if (useLocalDb) {
+      const db = getLocalDb();
+      db.clips = db.clips || [];
+      const idx = db.clips.findIndex(c => c.id === clip.id);
+      if (idx !== -1) {
+        db.clips[idx] = { ...db.clips[idx], ...clip };
+      } else {
+        db.clips.push(clip);
+      }
+      saveLocalDb(db);
+      return clip;
+    }
+    try {
+      await firestore.collection('clips').doc(clip.id).set(clip, { merge: true });
+      return clip;
+    } catch (err) {
+      console.error('[Database Error] Failed to save clip:', err.message);
+      throw err;
+    }
+  },
+
+  async deleteClip(clipId) {
+    if (useLocalDb) {
+      const db = getLocalDb();
+      db.clips = db.clips || [];
+      const idx = db.clips.findIndex(c => c.id === clipId);
+      if (idx !== -1) {
+        db.clips.splice(idx, 1);
+        saveLocalDb(db);
+        return true;
+      }
+      return false;
+    }
+    try {
+      await firestore.collection('clips').doc(clipId).delete();
+      return true;
+    } catch (err) {
+      console.error('[Database Error] Failed to delete clip:', err.message);
+      throw err;
+    }
+  },
+
+  // --- Background Music (BGM) APIs ---
+  async getBgms(userId = 'local-user') {
+    if (useLocalDb) {
+      const db = getLocalDb();
+      return (db.bgms || []).filter(b => (b.userId || 'local-user') === userId);
+    }
+    try {
+      const snapshot = await firestore.collection('bgms')
+        .where('userId', '==', userId)
+        .get();
+      const bgms = [];
+      snapshot.forEach(doc => {
+        bgms.push({ id: doc.id, ...doc.data() });
+      });
+      return bgms;
+    } catch (err) {
+      console.error('[Database Error] Failed to get bgms:', err.message);
+      return [];
+    }
+  },
+
+  async saveBgm(bgm) {
+    if (!bgm.id) {
+      throw new Error('Bgm must have a unique ID.');
+    }
+    bgm.createdAt = bgm.createdAt || new Date().toISOString();
+    
+    if (useLocalDb) {
+      const db = getLocalDb();
+      db.bgms = db.bgms || [];
+      const idx = db.bgms.findIndex(b => b.id === bgm.id);
+      if (idx !== -1) {
+        db.bgms[idx] = { ...db.bgms[idx], ...bgm };
+      } else {
+        db.bgms.push(bgm);
+      }
+      saveLocalDb(db);
+      return bgm;
+    }
+    try {
+      await firestore.collection('bgms').doc(bgm.id).set(bgm, { merge: true });
+      return bgm;
+    } catch (err) {
+      console.error('[Database Error] Failed to save bgm:', err.message);
+      throw err;
+    }
+  },
+
+  async deleteBgm(bgmId) {
+    if (useLocalDb) {
+      const db = getLocalDb();
+      db.bgms = db.bgms || [];
+      const idx = db.bgms.findIndex(b => b.id === bgmId);
+      if (idx !== -1) {
+        db.bgms.splice(idx, 1);
+        saveLocalDb(db);
+        return true;
+      }
+      return false;
+    }
+    try {
+      await firestore.collection('bgms').doc(bgmId).delete();
+      return true;
+    } catch (err) {
+      console.error('[Database Error] Failed to delete bgm:', err.message);
+      throw err;
+    }
+  },
+
+  // --- SaaS Users & Billing APIs ---
+  async getUser(userId) {
+    if (useLocalDb) {
+      const db = getLocalDb();
+      return db.users.find(u => u.uid === userId || u.email === userId);
+    }
+    try {
+      const doc = await firestore.collection('users').doc(userId).get();
+      if (!doc.exists) return null;
+      return { uid: doc.id, ...doc.data() };
+    } catch (err) {
+      console.error('[Database Error] Failed to get user:', err.message);
+      return null;
+    }
+  },
+
+  async saveUser(user) {
+    if (!user.uid) {
+      throw new Error('User must have a uid.');
+    }
+    user.createdAt = user.createdAt || new Date().toISOString();
+    
+    if (useLocalDb) {
+      const db = getLocalDb();
+      db.users = db.projects || [];
+      const idx = db.users.findIndex(u => u.uid === user.uid);
+      if (idx !== -1) {
+        db.users[idx] = { ...db.users[idx], ...user };
+      } else {
+        db.users.push(user);
+      }
+      saveLocalDb(db);
+      return user;
+    }
+    try {
+      await firestore.collection('users').doc(user.uid).set(user, { merge: true });
+      return user;
+    } catch (err) {
+      console.error('[Database Error] Failed to save user:', err.message);
+      throw err;
+    }
+  },
+
+  async getUserByEmailAndPassword(email, password) {
+    if (useLocalDb) {
+      const db = getLocalDb();
+      return db.users.find(u => u.email.toLowerCase() === email.toLowerCase() && u.password === password);
+    }
+    try {
+      const snapshot = await firestore.collection('users')
+        .where('email', '==', email)
+        .where('password', '==', password)
+        .limit(1)
+        .get();
+      if (snapshot.empty) return null;
+      const doc = snapshot.docs[0];
+      return { uid: doc.id, ...doc.data() };
+    } catch (err) {
+      console.error('[Database Error] Failed to get user by email and password:', err.message);
+      return null;
+    }
+  },
+
+  async checkUserExists(email) {
+    if (useLocalDb) {
+      const db = getLocalDb();
+      return db.users.some(u => u.email.toLowerCase() === email.toLowerCase());
+    }
+    try {
+      const snapshot = await firestore.collection('users')
+        .where('email', '==', email)
+        .limit(1)
+        .get();
+      return !snapshot.empty;
+    } catch (err) {
+      console.error('[Database Error] Failed to check user existence:', err.message);
+      return false;
+    }
+  }
+};

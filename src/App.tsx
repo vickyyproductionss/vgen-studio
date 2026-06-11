@@ -193,9 +193,12 @@ export default function App() {
     setActiveJobId(null);
   };
 
-  const openProject = (projectId: string, type: 'create' | 'beatsync') => {
+  const [activeProjectType, setActiveProjectType] = useState<'create' | 'beatsync' | 'talkinghead' | null>(null);
+
+  const openProject = (projectId: string, type: 'create' | 'beatsync' | 'talkinghead') => {
     setActiveProjectId(projectId);
-    setActiveTab(type);
+    setActiveProjectType(type);
+    setActiveTab(type === 'beatsync' ? 'beatsync' : 'create');
   };
 
   const handleTabClick = async (tab: Tab) => {
@@ -205,7 +208,8 @@ export default function App() {
           const res = await fetch(`/api/projects/${activeProjectId}`);
           if (res.ok) {
             const proj = await res.json();
-            if (proj.type === 'create') {
+            if (proj.type === 'create' || proj.type === 'talkinghead') {
+              setActiveProjectType(proj.type);
               setActiveTab('create');
               return;
             }
@@ -217,9 +221,9 @@ export default function App() {
         const res = await fetch('/api/projects');
         if (res.ok) {
           const projects = await res.json();
-          const lastVO = projects.find((p: any) => p.type === 'create');
+          const lastVO = projects.find((p: any) => p.type === 'create' || p.type === 'talkinghead');
           if (lastVO) {
-            openProject(lastVO.id, 'create');
+            openProject(lastVO.id, lastVO.type);
             return;
           }
         }
@@ -233,7 +237,7 @@ export default function App() {
         });
         if (res.ok) {
           const newProj = await res.json();
-          openProject(newProj.id, 'create');
+          openProject(newProj.id, newProj.type);
           return;
         }
       } catch (_) {}
@@ -287,7 +291,9 @@ export default function App() {
   // Derived top-nav label for the active section
   const getTopNavLabel = () => {
     if (activeTab === 'projects') return 'My Projects';
-    if (activeTab === 'create') return 'Voiceover Editor';
+    if (activeTab === 'create') {
+      return activeProjectType === 'talkinghead' ? 'Talking Head Editor' : 'Video Creator Editor';
+    }
     if (activeTab === 'beatsync') return 'Beat Sync Editor';
     if (activeTab === 'library') return 'Video Library';
     if (activeTab === 'music') return 'Music Library';
