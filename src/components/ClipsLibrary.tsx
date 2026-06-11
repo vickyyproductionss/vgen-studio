@@ -121,7 +121,6 @@ export default function ClipsLibrary() {
 
     // Calculate individual file sizes for weighted progress
     const fileSizes = Array.from(files).map(f => f.size);
-    const totalSize = fileSizes.reduce((a, b) => a + b, 0);
 
     try {
       const newClips = await new Promise<Clip[]>((resolve, reject) => {
@@ -129,7 +128,6 @@ export default function ClipsLibrary() {
 
         xhr.upload.addEventListener('progress', (event) => {
           if (event.lengthComputable) {
-            const overallPercent = (event.loaded / event.total) * 100;
 
             // Distribute progress across files proportionally
             let bytesAccountedFor = 0;
