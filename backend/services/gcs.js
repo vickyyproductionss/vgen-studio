@@ -15,11 +15,11 @@ let useLocalFiles = false;
 
 // Check if we should use GCP GCS
 try {
-  if (process.env.GOOGLE_APPLICATION_CREDENTIALS || process.env.K_SERVICE) {
+  if (process.env.K_SERVICE) {
     storage = new Storage({ projectId: PROJECT_ID });
     console.log(`[Storage] Initialized Google Cloud Storage for bucket "${BUCKET_NAME}".`);
   } else {
-    console.log('[Storage] No GCP credentials detected. Running in local fallback mode (local filesystem).');
+    console.log('[Storage] Running in local fallback mode (local filesystem) because K_SERVICE is not defined.');
     useLocalFiles = true;
   }
 } catch (err) {

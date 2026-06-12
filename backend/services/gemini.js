@@ -370,12 +370,15 @@ export async function matchClipsToScenes(scenes, clips, apiKey, isTalkingHead = 
     segments: c.segments || [{ start_time: 0, end_time: c.duration, description: c.description }]
   }));
 
+  // Shuffle the Clip Library list before passing it to Gemini to prevent order bias (always picking the first one in list)
+  const randomizedClips = [...clipsWithSegments].sort(() => Math.random() - 0.5);
+
   console.log('Matching clips to storyboard scenes...');
   const prompt = `You are a professional video editor. 
 Your task is to match each of the storyboard scenes to the most relevant video clip from the clip library.
 
 Here is the Clip Library (JSON format, containing clip ID, name, description, tags, duration, and segment timelines describing what happens second-by-second within the clip):
-${JSON.stringify(clipsWithSegments)}
+${JSON.stringify(randomizedClips)}
 
 Here are the Storyboard Scenes (JSON format, containing scene index, text, and scene duration in seconds):
 ${JSON.stringify(scenes.map((s, idx) => ({
@@ -385,7 +388,7 @@ ${JSON.stringify(scenes.map((s, idx) => ({
 })))}
 
 Rules:
-1. For each scene, pick the SINGLE best video clip that visually matches the scene's context.
+1. For each scene, pick the SINGLE best video clip that visually matches the scene's context. If multiple clips match the scene's context equally well, select one of them at random to ensure variety across generations.
 ${isTalkingHead ? `
 2. SPECIAL RULE FOR TALKING HEAD VIDEO: You are editing a video of a person talking, and you want to insert library B-roll clips only when there is a strong visual keyword or concept matching a library B-roll clip.
    - If a scene contains a clear visual action, object, or concept that can be illustrated by one of the B-roll clips in the library, match it to that clip.
@@ -539,7 +542,12 @@ function reassignMatch(matchIdx, matches, clips, scenes, segmentUsage, maxRepeti
       }
       return { clip: c, score };
     })
-    .sort((a, b) => b.score - a.score);
+    .sort((a, b) => {
+      if (b.score !== a.score) {
+        return b.score - a.score;
+      }
+      return Math.random() - 0.5;
+    });
 
   for (const item of sortedClips) {
     const altClip = item.clip;

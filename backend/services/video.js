@@ -218,6 +218,14 @@ function hexToAssColor(hex, alphaHex = '00') {
 }
 
 /**
+ * Helper to ensure a color string has a trailing '&' for ASS override tags (e.g. \c&HBBGGRR&)
+ */
+function toTagColor(colorStr) {
+  if (!colorStr) return '';
+  return colorStr.endsWith('&') ? colorStr : `${colorStr}&`;
+}
+
+/**
  * Generates an ASS subtitle file content
  */
 /**
@@ -420,17 +428,18 @@ function resolveStyleObj(style) {
 
 function getWordTags(wordStyle, isActive, layerType, baseOutlineColor, baseOutlineSize, baseFontSize, style, category) {
   const outlineSize = style.pop3d ? Math.max(style.outlineSize || 3, 4) : (style.outlineSize || 3);
-  const fontCol = hexToAssColor(wordStyle.fontColor);
+  const fontCol = toTagColor(hexToAssColor(wordStyle.fontColor));
+  const outlineCol = toTagColor(baseOutlineColor);
 
   if (isActive) {
     if (layerType === 'core') {
       // Core Layer: Keep it sharp. If neonGlow is active, fill with white.
       const fillCol = wordStyle.neonGlow ? '&H00FFFFFF&' : fontCol;
-      return `\\c${fillCol}\\3c${baseOutlineColor}\\bord${outlineSize}\\blur0`;
+      return `\\c${fillCol}\\3c${outlineCol}\\bord${outlineSize}\\blur0`;
     } else {
       // Glow Layers
       if (wordStyle.neonGlow) {
-        const glowCol = hexToAssColor(wordStyle.glowColor || '#00FFFF');
+        const glowCol = toTagColor(hexToAssColor(wordStyle.glowColor || '#00FFFF'));
         const glowBlur = wordStyle.glowBlur !== undefined ? wordStyle.glowBlur : 6;
         const glowDistance = wordStyle.glowDistance !== undefined ? wordStyle.glowDistance : 3;
         
@@ -466,11 +475,11 @@ function getWordTags(wordStyle, isActive, layerType, baseOutlineColor, baseOutli
         inactiveColorHex = style.emojiStyle?.fontColor || style.highlightColor || '#FFFF00';
       }
     }
-    const inactiveFontCol = hexToAssColor(inactiveColorHex);
+    const inactiveFontCol = toTagColor(hexToAssColor(inactiveColorHex));
     
     if (layerType === 'core') {
       // Inactive core is sharp, no glow
-      return `\\c${inactiveFontCol}\\3c${baseOutlineColor}\\bord${outlineSize}\\blur0`;
+      return `\\c${inactiveFontCol}\\3c${outlineCol}\\bord${outlineSize}\\blur0`;
     } else {
       // Inactive glow layer is fully transparent
       return `\\alpha&HFF&`;
@@ -481,7 +490,7 @@ function getWordTags(wordStyle, isActive, layerType, baseOutlineColor, baseOutli
 function applyNeonGlowToEvents(eventsStr, style, primaryColor, outlineColor) {
   const lines = eventsStr.split('\n');
   const result = [];
-  const glowCol = hexToAssColor(style.glowColor || '#00FFFF');
+  const glowCol = toTagColor(hexToAssColor(style.glowColor || '#00FFFF'));
   const coreCol = '&H00FFFFFF&'; // pure white core
   const blurVal = style.glowBlur !== undefined ? style.glowBlur : 6;
   const distanceVal = style.glowDistance !== undefined ? style.glowDistance : 3;
@@ -558,7 +567,7 @@ function applyNeonGlowToEvents(eventsStr, style, primaryColor, outlineColor) {
     const coreMetaParts = [...metaParts];
     coreMetaParts[0] = `Dialogue: ${layer + 3}`;
     const coreMeta = coreMetaParts.join(',');
-    const coreTags = `\\c${coreCol}\\3c${outlineColor}${cleanTags}`;
+    const coreTags = `\\c${coreCol}\\3c${toTagColor(outlineColor)}${cleanTags}`;
     const coreText = `{${coreTags}}${restText}`;
     result.push(`${coreMeta},${coreText}`);
   }
@@ -665,6 +674,7 @@ export function createAssFileContent(originalScene, duration, style, width, heig
     const duration = end - start;
     const transition = style.textTransition || 'none';
     const motion = style.textMotion || 'none';
+    const tagCol = col ? toTagColor(col) : '';
 
     // If duration is too short (< 0.15s) or transition is none, fallback to simple pos/move with optional fade
     if (transition === 'none' || duration < 0.15) {
@@ -677,7 +687,7 @@ export function createAssFileContent(originalScene, duration, style, width, heig
       if (style.textFade !== false) {
         fadeTag = '\\fad(150,150)';
       }
-      return `Dialogue: ${layer},${formatTime(start)},${formatTime(end)},Default,,0,0,0,,{\\an5${moveTag}${fadeTag}${extraTags}${col ? `\\c${col}` : ''}}${text}\n`;
+      return `Dialogue: ${layer},${formatTime(start)},${formatTime(end)},Default,,0,0,0,,{\\an5${moveTag}${fadeTag}${extraTags}${tagCol ? `\\c${tagCol}` : ''}}${text}\n`;
     }
 
     // Proportional transition time calculation: 
@@ -780,9 +790,9 @@ export function createAssFileContent(originalScene, duration, style, width, heig
       fadeTagOut = `\\fad(0,${animMs})`;
     }
 
-    let result = `Dialogue: ${layer},${formatTime(start)},${formatTime(t1)},Default,,0,0,0,,{\\an5${inMove}${inAnim}${fadeTag}${extraTags}${col ? `\\c${col}` : ''}}${text}\n`;
-    result += `Dialogue: ${layer},${formatTime(t1)},${formatTime(t2)},Default,,0,0,0,,{\\an5${midMove}${extraTags}${col ? `\\c${col}` : ''}}${text}\n`;
-    result += `Dialogue: ${layer},${formatTime(t2)},${formatTime(end)},Default,,0,0,0,,{\\an5${outMove}${outAnim}${fadeTagOut}${extraTags}${col ? `\\c${col}` : ''}}${text}\n`;
+    let result = `Dialogue: ${layer},${formatTime(start)},${formatTime(t1)},Default,,0,0,0,,{\\an5${inMove}${inAnim}${fadeTag}${extraTags}${tagCol ? `\\c${tagCol}` : ''}}${text}\n`;
+    result += `Dialogue: ${layer},${formatTime(t1)},${formatTime(t2)},Default,,0,0,0,,{\\an5${midMove}${extraTags}${tagCol ? `\\c${tagCol}` : ''}}${text}\n`;
+    result += `Dialogue: ${layer},${formatTime(t2)},${formatTime(end)},Default,,0,0,0,,{\\an5${outMove}${outAnim}${fadeTagOut}${extraTags}${tagCol ? `\\c${tagCol}` : ''}}${text}\n`;
     return result;
   };
 
@@ -1116,13 +1126,13 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
           const rawWord = w.word;
           const category = getWordCategory(w.word);
           if (category === 'highlight') {
-            const empCol = hexToAssColor(highlightStyle.fontColor || '#FFFF00');
+            const empCol = toTagColor(hexToAssColor(highlightStyle.fontColor || '#FFFF00'));
             const scale = Math.round(100 * (highlightStyle.activeWordScale || 1.15));
-            return `{\\fscx${scale}\\fscy${scale}\\c${empCol}}${rawWord}{\\fscx100\\fscy100\\c${primaryColor}}`;
+            return `{\\fscx${scale}\\fscy${scale}\\c${empCol}}${rawWord}{\\fscx100\\fscy100\\c${toTagColor(primaryColor)}}`;
           } else if (category === 'emoji') {
-            const empCol = hexToAssColor(emojiStyle.fontColor || '#FFFF00');
+            const empCol = toTagColor(hexToAssColor(emojiStyle.fontColor || '#FFFF00'));
             const scale = Math.round(100 * (emojiStyle.activeWordScale || 1.15));
-            return `{\\fscx${scale}\\fscy${scale}\\c${empCol}}${rawWord}{\\fscx100\\fscy100\\c${primaryColor}}`;
+            return `{\\fscx${scale}\\fscy${scale}\\c${empCol}}${rawWord}{\\fscx100\\fscy100\\c${toTagColor(primaryColor)}}`;
           }
           return rawWord;
         }).join(' ');
@@ -1173,11 +1183,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
       const ry = Y_pos;
       
       const category = getWordCategory(w.word);
-      let wordStyle = normalStyle;
+      let wordStyle = highlightStyle; // Always highlight the active centered word!
       if (category === 'emoji') {
         wordStyle = emojiStyle;
-      } else if (category === 'highlight') {
-        wordStyle = highlightStyle;
       }
 
       // Snappy pop-in scale animation if zoom bump is enabled (> 1.0)
@@ -1234,13 +1242,14 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     }
   } else if (mode === 'smart-highlight') {
     // Smart TikTok/Instagram Reels style: centered text phrase, active word highlighted
+    const maxWords = parseInt(style.maxWordsPerLine, 10) || 3;
     const chunks = [];
     let currentChunk = [];
     let currentLen = 0;
     
     for (let i = 0; i < localWords.length; i++) {
       const w = localWords[i];
-      if (currentChunk.length >= 3 || (currentChunk.length > 0 && currentLen + w.word.length > 20)) {
+      if (currentChunk.length >= maxWords || (currentChunk.length > 0 && currentLen + w.word.length > 20)) {
         chunks.push(currentChunk);
         currentChunk = [w];
         currentLen = w.word.length;
@@ -1260,15 +1269,15 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
       return chunk.map((item, idx) => {
         const rawWord = item.word;
         const category = getWordCategory(item.word);
+        const isActive = (idx === activeIdx);
         
-        let wordStyle = normalStyle;
+        let wordStyle = isActive ? highlightStyle : normalStyle;
         if (category === 'emoji') {
           wordStyle = emojiStyle;
-        } else if (category === 'highlight') {
+        } else if (category === 'highlight' && (isActive || style.autoEmphasis)) {
           wordStyle = highlightStyle;
         }
 
-        const isActive = (idx === activeIdx);
         const tags = getWordTags(wordStyle, isActive, layerType, outlineColor, outlineSize, fontSize, style, category);
 
         let scaleTag = '';
@@ -1582,7 +1591,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
           `\\t(0,${popInMs},\\fscx115\\fscy115)` +
           `\\t(${popInMs},${settleMs},\\fscx100\\fscy100)` +
           `\\t(${burstStart},${durMs},\\fscx300\\fscy300\\alpha&HFF&)`;
-        events += `Dialogue: 0,${startStr},${endStr},Default,,0,0,0,,{\\an5${moveTag}${bAnim}\\c${boxAssColor}}{\\p1}${drawCenteredRoundedRect(boxW, boxHeight, boxRounding)}{\\p0}\n`;
+        events += `Dialogue: 0,${startStr},${endStr},Default,,0,0,0,,{\\an5${moveTag}${bAnim}\\c${toTagColor(boxAssColor)}}{\\p1}${drawCenteredRoundedRect(boxW, boxHeight, boxRounding)}{\\p0}\n`;
       }
 
       const glowTagsOuter = getWordTags(wordStyle, true, 'glowOuter', outlineColor, outlineSize, fontSize, style, category);
@@ -1783,6 +1792,10 @@ export async function assembleVideo(options, onProgress) {
       rgbSplit: false, rgbSplitPixels: 6,
       bassBounce: false, bassBounceScale: 1.06,
       speedRamp: false, speedRampHold: 0.1,
+      speedRampPreset: 'hero',
+      speedRampV0: 2.0,
+      speedRampV1: 0.5,
+      speedRampV2: 2.0,
       whipPan: false, whipPanStrength: 30,
       spinTransition: false, spinDegrees: 90,
       colorFlash: false, colorFlashTint: '#FF6B00',
@@ -1791,6 +1804,10 @@ export async function assembleVideo(options, onProgress) {
       letterbox: false, letterboxSize: 50,
       vignettePulse: false,
       negativeFlash: false,
+      gymGlow: false,
+      gymGlowThreshold: 180,
+      gymGlowRadius: 20,
+      gymGlowOpacity: 0.6,
       ...beatEffects
     };
 
@@ -2023,7 +2040,14 @@ export async function assembleVideo(options, onProgress) {
       v0 = Number(scene.speedRamp.v0) || 1.0;
       v1 = Number(scene.speedRamp.v1) || 1.0;
       v2 = Number(scene.speedRamp.v2) || 1.0;
+    } else if (bfx.speedRamp) {
+      isSpeedRamped = true;
+      v0 = bfx.speedRampV0 !== undefined ? Number(bfx.speedRampV0) : 2.0;
+      v1 = bfx.speedRampV1 !== undefined ? Number(bfx.speedRampV1) : 0.5;
+      v2 = bfx.speedRampV2 !== undefined ? Number(bfx.speedRampV2) : 2.0;
+    }
 
+    if (isSpeedRamped) {
       // Perturb identical adjacent speeds to avoid division-by-zero in setpts
       if (v1 === v0) v1 += 0.00001;
       if (v2 === v1) v2 += 0.00001;
@@ -2053,10 +2077,10 @@ export async function assembleVideo(options, onProgress) {
         const setptsExpr = `(if(lt(T, ${s1}), (-${v0} + sqrt(max(0, ${v0}*${v0} + 8*${a1}*T))) / (4*${a1}), if(lt(T, ${s2}), 0.25*${effectiveSceneDuration} + (T - ${s1}) / ${v1}, 0.75*${effectiveSceneDuration} + (-${v1} + sqrt(max(0, ${v1}*${v1} + 8*${a2}*(T - ${s2})))) / (4*${a2}))))/TB`;
         brollFilter += `,setpts='${setptsExpr}'`;
 
-        // Apply fast frame blending if the speed drops below 1.0x (slow motion)
+        // Apply optical flow / motion compensated interpolation if the speed drops below 1.0x (slow motion)
         const hasSlowMotion = v0 < 1.0 || v1 < 1.0 || v2 < 1.0;
         if (hasSlowMotion) {
-          brollFilter += `,minterpolate=fps=${targetFps}:mi_mode=blend`;
+          brollFilter += `,minterpolate=fps=${targetFps}:mi_mode=mci`;
         }
       }
 
@@ -2106,15 +2130,16 @@ export async function assembleVideo(options, onProgress) {
     };
 
     const incomingTransition = (i > 0) ? getTransition(adjustedScenes[i - 1].transition || clipTransition, i - 1) : 'none';
-    const outgoingTransition = (i < adjustedScenes.length - 1) ? getTransition(adjustedScenes[i].transition || clipTransition, i) : 'none';
+    const incomingTdTrans = (i > 0) ? (Number(adjustedScenes[i - 1].transitionDuration) || Number(transitionDuration) || 0.3) : 0.3;
 
-    const tdTrans = Number(transitionDuration) || 0.3; // Transition duration
+    const outgoingTransition = (i < adjustedScenes.length - 1) ? getTransition(adjustedScenes[i].transition || clipTransition, i) : 'none';
+    const outgoingTdTrans = (i < adjustedScenes.length - 1) ? (Number(adjustedScenes[i].transitionDuration) || Number(transitionDuration) || 0.3) : 0.3;
 
     let sceneEffectsFilter = '';
 
     // 1. Fade Transitions
-    const incomingFadeDur = (incomingTransition === 'fade' || incomingTransition.endsWith('-fade')) ? Math.min(tdTrans, sceneDuration / 2) : 0;
-    const outgoingFadeDur = (outgoingTransition === 'fade' || outgoingTransition.endsWith('-fade')) ? Math.min(tdTrans, sceneDuration / 2) : 0;
+    const incomingFadeDur = (incomingTransition === 'fade' || incomingTransition.endsWith('-fade')) ? Math.min(incomingTdTrans, sceneDuration / 2) : 0;
+    const outgoingFadeDur = (outgoingTransition === 'fade' || outgoingTransition.endsWith('-fade')) ? Math.min(outgoingTdTrans, sceneDuration / 2) : 0;
 
     if (incomingFadeDur > 0) {
       sceneEffectsFilter += `,fade=t=in:st=0:d=${incomingFadeDur.toFixed(3)}`;
@@ -2127,7 +2152,7 @@ export async function assembleVideo(options, onProgress) {
     const incomingIsSlidePan = incomingTransition.includes('slide') || incomingTransition.includes('pan');
     const outgoingIsSlidePan = outgoingTransition.includes('slide') || outgoingTransition.includes('pan');
 
-    if ((incomingIsSlidePan || outgoingIsSlidePan) && sceneDuration > tdTrans * 2) {
+    if ((incomingIsSlidePan || outgoingIsSlidePan) && sceneDuration > (incomingTdTrans + outgoingTdTrans)) {
       const isPan = incomingTransition.includes('pan') || outgoingTransition.includes('pan');
       const amp = isPan ? 0.2 : 1.0;
       let xExpr = String(targetWidth);
@@ -2137,9 +2162,9 @@ export async function assembleVideo(options, onProgress) {
       if (incomingIsSlidePan) {
         const inAmp = incomingTransition.includes('pan') ? 0.2 : 1.0;
         if (incomingTransition.includes('left')) {
-          xIn = `-${inAmp} * pow(1 - (t/${tdTrans}), 3)`;
+          xIn = `-${inAmp} * pow(1 - (t/${incomingTdTrans}), 3)`;
         } else if (incomingTransition.includes('right')) {
-          xIn = `${inAmp} * pow(1 - (t/${tdTrans}), 3)`;
+          xIn = `${inAmp} * pow(1 - (t/${incomingTdTrans}), 3)`;
         }
       }
 
@@ -2147,9 +2172,9 @@ export async function assembleVideo(options, onProgress) {
       if (outgoingIsSlidePan) {
         const outAmp = outgoingTransition.includes('pan') ? 0.2 : 1.0;
         if (outgoingTransition.includes('left')) {
-          xOut = `${outAmp} * pow((t - (${sceneDuration} - ${tdTrans}))/${tdTrans}, 3)`;
+          xOut = `${outAmp} * pow((t - (${sceneDuration} - ${outgoingTdTrans}))/${outgoingTdTrans}, 3)`;
         } else if (outgoingTransition.includes('right')) {
-          xOut = `-${outAmp} * pow((t - (${sceneDuration} - ${tdTrans}))/${tdTrans}, 3)`;
+          xOut = `-${outAmp} * pow((t - (${sceneDuration} - ${outgoingTdTrans}))/${outgoingTdTrans}, 3)`;
         }
       }
 
@@ -2157,9 +2182,9 @@ export async function assembleVideo(options, onProgress) {
       if (incomingIsSlidePan) {
         const inAmp = incomingTransition.includes('pan') ? 0.2 : 1.0;
         if (incomingTransition.includes('up')) {
-          yIn = `-${inAmp} * pow(1 - (t/${tdTrans}), 3)`;
+          yIn = `-${inAmp} * pow(1 - (t/${incomingTdTrans}), 3)`;
         } else if (incomingTransition.includes('down')) {
-          yIn = `${inAmp} * pow(1 - (t/${tdTrans}), 3)`;
+          yIn = `${inAmp} * pow(1 - (t/${incomingTdTrans}), 3)`;
         }
       }
 
@@ -2167,14 +2192,14 @@ export async function assembleVideo(options, onProgress) {
       if (outgoingIsSlidePan) {
         const outAmp = outgoingTransition.includes('pan') ? 0.2 : 1.0;
         if (outgoingTransition.includes('up')) {
-          yOut = `${outAmp} * pow((t - (${sceneDuration} - ${tdTrans}))/${tdTrans}, 3)`;
+          yOut = `${outAmp} * pow((t - (${sceneDuration} - ${outgoingTdTrans}))/${outgoingTdTrans}, 3)`;
         } else if (outgoingTransition.includes('down')) {
-          yOut = `-${outAmp} * pow((t - (${sceneDuration} - ${tdTrans}))/${tdTrans}, 3)`;
+          yOut = `-${outAmp} * pow((t - (${sceneDuration} - ${outgoingTdTrans}))/${outgoingTdTrans}, 3)`;
         }
       }
 
-      xExpr = `${targetWidth} * (1 + if(lt(t, ${tdTrans}), ${xIn}, if(gt(t, ${sceneDuration} - ${tdTrans}), ${xOut}, 0)))`;
-      yExpr = `${targetHeight} * (1 + if(lt(t, ${tdTrans}), ${yIn}, if(gt(t, ${sceneDuration} - ${tdTrans}), ${yOut}, 0)))`;
+      xExpr = `${targetWidth} * (1 + if(lt(t, ${incomingTdTrans}), ${xIn}, if(gt(t, ${sceneDuration} - ${outgoingTdTrans}), ${xOut}, 0)))`;
+      yExpr = `${targetHeight} * (1 + if(lt(t, ${incomingTdTrans}), ${yIn}, if(gt(t, ${sceneDuration} - ${outgoingTdTrans}), ${yOut}, 0)))`;
 
       sceneEffectsFilter += `,pad=w=3*${targetWidth}:h=3*${targetHeight}:x=${targetWidth}:y=${targetHeight}:color=black`;
       sceneEffectsFilter += `,crop=w=${targetWidth}:h=${targetHeight}:x='${xExpr}':y='${yExpr}'`;
@@ -2184,20 +2209,20 @@ export async function assembleVideo(options, onProgress) {
     const incomingIsZoom = incomingTransition.includes('zoom');
     const outgoingIsZoom = outgoingTransition.includes('zoom');
 
-    if ((incomingIsZoom || outgoingIsZoom) && sceneDuration > tdTrans * 2) {
+    if ((incomingIsZoom || outgoingIsZoom) && sceneDuration > (incomingTdTrans + outgoingTdTrans)) {
       let sIn = '1.0';
       if (incomingIsZoom) {
         const inFactor = incomingTransition.includes('zoom-in') ? 0.3 : -0.3;
-        sIn = `1.0 + ${inFactor} * pow(1 - (t/${tdTrans}), 3)`;
+        sIn = `1.0 + ${inFactor} * pow(1 - (t/${incomingTdTrans}), 3)`;
       }
 
       let sOut = '1.0';
       if (outgoingIsZoom) {
         const outFactor = outgoingTransition.includes('zoom-in') ? 0.3 : -0.3;
-        sOut = `1.0 + ${outFactor} * pow((t - (${sceneDuration} - ${tdTrans}))/${tdTrans}, 3)`;
+        sOut = `1.0 + ${outFactor} * pow((t - (${sceneDuration} - ${outgoingTdTrans}))/${outgoingTdTrans}, 3)`;
       }
 
-      const sExpr = `if(lt(t, ${tdTrans}), ${sIn}, if(gt(t, ${sceneDuration} - ${tdTrans}), ${sOut}, 1.0))`;
+      const sExpr = `if(lt(t, ${incomingTdTrans}), ${sIn}, if(gt(t, ${sceneDuration} - ${outgoingTdTrans}), ${sOut}, 1.0))`;
 
       sceneEffectsFilter += `,scale=w='2*trunc(((${sExpr})*${targetWidth})/2)':h='2*trunc(((${sExpr})*${targetHeight})/2)':eval=frame`;
       sceneEffectsFilter += `,pad=w=3*${targetWidth}:h=3*${targetHeight}:x='2*trunc((3*${targetWidth}-iw)/4)':y='2*trunc((3*${targetHeight}-ih)/4)':color=black:eval=frame`;
@@ -2208,18 +2233,18 @@ export async function assembleVideo(options, onProgress) {
     const incomingIsBlur = incomingTransition.includes('blur');
     const outgoingIsBlur = outgoingTransition.includes('blur');
 
-    if (incomingIsBlur && sceneDuration > tdTrans * 2) {
-      const bs1 = (tdTrans / 3).toFixed(3);
-      const bs2 = (2 * tdTrans / 3).toFixed(3);
-      const bs3 = tdTrans.toFixed(3);
+    if (incomingIsBlur && sceneDuration > (incomingTdTrans + outgoingTdTrans)) {
+      const bs1 = (incomingTdTrans / 3).toFixed(3);
+      const bs2 = (2 * incomingTdTrans / 3).toFixed(3);
+      const bs3 = incomingTdTrans.toFixed(3);
       sceneEffectsFilter += `,boxblur=lr=16:lp=1:enable='lt(t,${bs1})'`;
       sceneEffectsFilter += `,boxblur=lr=8:lp=1:enable='between(t,${bs1},${bs2})'`;
       sceneEffectsFilter += `,boxblur=lr=3:lp=1:enable='between(t,${bs2},${bs3})'`;
     }
-    if (outgoingIsBlur && sceneDuration > tdTrans * 2) {
-      const t1 = (sceneDuration - tdTrans).toFixed(3);
-      const t2 = (sceneDuration - 2 * tdTrans / 3).toFixed(3);
-      const t3 = (sceneDuration - tdTrans / 3).toFixed(3);
+    if (outgoingIsBlur && sceneDuration > (incomingTdTrans + outgoingTdTrans)) {
+      const t1 = (sceneDuration - outgoingTdTrans).toFixed(3);
+      const t2 = (sceneDuration - 2 * outgoingTdTrans / 3).toFixed(3);
+      const t3 = (sceneDuration - outgoingTdTrans / 3).toFixed(3);
       sceneEffectsFilter += `,boxblur=lr=3:lp=1:enable='between(t,${t1},${t2})'`;
       sceneEffectsFilter += `,boxblur=lr=8:lp=1:enable='between(t,${t2},${t3})'`;
       sceneEffectsFilter += `,boxblur=lr=16:lp=1:enable='gt(t,${t3})'`;
@@ -2251,13 +2276,7 @@ export async function assembleVideo(options, onProgress) {
 
     // ======== VIRAL BEAT EFFECTS ========
     
-    // Speed Ramp — freeze first frame briefly
-    if (bfx.speedRamp && sceneDuration > 0.3) {
-      const hold = Math.min(Number(bfx.speedRampHold) || 0.1, sceneDuration * 0.3);
-      const holdPts = hold.toFixed(4);
-      const comp = (sceneDuration / (sceneDuration - hold)).toFixed(4);
-      sceneEffectsFilter += `,setpts='if(lt(T,${holdPts}),0,${holdPts}/TB+(PTS-STARTPTS-${holdPts}/TB)/${comp})'`;
-    }
+    // Speed Ramp - handled smoothly at B-roll/input stage
     
     // Bass Bounce — scale pulse on beat entry
     if (bfx.bassBounce && sceneDuration > 0.2) {
@@ -2383,6 +2402,7 @@ export async function assembleVideo(options, onProgress) {
                 let activeWordIdxInChunk = -1;
 
                 if (mode === 'smart-highlight') {
+                  const maxWords = parseInt(subtitleStyle.maxWordsPerLine, 10) || 3;
                   const localWords = scene.words.map(item => ({
                     word: item.word,
                     start: Math.max(0, item.start_time - scene.start_time),
@@ -2394,7 +2414,7 @@ export async function assembleVideo(options, onProgress) {
                   let currentLen = 0;
                   for (let idx = 0; idx < localWords.length; idx++) {
                     const item = localWords[idx];
-                    if (currentChunk.length >= 3 || (currentChunk.length > 0 && currentLen + item.word.length > 20)) {
+                    if (currentChunk.length >= maxWords || (currentChunk.length > 0 && currentLen + item.word.length > 20)) {
                       chunks.push(currentChunk);
                       currentChunk = [item];
                       currentLen = item.word.length;
@@ -2670,6 +2690,37 @@ export async function assembleVideo(options, onProgress) {
       finalComposedLabel = `scene_final_${i}`;
     }
 
+    // ======== 💪 GYM GLOW (LUMA BLOOM) EFFECT ========
+    let gymGlowEnabled = false;
+    let threshold = 180;
+    let radius = 20;
+    let opacity = 0.6;
+
+    if (scene.gymGlow && scene.gymGlow.enabled) {
+      gymGlowEnabled = true;
+      threshold = Number(scene.gymGlow.threshold) || 180;
+      radius = Number(scene.gymGlow.radius) || 20;
+      opacity = Number(scene.gymGlow.opacity) || 0.6;
+    } else if (bfx.gymGlow) {
+      gymGlowEnabled = true;
+      threshold = Number(bfx.gymGlowThreshold) || 180;
+      radius = Number(bfx.gymGlowRadius) || 20;
+      opacity = Number(bfx.gymGlowOpacity) || 0.6;
+    }
+
+    if (gymGlowEnabled) {
+      const inputLabel = finalComposedLabel;
+      const blurredLabel = `v_glow_blur_${i}`;
+      const outputLabel = `v_glow_out_${i}`;
+      
+      // Extract highlights and blur, then screen blend back
+      filterComplex += `;[${inputLabel}]split=2[glow_orig_${i}][glow_src_${i}]`;
+      filterComplex += `;[glow_src_${i}]lutyuv=y='if(gt(val,${threshold}),(val-${threshold})*255/(255-${threshold}),0)':u=128:v=128,boxblur=lr=${radius}:lp=2[${blurredLabel}]`;
+      filterComplex += `;[glow_orig_${i}][${blurredLabel}]blend=all_mode=screen:all_opacity=${opacity}[${outputLabel}]`;
+      
+      finalComposedLabel = outputLabel;
+    }
+
     // Standardize fps
     filterComplex += `;[${finalComposedLabel}]fps=fps=${targetFps}`;
 
@@ -2831,10 +2882,25 @@ export async function assembleVideo(options, onProgress) {
       }
     }
 
+    let actualVideoDuration = 0;
+    try {
+      actualVideoDuration = await getVideoDuration(concatVideoOnlyPath);
+      console.log(`[Video Engine] Concatenated video duration: ${actualVideoDuration}s`);
+    } catch (err) {
+      console.warn('Failed to calculate concatenated video duration:', err.message);
+    }
+
     renderArgs.push(
       '-c:v', 'copy', // Copy video (zero encoding overhead, instant)
       '-video_track_timescale', '90000', // Standardize final output timescale
-      '-c:a', 'aac',  // Encode mixed audio
+      '-c:a', 'aac'  // Encode mixed audio
+    );
+
+    if (actualVideoDuration > 0) {
+      renderArgs.push('-t', String(actualVideoDuration));
+    }
+
+    renderArgs.push(
       '-y',
       finalOutputPath
     );

@@ -125,6 +125,25 @@ function getUserId(req) {
   return 'local-user';
 }
 
+const isProduction = !!process.env.K_SERVICE;
+
+// Authentication wall middleware for production (GCP Cloud Run)
+app.use('/api', (req, res, next) => {
+  const publicPaths = ['/health', '/auth/login', '/auth/register', '/auth/me'];
+  
+  const requestPath = req.path;
+  if (publicPaths.includes(requestPath)) {
+    return next();
+  }
+  
+  const userId = getUserId(req);
+  if (isProduction && userId === 'local-user') {
+    console.warn(`[Auth Warning] Blocked unauthenticated request to ${req.method} ${req.originalUrl}`);
+    return res.status(401).json({ error: 'Authentication required. Please sign in.' });
+  }
+  next();
+});
+
 // ==========================================
 // Health Check (Cloud Run)
 // ==========================================
@@ -177,6 +196,9 @@ app.post('/api/auth/login', async (req, res) => {
 app.get('/api/auth/me', async (req, res) => {
   const userId = getUserId(req);
   if (userId === 'local-user') {
+    if (isProduction) {
+      return res.status(401).json({ error: 'Not authenticated.' });
+    }
     return res.json({ email: 'local-user', plan: 'local', credits: 999999 });
   }
   try {
@@ -2338,12 +2360,81 @@ app.get('*', (req, res, next) => {
   res.sendFile(path.join(__dirname, '../dist/index.html'));
 });
 
+async function seedDefaultUser() {
+  const defaultEmail = 'vicky@vgen.productions';
+  const defaultPassword = 'vgenpassword123';
+  
+  try {
+    console.log(`[Database Startup] Checking default user: ${defaultEmail}`);
+    const exists = await dbService.checkUserExists(defaultEmail);
+    if (!exists) {
+      console.log(`[Database Startup] Seeding default user: ${defaultEmail}`);
+      await dbService.saveUser({
+        uid: defaultEmail,
+        email: defaultEmail,
+        password: defaultPassword,
+        plan: 'pro',
+        credits: 5000,
+        createdAt: new Date().toISOString()
+      });
+      console.log(`[Database Startup] Default user seeded successfully.`);
+    } else {
+      console.log(`[Database Startup] Default user already exists.`);
+    }
+    
+    // We only perform the migration of local-user data in GCP Cloud Run production environment
+    // to preserve clean local workspace development on localhost.
+    if (isProduction) {
+      console.log(`[Database Migration] Running production migration: reassigning 'local-user' data to default user...`);
+      
+      // 1. Migrate Projects
+      const projects = await dbService.getProjects('local-user');
+      if (projects.length > 0) {
+        console.log(`[Database Migration] Found ${projects.length} legacy projects for 'local-user'. Migrating to ${defaultEmail}...`);
+        for (const p of projects) {
+          p.userId = defaultEmail;
+          await dbService.saveProject(p);
+        }
+      }
+      
+      // 2. Migrate Clips
+      const clips = await dbService.getClips('local-user');
+      if (clips.length > 0) {
+        console.log(`[Database Migration] Found ${clips.length} legacy clips for 'local-user'. Migrating to ${defaultEmail}...`);
+        for (const c of clips) {
+          c.userId = defaultEmail;
+          await dbService.saveClip(c);
+        }
+      }
+      
+      // 3. Migrate BGMs
+      const bgms = await dbService.getBgms('local-user');
+      if (bgms.length > 0) {
+        console.log(`[Database Migration] Found ${bgms.length} legacy bgms for 'local-user'. Migrating to ${defaultEmail}...`);
+        for (const b of bgms) {
+          b.userId = defaultEmail;
+          await dbService.saveBgm(b);
+        }
+      }
+      
+      console.log(`[Database Migration] Migration checks and processing finished.`);
+    } else {
+      console.log(`[Database Startup] Local mode: Bypassing automatic local-user data migration.`);
+    }
+  } catch (err) {
+    console.error('[Database Startup Error] Seeding/Migration failed:', err.message);
+  }
+}
+
 // Start Server
 app.listen(PORT, () => {
   console.log(`=================================================`);
   console.log(` Video Generator Backend running on port ${PORT} `);
   console.log(` Static uploads served at http://localhost:${PORT}/uploads`);
   console.log(`=================================================`);
+
+  // Run database seeding and migration
+  seedDefaultUser();
 
   // Auto-resume any interrupted clip analysis tasks on boot
   (async () => {

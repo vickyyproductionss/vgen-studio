@@ -11,9 +11,9 @@ const PROJECT_ID = 'flowsocial-498207';
 let firestore = null;
 let useLocalDb = false;
 
-// Initialize Firestore if credentials or environment variables are present
+// Initialize Firestore if running in GCP Cloud Run environment
 try {
-  if (process.env.GOOGLE_APPLICATION_CREDENTIALS || process.env.K_SERVICE) {
+  if (process.env.K_SERVICE) {
     const firestoreConfig = { projectId: PROJECT_ID };
     
     // In local development, if we have a path to credentials, pass it explicitly if needed
@@ -21,7 +21,7 @@ try {
     firestore = new Firestore(firestoreConfig);
     console.log(`[Database] Initialized GCP Cloud Firestore in project "${PROJECT_ID}".`);
   } else {
-    console.log('[Database] No GCP credentials detected. Running in local fallback mode (db.json).');
+    console.log('[Database] Running in local fallback mode (db.json) because K_SERVICE is not defined.');
     useLocalDb = true;
   }
 } catch (err) {
@@ -452,7 +452,7 @@ export const dbService = {
     
     if (useLocalDb) {
       const db = getLocalDb();
-      db.users = db.projects || [];
+      db.users = db.users || [];
       const idx = db.users.findIndex(u => u.uid === user.uid);
       if (idx !== -1) {
         db.users[idx] = { ...db.users[idx], ...user };

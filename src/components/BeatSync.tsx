@@ -46,7 +46,21 @@ interface BeatScene {
   pingPong?: boolean;
   isBeatSyncOnly?: boolean;
   transition?: string;
+  transitionDuration?: number;
   sfx?: string;
+  speedRamp?: {
+    enabled: boolean;
+    v0: number;
+    v1: number;
+    v2: number;
+    preset: string;
+  };
+  gymGlow?: {
+    enabled: boolean;
+    threshold: number;
+    radius: number;
+    opacity: number;
+  };
 }
 
 interface WordStyle {
@@ -90,7 +104,14 @@ const CURATED_FONTS = [
   'Creepster',
   'Impact',
   'Courier New',
-  'Times New Roman'
+  'Times New Roman',
+  'Orbitron',
+  'Rajdhani',
+  'Teko',
+  'Yatra One',
+  'Rozha One',
+  'Mukta',
+  'Martel'
 ];
 
 const SFX_CATEGORIES = [
@@ -397,6 +418,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
   const [textTransition, setTextTransition] = useState<string>('none');
   const [activeWordScale, setActiveWordScale] = useState(1.15);
   const [wordDisplayTime, setWordDisplayTime] = useState(1.0);
+  const [maxWordsPerLine, setMaxWordsPerLine] = useState(3);
   const [textPositionX, setTextPositionX] = useState(0);
   const [textPositionY, setTextPositionY] = useState(-70);
   const [showEmojis, setShowEmojis] = useState(false);
@@ -526,6 +548,10 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
     rgbSplit: false, rgbSplitPixels: 6,
     bassBounce: false, bassBounceScale: 1.06,
     speedRamp: false, speedRampHold: 0.1,
+    speedRampPreset: 'hero',
+    speedRampV0: 2.0,
+    speedRampV1: 0.5,
+    speedRampV2: 2.0,
     whipPan: false, whipPanStrength: 30,
     spinTransition: false, spinDegrees: 90,
     colorFlash: false, colorFlashTint: '#FF6B00',
@@ -535,19 +561,23 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
     vignettePulse: false,
     negativeFlash: false,
     pingPong: false,
+    gymGlow: false,
+    gymGlowThreshold: 180,
+    gymGlowRadius: 20,
+    gymGlowOpacity: 0.6,
     preset: 'none' as string
   });
   const applyPreset = (presetName: string) => {
     const presets: Record<string, any> = {
-      aggressive: { whiteFlash: true, whiteFlashIntensity: 0.8, rgbSplit: true, rgbSplitPixels: 8, speedRamp: true, speedRampHold: 0.1, whipPan: true, whipPanStrength: 35, bassBounce: true, bassBounceScale: 1.08, preset: 'aggressive' },
-      cinematic: { speedRamp: true, speedRampHold: 0.15, colorFlash: true, colorFlashTint: '#FF6B00', vignettePulse: true, letterbox: true, letterboxSize: 50, filmGrain: true, filmGrainAmount: 10, preset: 'cinematic' },
+      aggressive: { whiteFlash: true, whiteFlashIntensity: 0.8, rgbSplit: true, rgbSplitPixels: 8, speedRamp: true, speedRampHold: 0.1, speedRampPreset: 'hero', speedRampV0: 2.0, speedRampV1: 0.5, speedRampV2: 2.0, whipPan: true, whipPanStrength: 35, bassBounce: true, bassBounceScale: 1.08, preset: 'aggressive' },
+      cinematic: { speedRamp: true, speedRampHold: 0.15, speedRampPreset: 'hero', speedRampV0: 2.0, speedRampV1: 0.5, speedRampV2: 2.0, colorFlash: true, colorFlashTint: '#FF6B00', vignettePulse: true, letterbox: true, letterboxSize: 50, filmGrain: true, filmGrainAmount: 10, preset: 'cinematic' },
       glitch: { rgbSplit: true, rgbSplitPixels: 10, glitchTear: true, glitchTearPixels: 25, negativeFlash: true, whiteFlash: true, whiteFlashIntensity: 0.5, preset: 'glitch' },
       clean: { bassBounce: true, bassBounceScale: 1.06, vignettePulse: true, preset: 'clean' }
     };
     if (presetName === 'none') {
-      setBeatEffects({ whiteFlash: false, whiteFlashIntensity: 0.6, rgbSplit: false, rgbSplitPixels: 6, bassBounce: false, bassBounceScale: 1.06, speedRamp: false, speedRampHold: 0.1, whipPan: false, whipPanStrength: 30, spinTransition: false, spinDegrees: 90, colorFlash: false, colorFlashTint: '#FF6B00', glitchTear: false, glitchTearPixels: 20, filmGrain: false, filmGrainAmount: 12, letterbox: false, letterboxSize: 50, vignettePulse: false, negativeFlash: false, pingPong: false, preset: 'none' });
+      setBeatEffects({ whiteFlash: false, whiteFlashIntensity: 0.6, rgbSplit: false, rgbSplitPixels: 6, bassBounce: false, bassBounceScale: 1.06, speedRamp: false, speedRampHold: 0.1, speedRampPreset: 'hero', speedRampV0: 2.0, speedRampV1: 0.5, speedRampV2: 2.0, whipPan: false, whipPanStrength: 30, spinTransition: false, spinDegrees: 90, colorFlash: false, colorFlashTint: '#FF6B00', glitchTear: false, glitchTearPixels: 20, filmGrain: false, filmGrainAmount: 12, letterbox: false, letterboxSize: 50, vignettePulse: false, negativeFlash: false, pingPong: false, gymGlow: false, gymGlowThreshold: 180, gymGlowRadius: 20, gymGlowOpacity: 0.6, preset: 'none' });
     } else {
-      setBeatEffects(prev => ({ ...prev, whiteFlash: false, rgbSplit: false, bassBounce: false, speedRamp: false, whipPan: false, spinTransition: false, colorFlash: false, glitchTear: false, filmGrain: false, letterbox: false, vignettePulse: false, negativeFlash: false, pingPong: false, ...presets[presetName] }));
+      setBeatEffects(prev => ({ ...prev, whiteFlash: false, rgbSplit: false, bassBounce: false, speedRamp: false, whipPan: false, spinTransition: false, colorFlash: false, glitchTear: false, filmGrain: false, letterbox: false, vignettePulse: false, negativeFlash: false, pingPong: false, gymGlow: false, ...presets[presetName] }));
     }
   };
   const [zoomAnimation, setZoomAnimation] = useState(true);
@@ -622,6 +652,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
         if (state.textMotion !== undefined) setTextMotion(state.textMotion);
         if (state.activeWordScale !== undefined) setActiveWordScale(state.activeWordScale);
         if (state.wordDisplayTime !== undefined) setWordDisplayTime(state.wordDisplayTime);
+        if (state.maxWordsPerLine !== undefined) setMaxWordsPerLine(state.maxWordsPerLine);
         if (state.textPositionX !== undefined) setTextPositionX(state.textPositionX);
         if (state.textPositionY !== undefined) setTextPositionY(state.textPositionY);
         if (state.showEmojis !== undefined) setShowEmojis(state.showEmojis);
@@ -737,6 +768,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
               textMotion,
               activeWordScale,
               wordDisplayTime,
+              maxWordsPerLine,
               textPositionX,
               textPositionY,
               showEmojis,
@@ -821,6 +853,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
     textMotion,
     activeWordScale,
     wordDisplayTime,
+    maxWordsPerLine,
     textPositionX,
     textPositionY,
     showEmojis,
@@ -1451,10 +1484,161 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
     setScenes(updated);
   };
 
+  const updateSceneTransitionDuration = (idx: number, duration: number) => {
+    const updated = [...scenes];
+    updated[idx].transitionDuration = duration;
+    setScenes(updated);
+  };
+
+  const getRequiredSourceDuration = (scene: BeatScene) => {
+    const targetDuration = scene.end_time - scene.start_time;
+    if (!scene.speedRamp?.enabled) {
+      return targetDuration;
+    }
+    const { v0, v1, v2 } = scene.speedRamp;
+    return ((v0 + 6 * v1 + v2) / 8) * targetDuration;
+  };
+
+  const toggleSpeedRamp = (idx: number, enabled: boolean) => {
+    const updated = [...scenes];
+    if (enabled) {
+      updated[idx].speedRamp = {
+        enabled: true, v0: 2.0, v1: 0.5, v2: 2.0, preset: 'hero'
+      };
+    } else {
+      updated[idx].speedRamp = {
+        enabled: false, v0: 1.0, v1: 1.0, v2: 1.0, preset: 'none'
+      };
+    }
+    
+    const reqDur = getRequiredSourceDuration(updated[idx]);
+    const clipId = updated[idx].clipId;
+    if (clipId) {
+      const clip = clips.find(c => c.id === clipId);
+      if (clip) {
+        const maxStart = Math.max(0, clip.duration - reqDur);
+        if ((updated[idx].clipStart || 0) > maxStart) {
+          updated[idx].clipStart = Math.min(updated[idx].clipStart || 0, maxStart);
+        }
+      }
+    }
+    setScenes(updated);
+  };
+
+  const updateSpeedRampPreset = (idx: number, preset: string) => {
+    const updated = [...scenes];
+    if (!updated[idx].speedRamp) return;
+    const sr = { ...updated[idx].speedRamp! };
+    sr.preset = preset;
+    if (preset === 'hero') {
+      sr.v0 = 2.0; sr.v1 = 0.5; sr.v2 = 2.0;
+    } else if (preset === 'slow-in') {
+      sr.v0 = 0.5; sr.v1 = 1.0; sr.v2 = 1.5;
+    } else if (preset === 'fast-in') {
+      sr.v0 = 2.0; sr.v1 = 1.0; sr.v2 = 0.5;
+    } else if (preset === 'slow-fast-slow') {
+      sr.v0 = 0.25; sr.v1 = 2.0; sr.v2 = 0.25;
+    } else if (preset === 'fast-slow-fast') {
+      sr.v0 = 2.0; sr.v1 = 0.25; sr.v2 = 2.0;
+    }
+    updated[idx].speedRamp = sr;
+
+    const reqDur = getRequiredSourceDuration(updated[idx]);
+    const clipId = updated[idx].clipId;
+    if (clipId) {
+      const clip = clips.find(c => c.id === clipId);
+      if (clip) {
+        const maxStart = Math.max(0, clip.duration - reqDur);
+        if ((updated[idx].clipStart || 0) > maxStart) {
+          updated[idx].clipStart = Math.min(updated[idx].clipStart || 0, maxStart);
+        }
+      }
+    }
+    setScenes(updated);
+  };
+
+  const updateCustomSpeed = (idx: number, key: 'v0' | 'v1' | 'v2', val: number) => {
+    const updated = [...scenes];
+    if (!updated[idx].speedRamp) return;
+    const sr = { ...updated[idx].speedRamp! };
+    sr[key] = val;
+    sr.preset = 'custom';
+    updated[idx].speedRamp = sr;
+
+    const reqDur = getRequiredSourceDuration(updated[idx]);
+    const clipId = updated[idx].clipId;
+    if (clipId) {
+      const clip = clips.find(c => c.id === clipId);
+      if (clip) {
+        const maxStart = Math.max(0, clip.duration - reqDur);
+        if ((updated[idx].clipStart || 0) > maxStart) {
+          updated[idx].clipStart = Math.min(updated[idx].clipStart || 0, maxStart);
+        }
+      }
+    }
+    setScenes(updated);
+  };
+
+  const applySpeedRampToAllClips = (idx: number) => {
+    const sourceSr = scenes[idx].speedRamp || { enabled: false, v0: 1.0, v1: 1.0, v2: 1.0, preset: 'none' };
+    const updated = scenes.map(scene => {
+      const newSr = { ...sourceSr };
+      const newScene = { ...scene, speedRamp: newSr };
+      const reqDur = getRequiredSourceDuration(newScene);
+      const clipId = newScene.clipId;
+      if (clipId) {
+        const clip = clips.find(c => c.id === clipId);
+        if (clip) {
+          const maxStart = Math.max(0, clip.duration - reqDur);
+          if ((newScene.clipStart || 0) > maxStart) {
+            newScene.clipStart = Math.min(newScene.clipStart || 0, maxStart);
+          }
+        }
+      }
+      return newScene;
+    });
+    setScenes(updated);
+    setSuccess('Applied speed ramp to all clips!');
+  };
+
+  const toggleGymGlow = (idx: number, enabled: boolean) => {
+    const updated = [...scenes];
+    if (enabled) {
+      updated[idx].gymGlow = {
+        enabled: true, threshold: 180, radius: 20, opacity: 0.6
+      };
+    } else {
+      updated[idx].gymGlow = {
+        enabled: false, threshold: 180, radius: 20, opacity: 0.6
+      };
+    }
+    setScenes(updated);
+  };
+
+  const updateGymGlowParam = (idx: number, key: 'threshold' | 'radius' | 'opacity', val: number) => {
+    const updated = [...scenes];
+    if (!updated[idx].gymGlow) return;
+    updated[idx].gymGlow = {
+      ...updated[idx].gymGlow!,
+      [key]: val
+    };
+    setScenes(updated);
+  };
+
   const updateSceneSfx = (idx: number, sfx: string) => {
     const updated = [...scenes];
     updated[idx].sfx = sfx;
     setScenes(updated);
+  };
+
+  const handleApplyTransitionsToAll = () => {
+    const updated = scenes.map(scene => ({
+      ...scene,
+      transition: clipTransition,
+      transitionDuration: transitionDuration
+    }));
+    setScenes(updated);
+    alert('Applied transition settings to all scenes!');
   };
 
   const handleRecommendTransitionsAndSfx = () => {
@@ -1711,6 +1895,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
             textMotion,
             activeWordScale,
             wordDisplayTime,
+            maxWordsPerLine,
             textPositionX,
             textPositionY,
             showEmojis,
@@ -2148,6 +2333,150 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
                       </label>
                     </div>
 
+                    <div style={{ marginTop: '8px', borderTop: '1px solid var(--border-light)', paddingTop: '8px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <input
+                          type="checkbox" id={`speedramp-enable-${idx}`}
+                          checked={!!scene.speedRamp?.enabled}
+                          onChange={(e) => toggleSpeedRamp(idx, e.target.checked)}
+                          style={{ cursor: 'pointer' }}
+                        />
+                        <label htmlFor={`speedramp-enable-${idx}`} style={{ fontSize: '11px', fontWeight: '500', cursor: 'pointer', color: 'var(--text-white)' }}>
+                          Enable Speed Ramping
+                        </label>
+                      </div>
+
+                      {scene.speedRamp?.enabled && (
+                        <div style={{ marginTop: '4px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                          <div>
+                            <select
+                              className="input-field"
+                              style={{ fontSize: '11px', padding: '4px 8px', height: '28px' }}
+                              value={scene.speedRamp.preset}
+                              onChange={(e) => updateSpeedRampPreset(idx, e.target.value)}
+                            >
+                              <option value="hero">Hero (2.0x → 0.5x → 2.0x)</option>
+                              <option value="slow-in">Slow-In (0.5x → 1.5x)</option>
+                              <option value="fast-in">Fast-In (2.0x → 0.5x)</option>
+                              <option value="slow-fast-slow">Slow-Fast-Slow (0.25x → 2.0x → 0.25x)</option>
+                              <option value="fast-slow-fast">Fast-Slow-Fast (2.0x → 0.25x → 2.0x)</option>
+                              <option value="custom">Custom Curve</option>
+                            </select>
+                          </div>
+
+                          {scene.speedRamp.preset === 'custom' && (
+                            <div style={{ padding: '6px', background: 'var(--bg-surface)', borderRadius: '4px', border: '1px solid var(--border-light)', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                              <div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: 'var(--text-gray)' }}>
+                                  <span>v0 (Start)</span>
+                                  <span>{scene.speedRamp.v0.toFixed(2)}x</span>
+                                </div>
+                                <input
+                                  type="range" min={0.25} max={4.0} step={0.05} value={scene.speedRamp.v0}
+                                  onChange={(e) => updateCustomSpeed(idx, 'v0', parseFloat(e.target.value))}
+                                  style={{ width: '100%' }}
+                                />
+                              </div>
+                              <div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: 'var(--text-gray)' }}>
+                                  <span>v1 (Mid)</span>
+                                  <span>{scene.speedRamp.v1.toFixed(2)}x</span>
+                                </div>
+                                <input
+                                  type="range" min={0.25} max={4.0} step={0.05} value={scene.speedRamp.v1}
+                                  onChange={(e) => updateCustomSpeed(idx, 'v1', parseFloat(e.target.value))}
+                                  style={{ width: '100%' }}
+                                />
+                              </div>
+                              <div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: 'var(--text-gray)' }}>
+                                  <span>v2 (End)</span>
+                                  <span>{scene.speedRamp.v2.toFixed(2)}x</span>
+                                </div>
+                                <input
+                                  type="range" min={0.25} max={4.0} step={0.05} value={scene.speedRamp.v2}
+                                  onChange={(e) => updateCustomSpeed(idx, 'v2', parseFloat(e.target.value))}
+                                  style={{ width: '100%' }}
+                                />
+                              </div>
+                            </div>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => applySpeedRampToAllClips(idx)}
+                            style={{
+                              fontSize: '9px', padding: '2px 6px', height: '20px', background: 'transparent',
+                              border: '1px solid var(--border-medium)', color: 'var(--text-gray)',
+                              cursor: 'pointer', borderRadius: '4px', textAlign: 'center', transition: 'all 0.15s ease'
+                            }}
+                            onMouseEnter={e => {
+                              (e.target as HTMLButtonElement).style.background = 'rgba(255,255,255,0.05)';
+                              (e.target as HTMLButtonElement).style.color = 'var(--text-white)';
+                            }}
+                            onMouseLeave={e => {
+                              (e.target as HTMLButtonElement).style.background = 'transparent';
+                              (e.target as HTMLButtonElement).style.color = 'var(--text-gray)';
+                            }}
+                          >
+                            Apply Speed Ramp to All Clips
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    <div style={{ marginTop: '8px', borderTop: '1px solid var(--border-light)', paddingTop: '8px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <input
+                          type="checkbox" id={`gymglow-enable-${idx}`}
+                          checked={!!scene.gymGlow?.enabled}
+                          onChange={(e) => toggleGymGlow(idx, e.target.checked)}
+                          style={{ cursor: 'pointer' }}
+                        />
+                        <label htmlFor={`gymglow-enable-${idx}`} style={{ fontSize: '11px', fontWeight: '500', cursor: 'pointer', color: 'var(--text-white)' }}>
+                          Enable 💪 Gym Glow
+                        </label>
+                      </div>
+
+                      {scene.gymGlow?.enabled && (
+                        <div style={{ padding: '6px', background: 'var(--bg-surface)', borderRadius: '4px', border: '1px solid var(--border-light)', display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '4px' }}>
+                          <div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: 'var(--text-gray)' }}>
+                              <span>Threshold (highlights)</span>
+                              <span>{scene.gymGlow.threshold}</span>
+                            </div>
+                            <input
+                              type="range" min={120} max={240} step={5} value={scene.gymGlow.threshold}
+                              onChange={(e) => updateGymGlowParam(idx, 'threshold', parseInt(e.target.value))}
+                              style={{ width: '100%' }}
+                            />
+                          </div>
+                          <div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: 'var(--text-gray)' }}>
+                              <span>Glow Radius</span>
+                              <span>{scene.gymGlow.radius}px</span>
+                            </div>
+                            <input
+                              type="range" min={5} max={50} step={1} value={scene.gymGlow.radius}
+                              onChange={(e) => updateGymGlowParam(idx, 'radius', parseInt(e.target.value))}
+                              style={{ width: '100%' }}
+                            />
+                          </div>
+                          <div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: 'var(--text-gray)' }}>
+                              <span>Intensity</span>
+                              <span>{Math.round(scene.gymGlow.opacity * 100)}%</span>
+                            </div>
+                            <input
+                              type="range" min={0.1} max={1.0} step={0.05} value={scene.gymGlow.opacity}
+                              onChange={(e) => updateGymGlowParam(idx, 'opacity', parseFloat(e.target.value))}
+                              style={{ width: '100%' }}
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
                     {idx < scenes.length - 1 && (
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', borderTop: '1px solid var(--border-light)', paddingTop: '10px', marginTop: '4px' }}>
                         <div>
@@ -2168,6 +2497,22 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
                             <option value="zoom-out">Zoom Out</option>
                             <option value="random">Random</option>
                           </select>
+                          {scene.transition && scene.transition !== 'none' && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '6px' }}>
+                              <label style={{ fontSize: '9px', color: 'var(--text-gray)' }}>Duration:</label>
+                              <input
+                                type="number"
+                                min="0.1"
+                                max="2.0"
+                                step="0.1"
+                                className="input-field"
+                                value={scene.transitionDuration !== undefined ? scene.transitionDuration : transitionDuration}
+                                onChange={(e) => updateSceneTransitionDuration(idx, parseFloat(e.target.value) || 0.3)}
+                                style={{ margin: 0, fontSize: '10px', height: '22px', padding: '0 4px', width: '45px', textAlign: 'center' }}
+                              />
+                              <span style={{ fontSize: '9px', color: 'var(--text-muted)' }}>s</span>
+                            </div>
+                          )}
                         </div>
                         <div>
                           <label className="label" style={{ fontSize: '10px', marginBottom: '4px' }}>Transition SFX</label>
@@ -2700,6 +3045,17 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
               </div>
             )}
 
+            <div style={{ marginTop: '10px' }}>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={handleApplyTransitionsToAll}
+                style={{ fontSize: '11px', width: '100%', justifyContent: 'center', padding: '6px' }}
+              >
+                Apply Current to All Scenes
+              </button>
+            </div>
+
             <div style={{ marginTop: '14px' }}>
               <label className="label">Viral Mini-Beat Effects</label>
               <select
@@ -2788,10 +3144,80 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
               <div style={{ marginBottom: '10px' }}>
                 <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', cursor: 'pointer' }}>
                   <input type="checkbox" checked={beatEffects.speedRamp} onChange={e => setBeatEffects(p => ({ ...p, speedRamp: e.target.checked, preset: 'none' }))} />
-                  ⚡ Beat Freeze
-                  {beatEffects.speedRamp && <span style={{ marginLeft: 'auto', opacity: 0.6, fontSize: '11px' }}>{beatEffects.speedRampHold}s</span>}
+                  ⚡ Speed Ramping
                 </label>
-                {beatEffects.speedRamp && <input type="range" min="0.05" max="0.2" step="0.01" value={beatEffects.speedRampHold} onChange={e => setBeatEffects(p => ({ ...p, speedRampHold: parseFloat(e.target.value), preset: 'none' }))} style={{ width: '100%', accentColor: 'var(--accent)', marginTop: '4px' }} />}
+                {beatEffects.speedRamp && (
+                  <div style={{ marginTop: '6px', display: 'flex', flexDirection: 'column', gap: '8px', paddingLeft: '20px' }}>
+                    <select
+                      className="input-field"
+                      style={{ fontSize: '11px', padding: '4px 8px', height: '28px', width: '100%', background: 'var(--bg-card)', color: 'var(--text-main)', border: '1px solid var(--border-light)', borderRadius: '4px' }}
+                      value={beatEffects.speedRampPreset || 'hero'}
+                      onChange={e => {
+                        const preset = e.target.value;
+                        setBeatEffects(p => {
+                          const updated = { ...p, speedRampPreset: preset, preset: 'none' };
+                          if (preset === 'hero') {
+                            updated.speedRampV0 = 2.0; updated.speedRampV1 = 0.5; updated.speedRampV2 = 2.0;
+                          } else if (preset === 'slow-in') {
+                            updated.speedRampV0 = 0.5; updated.speedRampV1 = 1.0; updated.speedRampV2 = 1.5;
+                          } else if (preset === 'fast-in') {
+                            updated.speedRampV0 = 2.0; updated.speedRampV1 = 1.0; updated.speedRampV2 = 0.5;
+                          } else if (preset === 'slow-fast-slow') {
+                            updated.speedRampV0 = 0.25; updated.speedRampV1 = 2.0; updated.speedRampV2 = 0.25;
+                          } else if (preset === 'fast-slow-fast') {
+                            updated.speedRampV0 = 2.0; updated.speedRampV1 = 0.25; updated.speedRampV2 = 2.0;
+                          }
+                          return updated;
+                        });
+                      }}
+                    >
+                      <option value="hero">Hero (2.0x → 0.5x → 2.0x)</option>
+                      <option value="slow-in">Slow-In (0.5x → 1.5x)</option>
+                      <option value="fast-in">Fast-In (2.0x → 0.5x)</option>
+                      <option value="slow-fast-slow">Slow-Fast-Slow (0.25x → 2.0x → 0.25x)</option>
+                      <option value="fast-slow-fast">Fast-Slow-Fast (2.0x → 0.25x → 2.0x)</option>
+                      <option value="custom">Custom Curve</option>
+                    </select>
+
+                    {(beatEffects.speedRampPreset === 'custom') && (
+                      <div style={{ padding: '6px', background: 'var(--bg-surface)', borderRadius: '4px', border: '1px solid var(--border-light)', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        <div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: 'var(--text-muted)' }}>
+                            <span>v0 (Start)</span>
+                            <span>{beatEffects.speedRampV0?.toFixed(2) || '1.00'}x</span>
+                          </div>
+                          <input
+                            type="range" min={0.25} max={4.0} step={0.05} value={beatEffects.speedRampV0 || 1.0}
+                            onChange={e => setBeatEffects(p => ({ ...p, speedRampV0: parseFloat(e.target.value), speedRampPreset: 'custom', preset: 'none' }))}
+                            style={{ width: '100%', accentColor: 'var(--accent)' }}
+                          />
+                        </div>
+                        <div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: 'var(--text-muted)' }}>
+                            <span>v1 (Mid)</span>
+                            <span>{beatEffects.speedRampV1?.toFixed(2) || '1.00'}x</span>
+                          </div>
+                          <input
+                            type="range" min={0.25} max={4.0} step={0.05} value={beatEffects.speedRampV1 || 1.0}
+                            onChange={e => setBeatEffects(p => ({ ...p, speedRampV1: parseFloat(e.target.value), speedRampPreset: 'custom', preset: 'none' }))}
+                            style={{ width: '100%', accentColor: 'var(--accent)' }}
+                          />
+                        </div>
+                        <div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: 'var(--text-muted)' }}>
+                            <span>v2 (End)</span>
+                            <span>{beatEffects.speedRampV2?.toFixed(2) || '1.00'}x</span>
+                          </div>
+                          <input
+                            type="range" min={0.25} max={4.0} step={0.05} value={beatEffects.speedRampV2 || 1.0}
+                            onChange={e => setBeatEffects(p => ({ ...p, speedRampV2: parseFloat(e.target.value), speedRampPreset: 'custom', preset: 'none' }))}
+                            style={{ width: '100%', accentColor: 'var(--accent)' }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Ping-Pong Beat Bounce */}
@@ -2852,6 +3278,52 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
                   {beatEffects.glitchTear && <span style={{ marginLeft: 'auto', opacity: 0.6, fontSize: '11px' }}>{beatEffects.glitchTearPixels}px</span>}
                 </label>
                 {beatEffects.glitchTear && <input type="range" min="5" max="40" step="5" value={beatEffects.glitchTearPixels} onChange={e => setBeatEffects(p => ({ ...p, glitchTearPixels: parseInt(e.target.value), preset: 'none' }))} style={{ width: '100%', accentColor: 'var(--accent)', marginTop: '4px' }} />}
+              </div>
+
+              {/* Gym Glow */}
+              <div style={{ marginBottom: '10px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={beatEffects.gymGlow} onChange={e => setBeatEffects(p => ({ ...p, gymGlow: e.target.checked, preset: 'none' }))} />
+                  💪 Gym Glow (Luma Bloom)
+                  {beatEffects.gymGlow && <span style={{ marginLeft: 'auto', opacity: 0.6, fontSize: '11px' }}>{Math.round(beatEffects.gymGlowOpacity * 100)}%</span>}
+                </label>
+                {beatEffects.gymGlow && (
+                  <div style={{ marginTop: '6px', display: 'flex', flexDirection: 'column', gap: '8px', paddingLeft: '20px' }}>
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--text-muted)' }}>
+                        <span>Luma Threshold</span>
+                        <span>{beatEffects.gymGlowThreshold}</span>
+                      </div>
+                      <input
+                        type="range" min="120" max="240" step="5" value={beatEffects.gymGlowThreshold}
+                        onChange={e => setBeatEffects(p => ({ ...p, gymGlowThreshold: parseInt(e.target.value), preset: 'none' }))}
+                        style={{ width: '100%', accentColor: 'var(--accent)', marginTop: '2px' }}
+                      />
+                    </div>
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--text-muted)' }}>
+                        <span>Glow Radius</span>
+                        <span>{beatEffects.gymGlowRadius}px</span>
+                      </div>
+                      <input
+                        type="range" min="5" max="50" step="1" value={beatEffects.gymGlowRadius}
+                        onChange={e => setBeatEffects(p => ({ ...p, gymGlowRadius: parseInt(e.target.value), preset: 'none' }))}
+                        style={{ width: '100%', accentColor: 'var(--accent)', marginTop: '2px' }}
+                      />
+                    </div>
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--text-muted)' }}>
+                        <span>Intensity</span>
+                        <span>{Math.round(beatEffects.gymGlowOpacity * 100)}%</span>
+                      </div>
+                      <input
+                        type="range" min="0.1" max="1.0" step="0.05" value={beatEffects.gymGlowOpacity}
+                        onChange={e => setBeatEffects(p => ({ ...p, gymGlowOpacity: parseFloat(e.target.value), preset: 'none' }))}
+                        style={{ width: '100%', accentColor: 'var(--accent)', marginTop: '2px' }}
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -3533,6 +4005,24 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
                         step={0.05}
                         value={activeWordScale}
                         onChange={(e) => setActiveWordScale(parseFloat(e.target.value))}
+                        style={{ width: '100%' }}
+                      />
+                    </div>
+                  )}
+
+                  {subtitleMode === 'smart-highlight' && (
+                    <div style={{ marginTop: '10px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                        <label className="label">Max Words Per Line</label>
+                        <span style={{ fontSize: '12px' }}>{maxWordsPerLine} words</span>
+                      </div>
+                      <input
+                        type="range"
+                        min={1}
+                        max={10}
+                        step={1}
+                        value={maxWordsPerLine}
+                        onChange={(e) => setMaxWordsPerLine(parseInt(e.target.value, 10))}
                         style={{ width: '100%' }}
                       />
                     </div>

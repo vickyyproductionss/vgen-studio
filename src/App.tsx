@@ -44,16 +44,27 @@ export default function App() {
   const [customCreditsAmount, setCustomCreditsAmount] = useState('500');
 
   const fetchUserProfile = async () => {
+    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
     try {
       const res = await fetch('/api/auth/me');
       if (res.ok) {
         const data = await res.json();
         setUser(data);
       } else {
-        setUser({ email: 'local-user', plan: 'local', credits: 999999 });
+        if (isLocalhost) {
+          setUser({ email: 'local-user', plan: 'local', credits: 999999 });
+        } else {
+          setUser(null);
+          setShowAuthModal(true);
+        }
       }
     } catch (_) {
-      setUser({ email: 'local-user', plan: 'local', credits: 999999 });
+      if (isLocalhost) {
+        setUser({ email: 'local-user', plan: 'local', credits: 999999 });
+      } else {
+        setUser(null);
+        setShowAuthModal(true);
+      }
     }
   };
 
@@ -585,11 +596,17 @@ export default function App() {
 
       {/* SaaS Auth Modal */}
       {showAuthModal && (
-        <div className="modal-overlay" onClick={() => setShowAuthModal(false)}>
+        <div className="modal-overlay" onClick={() => {
+          const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+          const canCloseAuth = isLocalhost || (user !== null && user.plan !== 'local');
+          if (canCloseAuth) setShowAuthModal(false);
+        }}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <button className="modal-close" onClick={() => setShowAuthModal(false)}>
-              <X size={18} />
-            </button>
+            {(window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || (user !== null && user.plan !== 'local')) && (
+              <button className="modal-close" onClick={() => setShowAuthModal(false)}>
+                <X size={18} />
+              </button>
+            )}
             
             <div className="auth-tabs">
               <div 

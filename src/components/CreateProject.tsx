@@ -35,6 +35,7 @@ interface Scene {
   words_hindi?: WordTiming[];
   words_hinglish?: WordTiming[];
   transition?: string;
+  transitionDuration?: number;
   sfx?: string;
   speedRamp?: {
     enabled: boolean;
@@ -42,6 +43,12 @@ interface Scene {
     v1: number;
     v2: number;
     preset: string;
+  };
+  gymGlow?: {
+    enabled: boolean;
+    threshold: number;
+    radius: number;
+    opacity: number;
   };
 }
 
@@ -167,7 +174,8 @@ const CURATED_FONTS = [
   'Lilita One', 'Fredoka', 'Pacifico', 'Caveat', 'Rubik', 'Bebas Neue',
   'Righteous', 'Lobster', 'Cinzel', 'Titan One', 'Shadows Into Light',
   'Satisfy', 'Comfortaa', 'Bree Serif', 'Exo 2', 'Creepster', 'Impact',
-  'Courier New', 'Times New Roman', 'Orbitron'
+  'Courier New', 'Times New Roman', 'Orbitron',
+  'Rajdhani', 'Teko', 'Yatra One', 'Rozha One', 'Mukta', 'Martel'
 ];
 
 interface SubtitlePreset {
@@ -427,6 +435,7 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
   const [textTransition, setTextTransition] = useState<string>('none');
   const [activeWordScale, setActiveWordScale] = useState(1.15);
   const [wordDisplayTime, setWordDisplayTime] = useState(1.0);
+  const [maxWordsPerLine, setMaxWordsPerLine] = useState(3);
   const [textPositionX, setTextPositionX] = useState(0);
   const [textPositionY, setTextPositionY] = useState(-70);
   const [showEmojis, setShowEmojis] = useState(false);
@@ -753,7 +762,7 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
             voiceoverVolume, clipTransition, transitionDuration, zoomAnimation, subtitleMode,
             fontName, fontSize, fontColor, outlineColor, bold, italic, shadow, highlightColor,
             showHighlightBox, boxColor, boxRounding, textFade, textTransition, textMotion,
-            activeWordScale, wordDisplayTime, textPositionX, textPositionY, exportResolution,
+            activeWordScale, wordDisplayTime, maxWordsPerLine, textPositionX, textPositionY, exportResolution,
             exportFps, showEmojis, autoEmphasis, emphasisColor, neonGlow, glowColor, glowBlur, glowDistance, highlightTrigger, pop3d, pop3dColor,
             normalStyle, highlightStyle, emojiStyle, elevenLabsModel, enhanceWithThoughtfulTags, originalScriptText,
             headingTitle, headingFontName, headingFontSize, headingFontColor, headingBoxColor, headingPadding, showTimer, headingTopOffset, headingLeftOffset,
@@ -771,7 +780,7 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
           voiceoverVolume, clipTransition, transitionDuration, zoomAnimation, subtitleMode,
           fontName, fontSize, fontColor, outlineColor, bold, italic, shadow, highlightColor,
           showHighlightBox, boxColor, boxRounding, textFade, textTransition, textMotion,
-          activeWordScale, wordDisplayTime, textPositionX, textPositionY, exportResolution,
+          activeWordScale, wordDisplayTime, maxWordsPerLine, textPositionX, textPositionY, exportResolution,
           exportFps, showEmojis, autoEmphasis, emphasisColor, neonGlow, glowColor, glowBlur, glowDistance, highlightTrigger, pop3d, pop3dColor,
           normalStyle, highlightStyle, emojiStyle, elevenLabsModel, enhanceWithThoughtfulTags, originalScriptText,
           headingTitle, headingFontName, headingFontSize, headingFontColor, headingBoxColor, headingPadding, showTimer, headingTopOffset, headingLeftOffset,
@@ -804,7 +813,7 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
     fillMode, bgMusicPath, bgMusicVolume, bgMusicStartOffset, voiceoverVolume, clipTransition,
     transitionDuration, zoomAnimation, subtitleMode, fontName, fontSize, fontColor, outlineColor,
     bold, italic, shadow, highlightColor, showHighlightBox, boxColor, boxRounding, textFade,
-    textTransition, textMotion, activeWordScale, wordDisplayTime, textPositionX, textPositionY,
+    textTransition, textMotion, activeWordScale, wordDisplayTime, maxWordsPerLine, textPositionX, textPositionY,
     exportResolution, exportFps, showEmojis, autoEmphasis, emphasisColor, neonGlow, glowColor,
     glowBlur, glowDistance, highlightTrigger, pop3d, pop3dColor, normalStyle, highlightStyle, emojiStyle,
     elevenLabsModel, enhanceWithThoughtfulTags, originalScriptText, hasLoadedProject, projectId,
@@ -868,6 +877,7 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
         if (project.textMotion !== undefined) setTextMotion(project.textMotion);
         if (project.activeWordScale !== undefined) setActiveWordScale(project.activeWordScale);
         if (project.wordDisplayTime !== undefined) setWordDisplayTime(project.wordDisplayTime);
+        if (project.maxWordsPerLine !== undefined) setMaxWordsPerLine(project.maxWordsPerLine);
         if (project.textPositionX !== undefined) setTextPositionX(project.textPositionX);
         if (project.textPositionY !== undefined) setTextPositionY(project.textPositionY);
         if (project.exportResolution !== undefined) setExportResolution(project.exportResolution);
@@ -1269,10 +1279,26 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
     setScenes(updated);
   };
 
+  const updateSceneTransitionDuration = (idx: number, duration: number) => {
+    const updated = [...scenes];
+    updated[idx].transitionDuration = duration;
+    setScenes(updated);
+  };
+
   const updateSceneSfx = (idx: number, sfx: string) => {
     const updated = [...scenes];
     updated[idx].sfx = sfx;
     setScenes(updated);
+  };
+
+  const handleApplyTransitionsToAll = () => {
+    const updated = scenes.map(scene => ({
+      ...scene,
+      transition: clipTransition,
+      transitionDuration: transitionDuration
+    }));
+    setScenes(updated);
+    alert('Applied transition settings to all scenes!');
   };
 
   const handleRecommendTransitionsAndSfx = () => {
@@ -1357,6 +1383,30 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
     setScenes(updated);
   };
 
+  const toggleGymGlow = (idx: number, enabled: boolean) => {
+    const updated = [...scenes];
+    if (enabled) {
+      updated[idx].gymGlow = {
+        enabled: true, threshold: 180, radius: 20, opacity: 0.6
+      };
+    } else {
+      updated[idx].gymGlow = {
+        enabled: false, threshold: 180, radius: 20, opacity: 0.6
+      };
+    }
+    setScenes(updated);
+  };
+
+  const updateGymGlowParam = (idx: number, key: 'threshold' | 'radius' | 'opacity', val: number) => {
+    const updated = [...scenes];
+    if (!updated[idx].gymGlow) return;
+    updated[idx].gymGlow = {
+      ...updated[idx].gymGlow!,
+      [key]: val
+    };
+    setScenes(updated);
+  };
+
   const updateSpeedRampPreset = (idx: number, preset: string) => {
     const updated = [...scenes];
     if (!updated[idx].speedRamp) return;
@@ -1368,6 +1418,10 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
       sr.v0 = 0.5; sr.v1 = 1.0; sr.v2 = 1.5;
     } else if (preset === 'fast-in') {
       sr.v0 = 2.0; sr.v1 = 1.0; sr.v2 = 0.5;
+    } else if (preset === 'slow-fast-slow') {
+      sr.v0 = 0.25; sr.v1 = 2.0; sr.v2 = 0.25;
+    } else if (preset === 'fast-slow-fast') {
+      sr.v0 = 2.0; sr.v1 = 0.25; sr.v2 = 2.0;
     }
     updated[idx].speedRamp = sr;
 
@@ -1494,7 +1548,7 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
           subtitleStyle: {
             subtitleMode, fontName, fontSize, fontColor, outlineColor, bold, italic, shadow,
             highlightColor, showHighlightBox, boxColor, boxRounding, textFade, textTransition,
-            textMotion, activeWordScale, wordDisplayTime, textPositionX, textPositionY, showEmojis,
+            textMotion, activeWordScale, wordDisplayTime, maxWordsPerLine, textPositionX, textPositionY, showEmojis,
             autoEmphasis, emphasisColor, neonGlow, glowColor, glowBlur, glowDistance, highlightTrigger, pop3d, pop3dColor,
             normalStyle, highlightStyle, emojiStyle,
             headingTitle, headingFontName, headingFontSize, headingFontColor, headingBoxColor, headingPadding,
@@ -2189,6 +2243,8 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                                         <option value="hero">Hero (2.0x → 0.5x → 2.0x)</option>
                                         <option value="slow-in">Slow-In (0.5x → 1.5x)</option>
                                         <option value="fast-in">Fast-In (2.0x → 0.5x)</option>
+                                        <option value="slow-fast-slow">Slow-Fast-Slow (0.25x → 2.0x → 0.25x)</option>
+                                        <option value="fast-slow-fast">Fast-Slow-Fast (2.0x → 0.25x → 2.0x)</option>
                                         <option value="custom">Custom Curve</option>
                                       </select>
                                     </div>
@@ -2246,6 +2302,58 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                                 )}
                               </div>
 
+                              <div style={{ marginTop: '8px', borderTop: '1px solid var(--border-light)', paddingTop: '8px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  <input
+                                    type="checkbox" id={`gymglow-enable-${idx}`}
+                                    checked={!!scene.gymGlow?.enabled}
+                                    onChange={(e) => toggleGymGlow(idx, e.target.checked)}
+                                    style={{ cursor: 'pointer' }}
+                                  />
+                                  <label htmlFor={`gymglow-enable-${idx}`} style={{ fontSize: '11px', fontWeight: '500', cursor: 'pointer', color: 'var(--text-white)' }}>
+                                    Enable 💪 Gym Glow
+                                  </label>
+                                </div>
+
+                                {scene.gymGlow?.enabled && (
+                                  <div style={{ padding: '6px', background: 'var(--bg-surface)', borderRadius: '4px', border: '1px solid var(--border-light)', display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '4px' }}>
+                                    <div>
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: 'var(--text-gray)' }}>
+                                        <span>Threshold (highlights)</span>
+                                        <span>{scene.gymGlow.threshold}</span>
+                                      </div>
+                                      <input
+                                        type="range" min={120} max={240} step={5} value={scene.gymGlow.threshold}
+                                        onChange={(e) => updateGymGlowParam(idx, 'threshold', parseInt(e.target.value))}
+                                        style={{ width: '100%' }}
+                                      />
+                                    </div>
+                                    <div>
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: 'var(--text-gray)' }}>
+                                        <span>Glow Radius</span>
+                                        <span>{scene.gymGlow.radius}px</span>
+                                      </div>
+                                      <input
+                                        type="range" min={5} max={50} step={1} value={scene.gymGlow.radius}
+                                        onChange={(e) => updateGymGlowParam(idx, 'radius', parseInt(e.target.value))}
+                                        style={{ width: '100%' }}
+                                      />
+                                    </div>
+                                    <div>
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: 'var(--text-gray)' }}>
+                                        <span>Intensity</span>
+                                        <span>{Math.round(scene.gymGlow.opacity * 100)}%</span>
+                                      </div>
+                                      <input
+                                        type="range" min={0.1} max={1.0} step={0.05} value={scene.gymGlow.opacity}
+                                        onChange={(e) => updateGymGlowParam(idx, 'opacity', parseFloat(e.target.value))}
+                                        style={{ width: '100%' }}
+                                      />
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+
                               {isInsufficient && (
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 8px', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.2)', color: '#f87171', borderRadius: '4px', fontSize: '10px', marginTop: '6px' }}>
                                   <AlertTriangle size={12} style={{ flexShrink: 0 }} />
@@ -2276,6 +2384,22 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                                 <option value="zoom-out">Zoom Out</option>
                                 <option value="random">Random</option>
                               </select>
+                              {scene.transition && scene.transition !== 'none' && (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '6px' }}>
+                                  <label style={{ fontSize: '9px', color: 'var(--text-gray)' }}>Duration:</label>
+                                  <input
+                                    type="number"
+                                    min="0.1"
+                                    max="2.0"
+                                    step="0.1"
+                                    className="input-field"
+                                    value={scene.transitionDuration !== undefined ? scene.transitionDuration : transitionDuration}
+                                    onChange={(e) => updateSceneTransitionDuration(idx, parseFloat(e.target.value) || 0.3)}
+                                    style={{ margin: 0, fontSize: '10px', height: '22px', padding: '0 4px', width: '45px', textAlign: 'center' }}
+                                  />
+                                  <span style={{ fontSize: '9px', color: 'var(--text-muted)' }}>s</span>
+                                </div>
+                              )}
                             </div>
                             <div>
                               <label className="label" style={{ fontSize: '10px', marginBottom: '4px' }}>Transition SFX</label>
@@ -3306,6 +3430,20 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                   </div>
                 )}
 
+                {subtitleMode === 'smart-highlight' && (
+                  <div style={{ marginBottom: '12px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                      <label className="label" style={{ margin: 0 }}>Max Words Per Line</label>
+                      <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{maxWordsPerLine} words</span>
+                    </div>
+                    <input
+                      type="range" min={1} max={10} step={1} value={maxWordsPerLine}
+                      onChange={(e) => setMaxWordsPerLine(parseInt(e.target.value, 10))}
+                      style={{ width: '100%' }}
+                    />
+                  </div>
+                )}
+
                 {subtitleMode === 'pop' && (
                   <div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
@@ -3562,6 +3700,17 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                     />
                   </div>
                 )}
+
+                <div style={{ marginBottom: '12px' }}>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={handleApplyTransitionsToAll}
+                    style={{ fontSize: '11px', width: '100%', justifyContent: 'center', padding: '6px' }}
+                  >
+                    Apply Current to All Scenes
+                  </button>
+                </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <input type="checkbox" id="zoom-ken-burns" checked={zoomAnimation} onChange={(e) => setZoomAnimation(e.target.checked)} />
