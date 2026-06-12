@@ -708,64 +708,101 @@ app.post('/api/clips/upload', upload.array('videos', 20), async (req, res) => {
   }
 });
 
-// ── Direct-to-GCS Upload (bypasses Cloud Run 32MB body limit) ──
+// ── Chunked Upload (bypasses Cloud Run 32MB body limit) ──
+// Files are split into small chunks by the client. Each chunk is sent as a
+// separate HTTP request (well under the 32MB limit). The server writes chunks
+// to a temp file, then uploads the complete file to GCS when done.
 
-// Step 1: Client requests a resumable upload URL for each file
+const activeUploads = new Map(); // sessionId -> { filePath, fileName, receivedBytes }
+
+// Step 1: Client requests an upload session
 app.post('/api/clips/init-upload', async (req, res) => {
   const { fileName, contentType, fileSize } = req.body;
   if (!fileName) {
     return res.status(400).json({ error: 'fileName is required.' });
   }
 
-  if (!gcsService.isGcsEnabled()) {
-    // Fallback: tell client to use the old multipart upload
-    return res.json({ mode: 'multipart' });
-  }
-
   try {
     const clipId = uuidv4();
     const ext = path.extname(fileName) || '.mp4';
-    const gcsPath = `clips/${clipId}${ext}`;
-    const bucket = gcsService.getBucketName();
+    const tempFilePath = path.join(CLIPS_DIR, `${clipId}${ext}`);
 
-    // Create a resumable upload session directly with the GCS API
-    const file = new Storage().bucket(bucket).file(gcsPath);
-    const [uploadUrl] = await file.createResumableUpload({
-      metadata: {
-        contentType: contentType || 'video/mp4',
-        metadata: { originalName: fileName }
+    // Create empty file
+    await fs.writeFile(tempFilePath, Buffer.alloc(0));
+
+    // Track upload session
+    activeUploads.set(clipId, {
+      filePath: tempFilePath,
+      fileName,
+      ext,
+      receivedBytes: 0,
+      totalSize: fileSize || 0
+    });
+
+    // Auto-cleanup after 30 minutes if upload stalls
+    setTimeout(() => {
+      if (activeUploads.has(clipId)) {
+        activeUploads.delete(clipId);
+        fs.unlink(tempFilePath).catch(() => {});
       }
-    });
+    }, 30 * 60 * 1000);
 
-    res.json({
-      mode: 'direct',
-      clipId,
-      gcsPath,
-      uploadUrl,   // Client PUTs file data directly to this URL
-      bucket
-    });
+    res.json({ clipId, ext });
   } catch (error) {
     console.error('[Upload Init Error]', error.message);
     res.status(500).json({ error: `Failed to initialize upload: ${error.message}` });
   }
 });
 
-// Step 2: After client finishes uploading to GCS, finalize the clip
-app.post('/api/clips/finalize-upload', async (req, res) => {
-  const { clipId, gcsPath, fileName } = req.body;
-  if (!clipId || !gcsPath) {
-    return res.status(400).json({ error: 'clipId and gcsPath are required.' });
+// Step 2: Client sends file chunks (each under 8MB)
+const chunkUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+app.post('/api/clips/upload-chunk/:clipId', chunkUpload.single('chunk'), async (req, res) => {
+  const { clipId } = req.params;
+  const session = activeUploads.get(clipId);
+
+  if (!session) {
+    return res.status(404).json({ error: 'Upload session not found or expired.' });
   }
+
+  if (!req.file) {
+    return res.status(400).json({ error: 'No chunk data provided.' });
+  }
+
+  try {
+    // Append chunk to file
+    await fs.appendFile(session.filePath, req.file.buffer);
+    session.receivedBytes += req.file.buffer.length;
+
+    res.json({
+      received: session.receivedBytes,
+      total: session.totalSize
+    });
+  } catch (error) {
+    console.error('[Chunk Upload Error]', error.message);
+    res.status(500).json({ error: `Failed to write chunk: ${error.message}` });
+  }
+});
+
+// Step 3: Client signals upload is complete — server processes the file
+app.post('/api/clips/finalize-upload', async (req, res) => {
+  const { clipId, fileName } = req.body;
+  if (!clipId) {
+    return res.status(400).json({ error: 'clipId is required.' });
+  }
+
+  const session = activeUploads.get(clipId);
+  if (!session) {
+    return res.status(404).json({ error: 'Upload session not found or expired.' });
+  }
+
+  activeUploads.delete(clipId);
 
   const userId = getUserId(req);
   try {
     const settings = await dbService.getSettings();
     const apiKey = process.env.GEMINI_API_KEY || settings.geminiApiKey;
 
-    // Download the file temporarily for thumbnail generation and analysis
-    const ext = path.extname(gcsPath) || '.mp4';
-    const localTempPath = path.join(CLIPS_DIR, `${clipId}${ext}`);
-    await gcsService.downloadFile(gcsPath, localTempPath);
+    const localTempPath = session.filePath;
 
     // Generate thumbnail
     const thumbnailFilename = `${clipId}.jpg`;
@@ -773,26 +810,22 @@ app.post('/api/clips/finalize-upload', async (req, res) => {
     const duration = await getVideoDuration(localTempPath);
     await generateThumbnail(localTempPath, thumbnailLocalPath);
 
-    // Upload thumbnail to GCS
+    let finalVideoPath = localTempPath;
     let finalThumbnailUrl = `/uploads/thumbnails/${thumbnailFilename}`;
+
+    // Upload to GCS if enabled
     if (gcsService.isGcsEnabled()) {
+      const gcsVideoPath = `clips/${clipId}${session.ext}`;
+      finalVideoPath = await gcsService.uploadFile(localTempPath, gcsVideoPath);
       finalThumbnailUrl = await gcsService.uploadFile(thumbnailLocalPath, `thumbnails/${thumbnailFilename}`);
       try { await fs.unlink(thumbnailLocalPath); } catch (_) {}
     }
 
-    // Get the video's GCS URL
-    const bucket = gcsService.getBucketName();
-    const gcsStorage = new Storage();
-    const [videoUrl] = await gcsStorage.bucket(bucket).file(gcsPath).getSignedUrl({
-      action: 'read',
-      expires: Date.now() + 7 * 24 * 60 * 60 * 1000
-    });
-
     const newClip = {
       id: clipId,
       userId,
-      path: videoUrl,
-      name: fileName || path.basename(gcsPath),
+      path: finalVideoPath,
+      name: fileName || session.fileName,
       thumbnail: finalThumbnailUrl,
       duration,
       description: 'Analyzing clip content...',

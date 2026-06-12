@@ -99,31 +99,35 @@ export default function ClipsLibrary() {
     }
   };
 
-  const uploadFileToGCS = (file: File, uploadUrl: string, onProgress: (pct: number) => void): Promise<void> => {
-    return new Promise((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
+  const CHUNK_SIZE = 8 * 1024 * 1024; // 8MB chunks (well under Cloud Run's 32MB limit)
 
-      xhr.upload.addEventListener('progress', (event) => {
-        if (event.lengthComputable) {
-          onProgress(Math.round((event.loaded / event.total) * 100));
-        }
+  const uploadFileInChunks = async (
+    file: File,
+    clipId: string,
+    onProgress: (pct: number) => void
+  ): Promise<void> => {
+    const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+
+    for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
+      const start = chunkIndex * CHUNK_SIZE;
+      const end = Math.min(start + CHUNK_SIZE, file.size);
+      const chunk = file.slice(start, end);
+
+      const formData = new FormData();
+      formData.append('chunk', chunk, `chunk-${chunkIndex}`);
+
+      const res = await fetch(`/api/clips/upload-chunk/${clipId}`, {
+        method: 'POST',
+        body: formData
       });
 
-      xhr.addEventListener('load', () => {
-        if (xhr.status >= 200 && xhr.status < 300) {
-          resolve();
-        } else {
-          reject(new Error(`GCS upload failed (${xhr.status})`));
-        }
-      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || `Chunk upload failed (${res.status})`);
+      }
 
-      xhr.addEventListener('error', () => reject(new Error('Network error during upload')));
-      xhr.addEventListener('abort', () => reject(new Error('Upload cancelled')));
-
-      xhr.open('PUT', uploadUrl);
-      xhr.setRequestHeader('Content-Type', file.type || 'video/mp4');
-      xhr.send(file);
-    });
+      onProgress(Math.round((end / file.size) * 100));
+    }
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -149,7 +153,7 @@ export default function ClipsLibrary() {
       for (let i = 0; i < fileList.length; i++) {
         const file = fileList[i];
 
-        // Step 1: Request upload URL from server
+        // Step 1: Request upload session from server
         const initRes = await fetch('/api/clips/init-upload', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -165,41 +169,26 @@ export default function ClipsLibrary() {
           throw new Error(err.error || 'Failed to initialize upload');
         }
 
-        const initData = await initRes.json();
+        const { clipId } = await initRes.json();
 
-        if (initData.mode === 'multipart') {
-          // Fallback: use old multipart upload (local dev)
-          const formData = new FormData();
-          formData.append('videos', file);
-          const uploadRes = await fetch('/api/clips/upload', { method: 'POST', body: formData });
-          if (!uploadRes.ok) throw new Error('Multipart upload failed');
-          const clips = await uploadRes.json();
-          uploadedClips.push(...clips);
-          setUploadQueue(prev => prev.map((item, idx) =>
-            idx === i ? { ...item, progress: 100, status: 'done' as const } : item
-          ));
-          continue;
-        }
-
-        // Step 2: Upload file directly to GCS
-        await uploadFileToGCS(file, initData.uploadUrl, (pct) => {
+        // Step 2: Upload file in 8MB chunks
+        await uploadFileInChunks(file, clipId, (pct) => {
           setUploadQueue(prev => prev.map((item, idx) =>
             idx === i ? { ...item, progress: pct, status: 'uploading' as const } : item
           ));
         });
 
-        // Mark as processing
+        // Mark as processing (server is generating thumbnail + uploading to GCS)
         setUploadQueue(prev => prev.map((item, idx) =>
           idx === i ? { ...item, progress: 100, status: 'processing' as const } : item
         ));
 
-        // Step 3: Finalize — server generates thumbnail + starts AI analysis
+        // Step 3: Finalize — server processes the complete file
         const finalRes = await fetch('/api/clips/finalize-upload', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            clipId: initData.clipId,
-            gcsPath: initData.gcsPath,
+            clipId,
             fileName: file.name
           })
         });
@@ -231,7 +220,6 @@ export default function ClipsLibrary() {
           ? { ...item, status: 'error' as const, error: err.message }
           : item
       ));
-      // Add any partially uploaded clips
       if (uploadedClips.length > 0) {
         setClips(prev => [...uploadedClips, ...prev]);
       }
