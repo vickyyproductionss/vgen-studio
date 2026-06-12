@@ -74,17 +74,10 @@ export const gcsService = {
         }
       });
       
-      // Generate a signed URL or public URL.
-      // If your bucket is public, a direct URL is simpler:
-      // return `https://storage.googleapis.com/${BUCKET_NAME}/${destination}`;
-      
-      // Let's generate a signed URL valid for 7 days (maximum limit) for secure private buckets
-      const [url] = await bucket.file(destination).getSignedUrl({
-        action: 'read',
-        expires: Date.now() + 7 * 24 * 60 * 60 * 1000 // 7 days
-      });
+      // Use public URL (bucket has allUsers objectViewer access)
+      const url = `https://storage.googleapis.com/${BUCKET_NAME}/${destination}`;
 
-      console.log(`[Storage] Upload completed. Signed URL: ${url.substring(0, 80)}...`);
+      console.log(`[Storage] Upload completed. URL: ${url}`);
       return url;
     } catch (err) {
       console.error('[Storage Error] Failed to upload file to GCS:', err.message);
