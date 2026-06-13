@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { Sparkles, RefreshCw, AlertTriangle, CheckCircle, Upload, Zap, Search, Play, Pause, Video, Layers } from 'lucide-react';
+import { Sparkles, RefreshCw, AlertTriangle, CheckCircle, Upload, Zap, Search, Play, Pause, Video, Layers, Sparkle } from 'lucide-react';
+import RichClipSelector from './RichClipSelector';
 
 interface Voice {
   id: string;
@@ -31,6 +32,7 @@ interface Scene {
   clipId?: string;
   clipStart?: number;
   reason?: string;
+  visual_description?: string;
   words?: WordTiming[];
   words_hindi?: WordTiming[];
   words_hinglish?: WordTiming[];
@@ -384,7 +386,6 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
   const [talkingHeadOutlineEnabled, setTalkingHeadOutlineEnabled] = useState(false);
   const [talkingHeadOutlineColor, setTalkingHeadOutlineColor] = useState('#ffffff');
   const [talkingHeadOutlineThickness, setTalkingHeadOutlineThickness] = useState(2);
-  const [geminiKeySet, setGeminiKeySet] = useState(false);
   const [elevenLabsKeySet, setElevenLabsKeySet] = useState(false);
   const [clips, setClips] = useState<Clip[]>([]);
   const [voices, setVoices] = useState<Voice[]>([]);
@@ -419,6 +420,15 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
   const [fontSelectorOpen, setFontSelectorOpen] = useState(false);
   const [fontSearchQuery, setFontSearchQuery] = useState('');
   const [fontLoading, setFontLoading] = useState(false);
+  const [useAiFallback, setUseAiFallback] = useState(false);
+  // AI generation modal states
+  const [showAiGenModal, setShowAiGenModal] = useState(false);
+  const [aiGenSceneIdx, setAiGenSceneIdx] = useState<number | null>(null);
+  const [aiGenPrompt, setAiGenPrompt] = useState('');
+  const [aiGenType, setAiGenType] = useState<'image' | 'video'>('video');
+  const [aiGenDuration, setAiGenDuration] = useState(5);
+  const [aiGenLoading, setAiGenLoading] = useState(false);
+  const [aiGenError, setAiGenError] = useState('');
   const [fontDownloadError, setFontDownloadError] = useState('');
   const [fontSize, setFontSize] = useState(24);
   const [fontColor, setFontColor] = useState('#FFFFFF');
@@ -966,7 +976,6 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
       const res = await fetch('/api/settings');
       if (res.ok) {
         const settings = await res.json();
-        setGeminiKeySet(!!settings.geminiApiKey);
         setElevenLabsKeySet(!!settings.elevenLabsApiKey);
         
         if (settings.elevenLabsApiKey) {
@@ -1030,7 +1039,7 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
         body: JSON.stringify({ scriptText })
       });
       if (!res.ok) {
-        throw new Error('Failed to enhance script. Please check your Gemini API key in Settings.');
+        throw new Error('Failed to enhance script. Please try again.');
       }
       const data = await res.json();
       setOriginalScriptText(scriptText);
@@ -1221,8 +1230,8 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
       setError('Create scenes and timestamps first.');
       return;
     }
-    if (clips.length === 0) {
-      setError('No video clips available in library. Please import clips first.');
+    if (clips.length === 0 && !useAiFallback) {
+      setError('No video clips available in library. Please import clips first, or enable AI Fallback.');
       return;
     }
 
@@ -1233,7 +1242,7 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
       const res = await fetch('/api/match-clips', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scenes, talkingHead: projectType === 'talkinghead' })
+        body: JSON.stringify({ scenes, talkingHead: projectType === 'talkinghead', useAiFallback })
       });
 
       if (!res.ok) {
@@ -1264,6 +1273,83 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
     const updated = [...scenes];
     updated[idx].clipId = clipId;
     updated[idx].clipStart = 0;
+    setScenes(updated);
+  };
+
+  const openAiGenModal = (idx: number) => {
+    const scene = scenes[idx];
+    if (!scene) return;
+    setAiGenSceneIdx(idx);
+    setAiGenPrompt(scene.visual_description || scene.text || '');
+    setAiGenDuration(Number((scene.end_time - scene.start_time).toFixed(1)) || 5);
+    setAiGenType('video');
+    setAiGenError('');
+    setShowAiGenModal(true);
+  };
+
+  const handleGenerateAiClip = async () => {
+    if (!aiGenPrompt.trim()) {
+      setAiGenError('Prompt is required.');
+      return;
+    }
+    if (aiGenSceneIdx === null) return;
+    
+    setAiGenLoading(true);
+    setAiGenError('');
+
+    try {
+      const res = await fetch('/api/generate-ai-clip', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: aiGenPrompt,
+          type: aiGenType,
+          duration: aiGenDuration
+        })
+      });
+
+      if (!res.ok) {
+        throw await parseFetchError(res, 'AI Clip Generation failed.');
+      }
+
+      const data = await res.json();
+      const newClip = data.clip;
+
+      // Add to clips list if it doesn't exist
+      setClips(prev => [newClip, ...prev]);
+
+      // Assign to scene
+      updateSceneClip(aiGenSceneIdx, newClip.id);
+
+      setShowAiGenModal(false);
+      setSuccess('AI clip generated and assigned successfully!');
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (err: any) {
+      setAiGenError(err.message || 'An error occurred during clip generation.');
+    } finally {
+      setAiGenLoading(false);
+    }
+  };
+
+  const updateSceneText = (idx: number, text: string) => {
+    const updated = [...scenes];
+    updated[idx].text = text;
+    
+    const wordsList = text.split(/\s+/).filter(Boolean);
+    const start = updated[idx].start_time;
+    const end = updated[idx].end_time;
+    const duration = end - start;
+    if (wordsList.length > 0 && duration > 0) {
+      const wordDur = duration / wordsList.length;
+      updated[idx].words = wordsList.map((word, i) => ({
+        word,
+        start_time: Number((start + i * wordDur).toFixed(3)),
+        end_time: Number((start + (i + 1) * wordDur).toFixed(3))
+      }));
+    } else {
+      updated[idx].words = [];
+    }
+    
     setScenes(updated);
   };
 
@@ -1963,29 +2049,23 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '12px 0', position: 'relative' }}>
             <div style={{ width: '1px', height: '32px', background: 'linear-gradient(to bottom, rgba(255,255,255,0.15) 0%, transparent 100%)' }}></div>
             
-            {!geminiKeySet ? (
-              <div style={{ color: '#f87171', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--bg-card)', border: '1px solid rgba(239, 68, 68, 0.2)', padding: '10px 20px', borderRadius: '20px' }}>
-                <AlertTriangle size={14} /> Gemini API key not set. Go to Settings tab.
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={handleAlignScript}
-                disabled={projectType === 'talkinghead' ? transcribing : aligning}
-                className="btn-secondary active-glow"
-                style={{
-                  display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 24px',
-                  background: 'var(--bg-card)', border: '1px solid var(--border-medium)',
-                  borderRadius: '24px', cursor: 'pointer', fontWeight: 600, fontSize: '13px',
-                  color: 'var(--text-white)', transition: 'all 0.2s ease', height: '40px'
-                }}
-              >
-                <RefreshCw size={14} className={(projectType === 'talkinghead' ? transcribing : aligning) ? 'spin' : ''} style={{ animation: (projectType === 'talkinghead' ? transcribing : aligning) ? 'spin-slow 2s linear infinite' : 'none' }} />
-                {projectType === 'talkinghead' 
-                  ? (transcribing ? 'Transcribing & Segmenting Video...' : 'Transcribe & Segment Video')
-                  : (aligning ? 'Aligning script with Gemini...' : 'Analyze Timestamps & Align')}
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={handleAlignScript}
+              disabled={projectType === 'talkinghead' ? transcribing : aligning}
+              className="btn-secondary active-glow"
+              style={{
+                display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 24px',
+                background: 'var(--bg-card)', border: '1px solid var(--border-medium)',
+                borderRadius: '24px', cursor: 'pointer', fontWeight: 600, fontSize: '13px',
+                color: 'var(--text-white)', transition: 'all 0.2s ease', height: '40px'
+              }}
+            >
+              <RefreshCw size={14} className={(projectType === 'talkinghead' ? transcribing : aligning) ? 'spin' : ''} style={{ animation: (projectType === 'talkinghead' ? transcribing : aligning) ? 'spin-slow 2s linear infinite' : 'none' }} />
+              {projectType === 'talkinghead' 
+                ? (transcribing ? 'Transcribing & Segmenting Video...' : 'Transcribe & Segment Video')
+                : (aligning ? 'Aligning script with Gemini...' : 'Analyze Timestamps & Align')}
+            </button>
             
             <div style={{ width: '1px', height: '32px', background: 'linear-gradient(to top, rgba(255,255,255,0.15) 0%, transparent 100%)', marginTop: '8px' }}></div>
           </div>
@@ -2003,32 +2083,39 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                 }}>3</span>
                 Storyboard
               </h3>
-              {!geminiKeySet ? (
-                <div style={{ color: '#f87171', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <AlertTriangle size={14} /> Gemini API key not set. Go to Settings tab.
+              <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <input
+                    type="checkbox"
+                    id="use-ai-fallback-toggle"
+                    checked={useAiFallback}
+                    onChange={(e) => setUseAiFallback(e.target.checked)}
+                    style={{ cursor: 'pointer' }}
+                  />
+                  <label htmlFor="use-ai-fallback-toggle" style={{ fontSize: '12px', color: 'var(--text-gray)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', margin: 0, fontWeight: 500 }}>
+                    <Sparkle size={12} color="var(--primary)" fill="var(--primary)" /> Use AI Fallback
+                  </label>
                 </div>
-              ) : (
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <button
-                    type="button"
-                    onClick={() => setShowBulkTransitions(!showBulkTransitions)}
-                    className="btn-secondary"
-                    style={{ fontSize: '12px', padding: '6px 14px', height: '32px', borderColor: showBulkTransitions ? 'var(--primary)' : 'var(--border-medium)', color: showBulkTransitions ? 'var(--text-white)' : 'var(--text-gray)' }}
-                  >
-                    ✨ Bulk Transitions & SFX
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleMatchClips}
-                    className="btn-secondary"
-                    disabled={matching || clips.length === 0}
-                    style={{ fontSize: '12px', padding: '6px 14px', height: '32px' }}
-                  >
-                    <Sparkles size={12} style={{ marginRight: '6px' }} />
-                    {matching ? 'Auto-matching...' : 'AI Auto-Match Clips'}
-                  </button>
-                </div>
-              )}
+
+                <button
+                  type="button"
+                  onClick={() => setShowBulkTransitions(!showBulkTransitions)}
+                  className="btn-secondary"
+                  style={{ fontSize: '12px', padding: '6px 14px', height: '32px', borderColor: showBulkTransitions ? 'var(--primary)' : 'var(--border-medium)', color: showBulkTransitions ? 'var(--text-white)' : 'var(--text-gray)' }}
+                >
+                  ✨ Bulk Transitions & SFX
+                </button>
+                <button
+                  type="button"
+                  onClick={handleMatchClips}
+                  className="btn-secondary"
+                  disabled={matching || (clips.length === 0 && !useAiFallback)}
+                  style={{ fontSize: '12px', padding: '6px 14px', height: '32px' }}
+                >
+                  <Sparkles size={12} style={{ marginRight: '6px' }} />
+                  {matching ? 'Auto-matching...' : 'AI Auto-Match Clips'}
+                </button>
+              </div>
             </div>
 
             {showBulkTransitions && clips.length > 0 && (
@@ -2172,28 +2259,40 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                       </div>
 
                       <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px', flex: 1 }}>
-                        <div style={{ fontSize: '13px', fontStyle: 'italic', color: 'var(--text-white)', minHeight: '38px', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-                          "{scene.text}"
+                        <div>
+                          <label className="label" style={{ fontSize: '10px', marginBottom: '4px' }}>Scene Subtitles</label>
+                          <textarea
+                            className="input-field"
+                            value={scene.text || ''}
+                            onChange={(e) => updateSceneText(idx, e.target.value)}
+                            placeholder="Type scene subtitles..."
+                            rows={2}
+                            style={{
+                              margin: 0,
+                              fontSize: '12px',
+                              lineHeight: '1.4',
+                              fontStyle: 'italic',
+                              fontFamily: 'inherit',
+                              resize: 'none',
+                              height: '42px',
+                              minHeight: '42px',
+                              background: 'var(--bg-medium)',
+                              border: '1px solid var(--border-light)',
+                              color: 'var(--text-white)'
+                            }}
+                          />
                         </div>
 
                         <div>
                           <label className="label" style={{ fontSize: '10px', marginBottom: '4px' }}>Assigned Video Clip</label>
-                          <select
-                            className="input-field"
+                          <RichClipSelector
                             value={scene.clipId || ''}
-                            onChange={(e) => updateSceneClip(idx, e.target.value)}
-                            style={{ margin: 0, fontSize: '12px', height: '32px' }}
-                          >
-                            <option value="">-- Choose Video Clip --</option>
-                            {projectType === 'talkinghead' && (
-                              <option value="original">Original Video (Talking Head)</option>
-                            )}
-                            {clips.map(clip => (
-                              <option key={clip.id} value={clip.id}>
-                                {clip.name} ({clip.duration.toFixed(1)}s)
-                              </option>
-                            ))}
-                          </select>
+                            onChange={(clipId) => updateSceneClip(idx, clipId)}
+                            clips={clips}
+                            onGenerateAi={() => openAiGenModal(idx)}
+                            showOriginal={projectType === 'talkinghead' || !!originalVideoPath}
+                            originalLabel={projectType === 'talkinghead' ? 'Original Video (Talking Head)' : 'Original Reel Clip'}
+                          />
                         </div>
 
                         {selectedClip && (() => {
@@ -4225,6 +4324,105 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
 
         </div>
       </div>
+
+      {/* Generate AI Clip Modal */}
+      {showAiGenModal && (
+        <div className="modal-overlay" onClick={() => setShowAiGenModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '500px' }}>
+            <h3 style={{ fontSize: '18px', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+              <Sparkles size={16} color="var(--primary)" fill="var(--primary)" />
+              Generate AI Clip for Scene
+            </h3>
+            
+            {aiGenError && (
+              <div style={{
+                background: 'rgba(239, 68, 68, 0.1)',
+                border: '1px solid rgba(239, 68, 68, 0.2)',
+                color: '#f87171',
+                padding: '10px 12px',
+                borderRadius: '6px',
+                fontSize: '12px',
+                marginBottom: '16px'
+              }}>
+                {aiGenError}
+              </div>
+            )}
+
+            <div style={{ marginBottom: '16px' }}>
+              <label className="label">AI Generation Prompt</label>
+              <textarea
+                className="input-field"
+                value={aiGenPrompt}
+                onChange={(e) => setAiGenPrompt(e.target.value)}
+                placeholder="Describe what you want to see in this scene..."
+                style={{ height: '100px', fontSize: '12px', resize: 'vertical' }}
+              />
+              <span style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
+                Tip: Describe details like visual action, objects, lighting, and setting. If you have uploaded a Subject Profile, their face will be referenced.
+              </span>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' }}>
+              <div>
+                <label className="label">Format Type</label>
+                <select
+                  className="input-field"
+                  value={aiGenType}
+                  onChange={(e: any) => setAiGenType(e.target.value)}
+                  style={{ height: '36px', fontSize: '12px' }}
+                >
+                  <option value="video">Motion Video (Ken Burns Pan)</option>
+                  <option value="image">Static Image (Still Loop)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="label">Duration (seconds)</label>
+                <input
+                  type="number"
+                  className="input-field"
+                  value={aiGenDuration}
+                  onChange={(e) => setAiGenDuration(parseFloat(e.target.value) || 5)}
+                  min={1}
+                  max={15}
+                  step={0.1}
+                  style={{ height: '36px', fontSize: '12px' }}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => setShowAiGenModal(false)}
+                disabled={aiGenLoading}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={handleGenerateAiClip}
+                disabled={aiGenLoading}
+                style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+              >
+                {aiGenLoading ? (
+                  <>
+                    <RefreshCw size={14} className="spin" />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles size={14} />
+                    Generate & Assign
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

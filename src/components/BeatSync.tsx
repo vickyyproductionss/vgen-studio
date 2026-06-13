@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Zap, Upload, Play, Pause, Trash2, Music, Video, Activity, ChevronRight, AlertTriangle, CheckCircle, RefreshCw, Scissors, Sparkles, Type } from 'lucide-react';
+import { Zap, Upload, Play, Pause, Trash2, Music, Video, Activity, ChevronRight, AlertTriangle, CheckCircle, RefreshCw, Scissors, Sparkles, Type, Sparkle } from 'lucide-react';
+import RichClipSelector from './RichClipSelector';
 
 interface ClipSegment {
   start_time: number;
@@ -335,7 +336,6 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
   // Analysis parameters
   const [syncMode, setSyncMode] = useState<'beats' | 'dialogue'>('beats');
   const [threshold, setThreshold] = useState(1.4);
-  const [geminiKeySet, setGeminiKeySet] = useState(false);
   const [activeLang, setActiveLang] = useState<'hinglish' | 'hindi'>('hinglish');
   const [mergeShortScenes, setMergeShortScenes] = useState(true);
   const [rawScenes, setRawScenes] = useState<BeatScene[]>([]);
@@ -402,6 +402,15 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
   const [fontSelectorOpen, setFontSelectorOpen] = useState(false);
   const [fontSearchQuery, setFontSearchQuery] = useState('');
   const [fontLoading, setFontLoading] = useState(false);
+  const [useAiFallback, setUseAiFallback] = useState(false);
+  // AI generation modal states
+  const [showAiGenModal, setShowAiGenModal] = useState(false);
+  const [aiGenSceneIdx, setAiGenSceneIdx] = useState<number | null>(null);
+  const [aiGenPrompt, setAiGenPrompt] = useState('');
+  const [aiGenType, setAiGenType] = useState<'image' | 'video'>('video');
+  const [aiGenDuration, setAiGenDuration] = useState(5);
+  const [aiGenLoading, setAiGenLoading] = useState(false);
+  const [aiGenError, setAiGenError] = useState('');
   const [fontDownloadError, setFontDownloadError] = useState('');
   const [fontSize, setFontSize] = useState(24);
   const [fontColor, setFontColor] = useState('#FFFFFF');
@@ -989,8 +998,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
     try {
       const res = await fetch('/api/settings');
       if (res.ok) {
-        const settings = await res.json();
-        setGeminiKeySet(!!settings.geminiApiKey);
+        // Settings checked
       }
     } catch (err) {
       console.error('Failed to check API settings:', err);
@@ -1472,6 +1480,61 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
     setScenes(updated);
   };
 
+  const openAiGenModal = (idx: number) => {
+    const scene = scenes[idx];
+    if (!scene) return;
+    setAiGenSceneIdx(idx);
+    setAiGenPrompt(scene.text || '');
+    setAiGenDuration(Number((scene.end_time - scene.start_time).toFixed(1)) || 5);
+    setAiGenType('video');
+    setAiGenError('');
+    setShowAiGenModal(true);
+  };
+
+  const handleGenerateAiClip = async () => {
+    if (!aiGenPrompt.trim()) {
+      setAiGenError('Prompt is required.');
+      return;
+    }
+    if (aiGenSceneIdx === null) return;
+    
+    setAiGenLoading(true);
+    setAiGenError('');
+
+    try {
+      const res = await fetch('/api/generate-ai-clip', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: aiGenPrompt,
+          type: aiGenType,
+          duration: aiGenDuration
+        })
+      });
+
+      if (!res.ok) {
+        throw new Error('AI Clip Generation failed.');
+      }
+
+      const data = await res.json();
+      const newClip = data.clip;
+
+      // Add to clips list if it doesn't exist
+      setClips(prev => [newClip, ...prev]);
+
+      // Assign to scene
+      updateSceneClip(aiGenSceneIdx, newClip.id);
+
+      setShowAiGenModal(false);
+      setSuccess('AI clip generated and assigned successfully!');
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (err: any) {
+      setAiGenError(err.message || 'An error occurred during clip generation.');
+    } finally {
+      setAiGenLoading(false);
+    }
+  };
+
   const updateSceneClipStart = (idx: number, val: number) => {
     const updated = [...scenes];
     updated[idx].clipStart = val;
@@ -1685,6 +1748,22 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
   const updateSceneText = (idx: number, text: string) => {
     const updated = [...scenes];
     updated[idx].text = text;
+    
+    const wordsList = text.split(/\s+/).filter(Boolean);
+    const start = updated[idx].start_time;
+    const end = updated[idx].end_time;
+    const duration = end - start;
+    if (wordsList.length > 0 && duration > 0) {
+      const wordDur = duration / wordsList.length;
+      updated[idx].words = wordsList.map((word, i) => ({
+        word,
+        start_time: Number((start + i * wordDur).toFixed(3)),
+        end_time: Number((start + (i + 1) * wordDur).toFixed(3))
+      }));
+    } else {
+      updated[idx].words = [];
+    }
+    
     setScenes(updated);
   };
 
@@ -1695,12 +1774,12 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
     setError('');
 
     try {
-      if (syncMode === 'dialogue' && geminiKeySet) {
+      if (syncMode === 'dialogue') {
         // Dialogue: Run Semantic Match via Gemini
         const res = await fetch('/api/match-clips', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ scenes })
+          body: JSON.stringify({ scenes, useAiFallback })
         });
 
         if (!res.ok) {
@@ -1721,10 +1800,43 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
       } else {
         // Music Beats: Random clip + random segment + random offset within segment for each beat scene
         const availableClips = clips.filter(c => c.exists !== false);
-        if (availableClips.length === 0) {
-          throw new Error('Video Library is empty or all clips are missing on disk. Import clips first.');
+        if (availableClips.length === 0 && !useAiFallback) {
+          throw new Error('Video Library is empty or all clips are missing on disk. Import clips first, or enable AI Fallback.');
         }
+
         const updated = [...scenes];
+
+        if (availableClips.length === 0 && useAiFallback) {
+          setSuccess('Generating AI b-roll clips for beats sync...');
+          for (let sceneIdx = 0; sceneIdx < updated.length; sceneIdx++) {
+            const scene = updated[sceneIdx];
+            const sceneDuration = scene.end_time - scene.start_time;
+            try {
+              const r = await fetch('/api/generate-ai-clip', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  prompt: `abstract cinematic slow motion b-roll matching music beats, neon colors, aesthetic, 4k`,
+                  type: 'video',
+                  duration: sceneDuration
+                })
+              });
+              if (r.ok) {
+                const data = await r.json();
+                const newClip = data.clip;
+                setClips(prev => [newClip, ...prev]);
+                updated[sceneIdx].clipId = newClip.id;
+                updated[sceneIdx].clipStart = 0;
+                updated[sceneIdx].reason = 'AI Generated Beat Fallback';
+              }
+            } catch (err) {
+              console.error('Failed to generate AI beat fallback:', err);
+            }
+          }
+          setScenes(updated);
+          setSuccess('AI Beat Fallback clips generated successfully!');
+          return;
+        }
         const usedClips = new Set<string>();
         const usedSegments = new Set<string>(); // Format: "clipId_segmentIndex"
 
@@ -2083,6 +2195,19 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
                     </label>
                   </div>
                 )}
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginRight: '8px' }}>
+                  <input
+                    type="checkbox"
+                    id="use-ai-fallback-toggle-beatsync"
+                    checked={useAiFallback}
+                    onChange={(e) => setUseAiFallback(e.target.checked)}
+                    style={{ cursor: 'pointer' }}
+                  />
+                  <label htmlFor="use-ai-fallback-toggle-beatsync" style={{ fontSize: '11px', color: 'var(--text-gray)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', margin: 0, fontWeight: 500 }}>
+                    <Sparkle size={12} color="var(--primary)" fill="var(--primary)" /> Use AI Fallback
+                  </label>
+                </div>
 
                 <button
                   type="button"
@@ -2098,7 +2223,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
                   type="button"
                   onClick={handleAutoMatchClips}
                   className="btn-secondary"
-                  disabled={matching || clips.length === 0}
+                  disabled={matching || (clips.length === 0 && !useAiFallback)}
                   style={{ fontSize: '12px', height: '32px', padding: '0 12px' }}
                 >
                   <Sparkles size={12} />
@@ -2106,8 +2231,9 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
                 </button>
               </div>
             </div>
+          </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               {scenes.map((scene, idx) => {
                 const duration = scene.end_time - scene.start_time;
                 const selectedClip = clips.find(c => c.id === scene.clipId);
@@ -2247,19 +2373,13 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '12px', alignItems: 'flex-end' }}>
                       <div>
                         <label className="label" style={{ fontSize: '11px' }}>Assigned Video Clip</label>
-                        <select
-                          className="input-field"
+                        <RichClipSelector
                           value={scene.clipId || ''}
-                          onChange={(e) => updateSceneClip(idx, e.target.value)}
-                          style={{ height: '36px', fontSize: '12px', margin: 0 }}
-                        >
-                          <option value="">-- Choose Video Clip --</option>
-                          {clips.filter(c => c.exists !== false).map(clip => (
-                            <option key={clip.id} value={clip.id}>
-                              {clip.name} ({clip.duration.toFixed(1)}s)
-                            </option>
-                          ))}
-                        </select>
+                          onChange={(clipId) => updateSceneClip(idx, clipId)}
+                          clips={clips}
+                          onGenerateAi={() => openAiGenModal(idx)}
+                          showOriginal={false}
+                        />
                       </div>
                       {selectedClip && (() => {
                         const dims = aspectRatio === '9:16'
@@ -2827,17 +2947,10 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
                     </div>
                   )}
 
-                  {syncMode === 'dialogue' && !geminiKeySet && (
-                    <div style={{ padding: '10px', background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.15)', color: '#f87171', borderRadius: '6px', fontSize: '11px', marginBottom: '14px' }}>
-                      <AlertTriangle size={12} style={{ marginRight: '4px', verticalAlign: 'middle' }} />
-                      Gemini API key is not configured in Settings.
-                    </div>
-                  )}
-
                   <button
                     onClick={handleAnalyzeAudio}
                     className="btn-primary"
-                    disabled={analyzing || (syncMode === 'dialogue' && !geminiKeySet)}
+                    disabled={analyzing}
                     style={{ width: '100%', height: '38px', justifyContent: 'center', fontSize: '12px' }}
                   >
                     {analyzing ? (
@@ -4649,6 +4762,105 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
           })()}
         </div>
       </div>
+
+      {/* Generate AI Clip Modal */}
+      {showAiGenModal && (
+        <div className="modal-overlay" onClick={() => setShowAiGenModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '500px' }}>
+            <h3 style={{ fontSize: '18px', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+              <Sparkles size={16} color="var(--primary)" fill="var(--primary)" />
+              Generate AI Clip for Scene
+            </h3>
+            
+            {aiGenError && (
+              <div style={{
+                background: 'rgba(239, 68, 68, 0.1)',
+                border: '1px solid rgba(239, 68, 68, 0.2)',
+                color: '#f87171',
+                padding: '10px 12px',
+                borderRadius: '6px',
+                fontSize: '12px',
+                marginBottom: '16px'
+              }}>
+                {aiGenError}
+              </div>
+            )}
+
+            <div style={{ marginBottom: '16px' }}>
+              <label className="label">AI Generation Prompt</label>
+              <textarea
+                className="input-field"
+                value={aiGenPrompt}
+                onChange={(e) => setAiGenPrompt(e.target.value)}
+                placeholder="Describe what you want to see in this scene..."
+                style={{ height: '100px', fontSize: '12px', resize: 'vertical' }}
+              />
+              <span style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
+                Tip: Describe details like visual action, objects, lighting, and setting. If you have uploaded a Subject Profile, their face will be referenced.
+              </span>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' }}>
+              <div>
+                <label className="label">Format Type</label>
+                <select
+                  className="input-field"
+                  value={aiGenType}
+                  onChange={(e: any) => setAiGenType(e.target.value)}
+                  style={{ height: '36px', fontSize: '12px' }}
+                >
+                  <option value="video">Motion Video (Ken Burns Pan)</option>
+                  <option value="image">Static Image (Still Loop)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="label">Duration (seconds)</label>
+                <input
+                  type="number"
+                  className="input-field"
+                  value={aiGenDuration}
+                  onChange={(e) => setAiGenDuration(parseFloat(e.target.value) || 5)}
+                  min={1}
+                  max={15}
+                  step={0.1}
+                  style={{ height: '36px', fontSize: '12px' }}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => setShowAiGenModal(false)}
+                disabled={aiGenLoading}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={handleGenerateAiClip}
+                disabled={aiGenLoading}
+                style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+              >
+                {aiGenLoading ? (
+                  <>
+                    <RefreshCw size={14} className="spin" />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles size={14} />
+                    Generate & Assign
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

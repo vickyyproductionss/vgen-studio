@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Film, Settings as SettingsIcon, Play, Video, Terminal, Music, Zap, Folder, LogOut, User, Check, X, Bell, HelpCircle, Rocket, Sun, Moon } from 'lucide-react';
+import { Film, Settings as SettingsIcon, Play, Video, Terminal, Music, Zap, Folder, LogOut, User, Check, X, Bell, HelpCircle, Rocket, Sun, Moon, Sparkles } from 'lucide-react';
 import ClipsLibrary from './components/ClipsLibrary';
 import MusicLibrary from './components/MusicLibrary';
 import CreateProject from './components/CreateProject';
@@ -7,8 +7,10 @@ import RenderCenter from './components/RenderCenter';
 import Settings from './components/Settings';
 import BeatSync from './components/BeatSync';
 import ProjectsList from './components/ProjectsList';
+import RecreateReel from './components/RecreateReel';
+import SubjectProfile from './components/SubjectProfile';
 
-type Tab = 'projects' | 'library' | 'music' | 'create' | 'render' | 'settings' | 'editor' | 'beatsync';
+type Tab = 'projects' | 'library' | 'music' | 'create' | 'render' | 'settings' | 'editor' | 'beatsync' | 'recreate' | 'subject';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('projects');
@@ -310,6 +312,8 @@ export default function App() {
     if (activeTab === 'music') return 'Music Library';
     if (activeTab === 'render') return 'Render Center';
     if (activeTab === 'settings') return 'Settings';
+    if (activeTab === 'recreate') return 'Replicate Reel';
+    if (activeTab === 'subject') return 'Subject Profile';
     return '';
   };
 
@@ -377,6 +381,14 @@ export default function App() {
             </div>
 
             <div
+              className={`nav-link ${activeTab === 'recreate' ? 'active' : ''}`}
+              onClick={() => handleTabClick('recreate')}
+            >
+              <Sparkles size={18} />
+              Replicate Reel
+            </div>
+
+            <div
               className={`nav-link ${activeTab === 'library' ? 'active' : ''}`}
               onClick={() => handleTabClick('library')}
             >
@@ -390,6 +402,14 @@ export default function App() {
             >
               <Music size={18} />
               Music Library
+            </div>
+
+            <div
+              className={`nav-link ${activeTab === 'subject' ? 'active' : ''}`}
+              onClick={() => handleTabClick('subject')}
+            >
+              <User size={18} />
+              Subject Profile
             </div>
 
             <div
@@ -577,12 +597,20 @@ export default function App() {
           <BeatSync projectId={activeProjectId} onStartRender={startRenderJob} />
         )}
 
+        {activeTab === 'recreate' && (
+          <RecreateReel onOpenProject={openProject} />
+        )}
+
         {activeTab === 'library' && (
           <ClipsLibrary />
         )}
 
         {activeTab === 'music' && (
           <MusicLibrary />
+        )}
+
+        {activeTab === 'subject' && (
+          <SubjectProfile />
         )}
 
         {activeTab === 'render' && (

@@ -11,6 +11,12 @@ const ai = new GoogleGenAI({
   location: 'us-central1'
 });
 
+// Helper to dynamically obtain client (forced to global Vertex AI per instructions)
+function getAiClient(apiKey) {
+  console.log('[Gemini Client] Using global Vertex AI (enterprise)...');
+  return ai;
+}
+
 
 // Helper to get audio duration using ffmpeg
 async function getAudioDuration(filePath) {
@@ -58,7 +64,7 @@ async function waitForFileActive(ai, fileMeta) {
  * Helper to call generateContent with model rotation and retry logic for transient errors.
  */
 async function generateContentWithFallback(ai, requestConfig) {
-  const defaultModels = ['gemini-2.5-flash', 'gemini-1.5-flash'];
+  const defaultModels = ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-1.5-flash', 'gemini-1.5-pro'];
   const models = requestConfig.models || defaultModels;
   
   const cleanConfig = { ...requestConfig };
@@ -139,6 +145,10 @@ function getMimeType(filePath) {
     case '.webm': return 'video/webm';
     case '.mov': return 'video/quicktime';
     case '.m4v': return 'video/x-m4v';
+    case '.jpg':
+    case '.jpeg': return 'image/jpeg';
+    case '.png': return 'image/png';
+    case '.webp': return 'image/webp';
     default: return 'video/mp4';
   }
 }
@@ -147,7 +157,7 @@ function getMimeType(filePath) {
  * Uploads a video clip and analyzes its visual context using Gemini
  */
 export async function analyzeVideo(filePath, apiKey) {
-  // Using global Vertex AI 'ai' instance
+  const client = getAiClient(apiKey);
 
   console.log(`Reading video file: ${filePath}`);
   const mimeType = getMimeType(filePath);
@@ -162,7 +172,7 @@ export async function analyzeVideo(filePath, apiKey) {
 
 Return the result as a JSON object matching the requested schema.`;
 
-  const response = await generateContentWithFallback(ai, {
+  const response = await generateContentWithFallback(client, {
     contents: [
       {
         inlineData: {
@@ -228,7 +238,7 @@ export async function alignScriptAndAudio(scriptText, audioPath, apiKey) {
 }
 
 async function alignScriptAndAudioInternal(scriptText, audioPath, apiKey) {
-  // Using global Vertex AI 'ai' instance
+  const client = getAiClient(apiKey);
 
 
   let audioDuration = 0;
@@ -281,7 +291,7 @@ For each segment, you MUST generate and provide the transcripts in both Hindi an
 
 Ensure that the segments cover the whole audio timeline, and the start/end times are highly accurate based on the audio recording of ${audioDuration.toFixed(2)} seconds.`;
 
-  const response = await generateContentWithFallback(ai, {
+  const response = await generateContentWithFallback(client, {
     models: ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-1.5-pro', 'gemini-1.5-flash'],
     contents: [
       {
@@ -357,7 +367,7 @@ Ensure that the segments cover the whole audio timeline, and the start/end times
  * Matches video clips to storyboard scenes semantically
  */
 export async function matchClipsToScenes(scenes, clips, apiKey, isTalkingHead = false) {
-  // Using global Vertex AI 'ai' instance
+  const client = getAiClient(apiKey);
 
 
   // Map clips to simplify information but preserve segment timelines
@@ -402,7 +412,7 @@ ${isTalkingHead ? `
 
 Return a JSON array of matches matching the requested schema.`;
 
-  const response = await generateContentWithFallback(ai, {
+  const response = await generateContentWithFallback(client, {
     contents: prompt,
     config: {
       responseMimeType: 'application/json',
@@ -576,7 +586,7 @@ function reassignMatch(matchIdx, matches, clips, scenes, segmentUsage, maxRepeti
  * Enhances a script by automatically inserting ElevenLabs V3 expression tags using Gemini.
  */
 export async function enhanceScriptWithTags(text, apiKey) {
-  // Using global Vertex AI 'ai' instance
+  const client = getAiClient(apiKey);
 
 
   const prompt = `You are a script formatting assistant for a Text-to-Speech system.
@@ -592,10 +602,420 @@ Rules:
 Script to enhance:
 "${text}"`;
 
-  const response = await generateContentWithFallback(ai, {
+  const response = await generateContentWithFallback(client, {
     contents: prompt,
     model: 'gemini-2.5-flash',
   });
 
   return response.text.trim();
 }
+
+/**
+ * Helper to compress video to low-resolution proxy for Gemini analysis
+ */
+function compressVideo(inputPath, outputPath) {
+  return new Promise((resolve, reject) => {
+    // scale to max width 360, remove audio, use x264 codec, CRF 30 for high compression
+    const args = [
+      '-y',
+      '-i', inputPath,
+      '-vf', "scale='min(360,iw)':-2",
+      '-an',
+      '-vcodec', 'libx264',
+      '-crf', '30',
+      outputPath
+    ];
+    
+    console.log(`[FFmpeg Compression] Scaling video: ${inputPath} -> ${outputPath}`);
+    const proc = spawn(ffmpegPath, args);
+    let stderr = '';
+    
+    proc.stderr.on('data', (d) => stderr += d.toString());
+    proc.on('close', (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(`FFmpeg compression failed with code ${code}. Stderr: ${stderr}`));
+      }
+    });
+  });
+}
+
+/**
+ * Compresses the downloaded Reel video and analyzes its scenes/text overlays using Gemini.
+ */
+export async function analyzeRecreatedReel(filePath, apiKey) {
+  const client = getAiClient(apiKey);
+  const fileDir = path.dirname(filePath);
+  const ext = path.extname(filePath);
+  const baseName = path.basename(filePath, ext);
+  const lowresPath = path.join(fileDir, `${baseName}_lowres_${Date.now()}${ext}`);
+
+  try {
+    // 1. Compress the video to keep base64 payload under limits
+    await compressVideo(filePath, lowresPath);
+    
+    // 2. Read the low-res compressed video
+    const mimeType = getMimeType(lowresPath);
+    const fileBuffer = fs.readFileSync(lowresPath);
+    const base64Data = fileBuffer.toString('base64');
+    
+    // Clean up low-res file
+    try {
+      fs.unlinkSync(lowresPath);
+    } catch (_) {}
+
+    console.log('[Gemini Recreate] Sending video for Reel analysis...');
+    const prompt = `Analyze this video reel. It consists of multiple video clips merged together, and on-screen text overlays.
+Provide a structured JSON breakdown containing:
+1. "description": A short summary of the overall reel (1-2 sentences).
+2. "scenes": A list of video scenes/clips. Detect where the clips change (scene cuts). For each scene, provide:
+   - "start_time": Start time of the scene in seconds.
+   - "end_time": End time of the scene in seconds.
+   - "visual_description": Detailed description of the visual scene (what is happening, who is in it, actions, setting).
+   - "is_static": Boolean. True if the scene is a static image or a photo with absolutely no video motion, false if the scene is a moving video clip.
+3. "textOverlays": A list of on-screen text overlays detected in the video. For each text overlay, provide:
+   - "text": The exact text content shown on screen.
+   - "start_time": Start time when the text appears on screen.
+   - "end_time": End time when the text disappears.
+   - "position": The location of the text on screen ('top', 'center', 'bottom').
+
+Return the result as a JSON object matching the requested schema.`;
+
+    const response = await generateContentWithFallback(client, {
+      models: ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-1.5-flash', 'gemini-1.5-pro'],
+      contents: [
+        {
+          inlineData: {
+            data: base64Data,
+            mimeType: mimeType
+          }
+        },
+        prompt
+      ],
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: 'OBJECT',
+          properties: {
+            description: { type: 'STRING' },
+            scenes: {
+              type: 'ARRAY',
+              items: {
+                type: 'OBJECT',
+                properties: {
+                  start_time: { type: 'NUMBER' },
+                  end_time: { type: 'NUMBER' },
+                  visual_description: { type: 'STRING' },
+                  is_static: { type: 'BOOLEAN' }
+                },
+                required: ['start_time', 'end_time', 'visual_description', 'is_static']
+              }
+            },
+            textOverlays: {
+              type: 'ARRAY',
+              items: {
+                type: 'OBJECT',
+                properties: {
+                  text: { type: 'STRING' },
+                  start_time: { type: 'NUMBER' },
+                  end_time: { type: 'NUMBER' },
+                  position: { type: 'STRING' }
+                },
+                required: ['text', 'start_time', 'end_time', 'position']
+              }
+            }
+          },
+          required: ['description', 'scenes', 'textOverlays']
+        }
+      }
+    });
+
+    const resultText = response.text;
+    console.log('[Gemini Recreate] Reel Analysis Result:', resultText);
+    return JSON.parse(resultText);
+    
+  } catch (error) {
+    // Clean up low-res file if still exists
+    if (fs.existsSync(lowresPath)) {
+      try {
+        fs.unlinkSync(lowresPath);
+      } catch (_) {}
+    }
+    throw error;
+  }
+}
+
+/**
+ * Matches target scenes analyzed from the Reel to user's library clips semantically.
+ */
+export async function matchRecreatedScenes(analyzedScenes, libraryClips, apiKey) {
+  const client = getAiClient(apiKey);
+  // Map clips to simplify information
+  const clipsWithSegments = libraryClips.map(c => ({
+    id: c.id,
+    name: c.name,
+    description: c.description,
+    tags: c.tags,
+    duration: c.duration,
+    segments: c.segments || [{ start_time: 0, end_time: c.duration, description: c.description }]
+  }));
+
+  console.log('[Gemini Recreate] Matching clips to analyzed reel scenes...');
+  const prompt = `You are a professional video editor. 
+Your task is to match each of the recreated video scenes (target scenes) to the most visually relevant video clip from the library.
+
+Target Scenes (JSON format, containing scene index, visual description of the scene, and duration in seconds):
+${JSON.stringify(analyzedScenes.map((s, idx) => ({
+  index: idx,
+  description: s.visual_description,
+  duration: s.end_time - s.start_time
+})))}
+
+Clip Library (JSON format, containing clip ID, name, description, tags, duration, and segment timelines describing what happens second-by-second within the clip):
+${JSON.stringify(clipsWithSegments)}
+
+Rules:
+1. For each target scene, pick the SINGLE best library clip that visually matches the scene's description. If multiple clips match equally well, select one to ensure variety.
+2. Review the library clip's "segments" array. You MUST use the segment-based data to match the specific moments described in the clip's segments to the target scene's description. Set "clipStart" to match the "start_time" of the specific matching segment inside that clip. Default to 0 if no specific segment matches better.
+3. Try to maximize the variety of clips used. Avoid reusing the same clip too many times if other options are available.
+4. Explain your matching decision briefly in "reason" (e.g. "Matched scene description with segment X of clip Y").
+
+Return a JSON array of matches matching the requested schema.`;
+
+  const response = await generateContentWithFallback(client, {
+    contents: prompt,
+    config: {
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: 'ARRAY',
+        items: {
+          type: 'OBJECT',
+          properties: {
+            sceneIndex: { type: 'NUMBER' },
+            clipId: { type: 'STRING' },
+            clipStart: { type: 'NUMBER' },
+            reason: { type: 'STRING' }
+          },
+          required: ['sceneIndex', 'clipId', 'clipStart', 'reason']
+        }
+      }
+    }
+  });
+
+  const resultText = response.text;
+  console.log('[Gemini Recreate] Clip Matching Result:', resultText);
+  return JSON.parse(resultText);
+}
+
+/**
+ * Analyzes a subject photo from a specific angle
+ */
+export async function analyzeSubjectPhoto(filePath, angle, apiKey) {
+  const client = getAiClient(apiKey);
+  console.log(`[Gemini Subject] Analyzing photo: ${filePath} at angle: ${angle}`);
+  
+  const mimeType = getMimeType(filePath);
+  const fileBuffer = fs.readFileSync(filePath);
+  const base64Data = fileBuffer.toString('base64');
+
+  const prompt = `Analyze this photo of a subject's face/body taken from the angle: "${angle}".
+Describe the subject's key visual characteristics in detail:
+1. Gender and approximate age.
+2. Hair color, style, and length.
+3. Facial features (eyes, nose, jawline, facial hair, expression).
+4. Skin tone/complexion.
+5. Key clothing items, colors, and accessories visible in the photo.
+
+Provide a JSON response matching the requested schema.`;
+
+  const response = await generateContentWithFallback(client, {
+    contents: [
+      {
+        inlineData: {
+          data: base64Data,
+          mimeType: mimeType
+        }
+      },
+      prompt
+    ],
+    config: {
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: 'OBJECT',
+        properties: {
+          description: { type: 'STRING' },
+          traits: {
+            type: 'ARRAY',
+            items: { type: 'STRING' }
+          }
+        },
+        required: ['description', 'traits']
+      }
+    }
+  });
+
+  const resultText = response.text;
+  console.log(`[Gemini Subject] Photo analysis result:`, resultText);
+  return JSON.parse(resultText);
+}
+
+/**
+ * Combines multiple photo analyses into a single cohesive physical summary
+ */
+export async function generateSubjectSummary(photosAnalysis, apiKey) {
+  const client = getAiClient(apiKey);
+  console.log(`[Gemini Subject] Generating unified physical summary for subject...`);
+
+  const prompt = `You are an expert visual description compiler.
+We have multiple analyzed photos of the same subject from various angles. Here are their detailed descriptions and traits:
+${JSON.stringify(photosAnalysis, null, 2)}
+
+Compile these descriptions into a single, highly detailed physical summary of the subject.
+Your summary must describe:
+1. Gender, age range, ethnicity/heritage if visible.
+2. Exact hair details (style, color, cut, facial hair).
+3. Eye shape and color, facial structure, expression.
+4. Skin complexion.
+5. Standard style/clothing/theme.
+
+This summary will be used as a prompt reference for image generation to maintain character consistency. Make it descriptive, clear, and focused on physical appearance traits.
+
+Return the result as a JSON object:
+{
+  "summary": "A detailed 2-3 sentence visual description...",
+  "traitsList": ["trait 1", "trait 2", ...]
+}`;
+
+  const response = await generateContentWithFallback(client, {
+    contents: prompt,
+    config: {
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: 'OBJECT',
+        properties: {
+          summary: { type: 'STRING' },
+          traitsList: {
+            type: 'ARRAY',
+            items: { type: 'STRING' }
+          }
+        },
+        required: ['summary', 'traitsList']
+      }
+    }
+  });
+
+  const resultText = response.text;
+  console.log(`[Gemini Subject] Cohesive summary result:`, resultText);
+  return JSON.parse(resultText);
+}
+
+
+
+/**
+ * Generates an AI asset using Imagen 3 and optional Ken Burns effect
+ */
+export async function generateAiAsset(prompt, type, duration, apiKey, subjectPhotoPath) {
+  const client = getAiClient(apiKey);
+  const uniqueId = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+  const clipId = `ai_clip_${uniqueId}`;
+  const filename = `${clipId}.mp4`;
+  const tempImgPath = path.join(process.cwd(), 'uploads', `temp_${uniqueId}.jpg`);
+  const finalVideoPath = path.join(process.cwd(), 'uploads', 'clips', filename);
+  const finalThumbnailPath = path.join(process.cwd(), 'uploads', 'thumbnails', `${clipId}.jpg`);
+
+  // Create directories if they don't exist
+  fs.mkdirSync(path.dirname(finalVideoPath), { recursive: true });
+  fs.mkdirSync(path.dirname(finalThumbnailPath), { recursive: true });
+
+  console.log(`[AI Gen] Model request: prompt="${prompt}" type=${type} duration=${duration}`);
+
+  let base64Image = null;
+  if (subjectPhotoPath && fs.existsSync(subjectPhotoPath)) {
+    base64Image = fs.readFileSync(subjectPhotoPath).toString('base64');
+    console.log(`[AI Gen] Using subject photo as image-to-image reference: ${subjectPhotoPath}`);
+  }
+
+  // Request Imagen 3
+  const genParams = {
+    model: 'imagen-3.0-generate-002',
+    prompt: prompt,
+    config: {
+      numberOfImages: 1,
+      outputMimeType: 'image/jpeg',
+      aspectRatio: '9:16'
+    }
+  };
+
+  if (base64Image) {
+    genParams.image = {
+      imageBytes: base64Image,
+      mimeType: getMimeType(subjectPhotoPath)
+    };
+  }
+
+  const response = await client.models.generateImages(genParams);
+  if (!response.generatedImages || response.generatedImages.length === 0) {
+    throw new Error('Vertex AI Imagen 3 returned empty generated images.');
+  }
+
+  const imgBytes = response.generatedImages[0].image.imageBytes;
+  const imgBuffer = Buffer.from(imgBytes, 'base64');
+  
+  // Write to temporary image path and thumbnail path
+  fs.writeFileSync(tempImgPath, imgBuffer);
+  fs.writeFileSync(finalThumbnailPath, imgBuffer);
+
+  const sceneDuration = Number(duration) || 5;
+
+  // Convert image to video using FFmpeg
+  return new Promise((resolve, reject) => {
+    let filter = '';
+    if (type === 'video') {
+      // Ken Burns vertical pan filter
+      filter = `scale=1296:2304,crop=1080:1920:(in_w-out_w)/2:(in_h-out_h)/2-120+240*t/${sceneDuration}`;
+    } else {
+      // Static image loop scaled to vertical Reels aspect ratio
+      filter = 'scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black';
+    }
+
+    const args = [
+      '-y',
+      '-loop', '1',
+      '-i', tempImgPath,
+      '-c:v', 'libx264',
+      '-t', String(sceneDuration),
+      '-r', '30',
+      '-pix_fmt', 'yuv420p',
+      '-vf', filter,
+      finalVideoPath
+    ];
+
+    console.log(`[AI Gen] Executing FFmpeg: ${ffmpegPath} ${args.join(' ')}`);
+    const proc = spawn(ffmpegPath, args);
+    let stderr = '';
+
+    proc.stderr.on('data', (data) => stderr += data.toString());
+    proc.on('close', (code) => {
+      // Clean up temp image
+      try {
+        fs.unlinkSync(tempImgPath);
+      } catch (_) {}
+
+      if (code === 0) {
+        console.log(`[AI Gen] FFmpeg video compilation successful: ${finalVideoPath}`);
+        resolve({
+          id: clipId,
+          path: `uploads/clips/${filename}`,
+          thumbnail: `/uploads/thumbnails/${clipId}.jpg`,
+          duration: sceneDuration
+        });
+      } else {
+        console.error(`[AI Gen] FFmpeg failed with exit code ${code}. Stderr: ${stderr}`);
+        reject(new Error(`FFmpeg failed to convert generated image to video: ${stderr}`));
+      }
+    });
+  });
+}
+
+

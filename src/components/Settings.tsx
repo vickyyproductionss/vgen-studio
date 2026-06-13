@@ -6,7 +6,6 @@ interface SettingsProps {
 }
 
 export default function Settings({ onSettingsSaved }: SettingsProps) {
-  const [geminiApiKey, setGeminiApiKey] = useState('');
   const [elevenLabsApiKey, setElevenLabsApiKey] = useState('');
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -21,7 +20,6 @@ export default function Settings({ onSettingsSaved }: SettingsProps) {
       const res = await fetch('/api/settings');
       if (res.ok) {
         const data = await res.json();
-        setGeminiApiKey(data.geminiApiKey || '');
         setElevenLabsApiKey(data.elevenLabsApiKey || '');
       }
     } catch (err) {
@@ -42,7 +40,6 @@ export default function Settings({ onSettingsSaved }: SettingsProps) {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          geminiApiKey,
           elevenLabsApiKey
         })
       });
@@ -104,31 +101,6 @@ export default function Settings({ onSettingsSaved }: SettingsProps) {
             <ShieldCheck size={18} /> Settings saved successfully!
           </div>
         )}
-
-        <div style={{ marginBottom: '24px' }}>
-          <label className="label" htmlFor="gemini-key">
-            <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Key size={14} style={{ color: 'var(--accent-purple)' }} />
-              Gemini API Key
-            </span>
-          </label>
-          <input
-            id="gemini-key"
-            type="password"
-            className="input-field"
-            placeholder="AIzaSy..."
-            value={geminiApiKey}
-            onChange={(e) => setGeminiApiKey(e.target.value)}
-          />
-          <span style={{
-            fontSize: '11px',
-            color: 'var(--text-muted)',
-            display: 'block',
-            marginTop: '6px'
-          }}>
-            Used for video understanding/tagging, voiceover script parsing, and clip storyboarding. Obtain from Google AI Studio.
-          </span>
-        </div>
 
         <div style={{ marginBottom: '32px' }}>
           <label className="label" htmlFor="elevenlabs-key">

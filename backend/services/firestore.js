@@ -47,7 +47,8 @@ function getLocalDb() {
       clips: [],
       bgms: [],
       projects: [],
-      users: []
+      users: [],
+      recreates: []
     };
     writeFileSync(DB_PATH, JSON.stringify(defaultData, null, 2), 'utf-8');
   }
@@ -506,5 +507,125 @@ export const dbService = {
       console.error('[Database Error] Failed to check user existence:', err.message);
       return false;
     }
+  },
+
+  // --- Recreates APIs ---
+  async getRecreate(recreateId) {
+    if (useLocalDb) {
+      const db = getLocalDb();
+      return (db.recreates || []).find(r => r.id === recreateId);
+    }
+    try {
+      const doc = await firestore.collection('recreates').doc(recreateId).get();
+      if (!doc.exists) return null;
+      return { id: doc.id, ...doc.data() };
+    } catch (err) {
+      console.error('[Database Error] Failed to get recreate:', err.message);
+      return null;
+    }
+  },
+
+  async getRecreates(userId) {
+    if (useLocalDb) {
+      const db = getLocalDb();
+      return (db.recreates || []).filter(r => (r.userId || 'local-user') === userId);
+    }
+    try {
+      const snapshot = await firestore.collection('recreates')
+        .where('userId', '==', userId)
+        .get();
+      return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    } catch (err) {
+      console.error('[Database Error] Failed to get recreates:', err.message);
+      return [];
+    }
+  },
+
+  async saveRecreate(recreate) {
+    if (useLocalDb) {
+      const db = getLocalDb();
+      db.recreates = db.recreates || [];
+      const idx = db.recreates.findIndex(r => r.id === recreate.id);
+      if (idx !== -1) {
+        db.recreates[idx] = { ...db.recreates[idx], ...recreate };
+      } else {
+        db.recreates.push(recreate);
+      }
+      saveLocalDb(db);
+      return recreate;
+    }
+    try {
+      await firestore.collection('recreates').doc(recreate.id).set(recreate, { merge: true });
+      return recreate;
+    } catch (err) {
+      console.error('[Database Error] Failed to save recreate:', err.message);
+      throw err;
+    }
+  },
+
+  async deleteRecreate(recreateId) {
+    if (useLocalDb) {
+      const db = getLocalDb();
+      db.recreates = db.recreates || [];
+      db.recreates = db.recreates.filter(r => r.id !== recreateId);
+      saveLocalDb(db);
+      return { success: true };
+    }
+    try {
+      await firestore.collection('recreates').doc(recreateId).delete();
+      return { success: true };
+    } catch (err) {
+      console.error('[Database Error] Failed to delete recreate:', err.message);
+      throw err;
+    }
+  },
+
+  // --- Subject Profile APIs ---
+  async getSubjectProfile(userId = 'local-user') {
+    if (useLocalDb) {
+      const db = getLocalDb();
+      return db.subjectProfile || { photos: [], summary: '' };
+    }
+    try {
+      const doc = await firestore.collection('subject_profiles').doc(userId).get();
+      if (!doc.exists) return { photos: [], summary: '' };
+      return doc.data();
+    } catch (err) {
+      console.error('[Database Error] Failed to get subject profile:', err.message);
+      return { photos: [], summary: '' };
+    }
+  },
+
+  async saveSubjectProfile(userId = 'local-user', profile) {
+    if (useLocalDb) {
+      const db = getLocalDb();
+      db.subjectProfile = profile;
+      saveLocalDb(db);
+      return db.subjectProfile;
+    }
+    try {
+      await firestore.collection('subject_profiles').doc(userId).set(profile, { merge: true });
+      return profile;
+    } catch (err) {
+      console.error('[Database Error] Failed to save subject profile:', err.message);
+      throw err;
+    }
+  },
+
+  async deleteSubjectProfile(userId = 'local-user') {
+    if (useLocalDb) {
+      const db = getLocalDb();
+      delete db.subjectProfile;
+      saveLocalDb(db);
+      return { success: true };
+    }
+    try {
+      await firestore.collection('subject_profiles').doc(userId).delete();
+      return { success: true };
+    } catch (err) {
+      console.error('[Database Error] Failed to delete subject profile:', err.message);
+      throw err;
+    }
   }
 };
+

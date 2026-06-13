@@ -292,6 +292,14 @@ const emojiMap = {
 
 function getWordEmoji(word) {
   if (!word) return '';
+  
+  // 1. Check if there is a literal Unicode emoji in the word
+  const match = word.match(/\p{Extended_Pictographic}/u);
+  if (match) {
+    return match[0];
+  }
+  
+  // 2. Fallback to keyword-based lookup
   const clean = word.toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g, "");
   return emojiMap[clean] || '';
 }
@@ -634,6 +642,11 @@ export function createAssFileContent(originalScene, duration, style, width, heig
     })) : []
   };
   let fontName = style.fontName || 'Arial';
+  const stripEmojis = (text) => {
+    if (!text) return '';
+    return text.replace(/[\p{Extended_Pictographic}\u{1F3FB}-\u{1F3FF}\u{200D}\u{FE0F}\u{2640}\u{2642}]+/gu, '');
+  };
+
   let forceBold = false;
   // Handle Kalam Bold: internal font family is "Kalam" with bold weight
   if (fontName === 'Kalam Bold') {
@@ -671,6 +684,8 @@ export function createAssFileContent(originalScene, duration, style, width, heig
   };
 
   const createDialogueLines = (layer, start, end, X, Y, text, col, extraTags = '') => {
+    // Always strip literal Unicode emojis from subtitle text to prevent broken box rendering
+    const cleanText = text ? stripEmojis(text) : '';
     const duration = end - start;
     const transition = style.textTransition || 'none';
     const motion = style.textMotion || 'none';
@@ -687,7 +702,7 @@ export function createAssFileContent(originalScene, duration, style, width, heig
       if (style.textFade !== false) {
         fadeTag = '\\fad(150,150)';
       }
-      return `Dialogue: ${layer},${formatTime(start)},${formatTime(end)},Default,,0,0,0,,{\\an5${moveTag}${fadeTag}${extraTags}${tagCol ? `\\c${tagCol}` : ''}}${text}\n`;
+      return `Dialogue: ${layer},${formatTime(start)},${formatTime(end)},Default,,0,0,0,,{\\an5${moveTag}${fadeTag}${extraTags}${tagCol ? `\\c${tagCol}` : ''}}${cleanText}\n`;
     }
 
     // Proportional transition time calculation: 
@@ -790,9 +805,9 @@ export function createAssFileContent(originalScene, duration, style, width, heig
       fadeTagOut = `\\fad(0,${animMs})`;
     }
 
-    let result = `Dialogue: ${layer},${formatTime(start)},${formatTime(t1)},Default,,0,0,0,,{\\an5${inMove}${inAnim}${fadeTag}${extraTags}${tagCol ? `\\c${tagCol}` : ''}}${text}\n`;
-    result += `Dialogue: ${layer},${formatTime(t1)},${formatTime(t2)},Default,,0,0,0,,{\\an5${midMove}${extraTags}${tagCol ? `\\c${tagCol}` : ''}}${text}\n`;
-    result += `Dialogue: ${layer},${formatTime(t2)},${formatTime(end)},Default,,0,0,0,,{\\an5${outMove}${outAnim}${fadeTagOut}${extraTags}${tagCol ? `\\c${tagCol}` : ''}}${text}\n`;
+    let result = `Dialogue: ${layer},${formatTime(start)},${formatTime(t1)},Default,,0,0,0,,{\\an5${inMove}${inAnim}${fadeTag}${extraTags}${tagCol ? `\\c${tagCol}` : ''}}${cleanText}\n`;
+    result += `Dialogue: ${layer},${formatTime(t1)},${formatTime(t2)},Default,,0,0,0,,{\\an5${midMove}${extraTags}${tagCol ? `\\c${tagCol}` : ''}}${cleanText}\n`;
+    result += `Dialogue: ${layer},${formatTime(t2)},${formatTime(end)},Default,,0,0,0,,{\\an5${outMove}${outAnim}${fadeTagOut}${extraTags}${tagCol ? `\\c${tagCol}` : ''}}${cleanText}\n`;
     return result;
   };
 
@@ -849,7 +864,7 @@ export function createAssFileContent(originalScene, duration, style, width, heig
       
       const X_heading = Math.round(width * (headingLeftPct / 100));
       const Y_heading = Math.round(height * (headingTopPct / 100));
-      const text = shapeDevanagari(style.headingTitle.trim());
+      const text = stripEmojis(shapeDevanagari(style.headingTitle.trim()));
       
       // Case 1: Both entry and exit inside this scene
       if (globalStart === 0.0 && globalEnd >= 3.0) {
@@ -1006,7 +1021,7 @@ export function createAssFileContent(originalScene, duration, style, width, heig
       const localEnd = overlapEndGlobal_topic - globalStart;
       const X_heading = Math.round(width * (ficLeftPct / 100));
       const Y_heading = Math.round(height * (headingTopPct / 100));
-      const text = shapeDevanagari(style.headingTitle.trim().toUpperCase());
+      const text = stripEmojis(shapeDevanagari(style.headingTitle.trim().toUpperCase()));
 
       if (globalStart === 0.0 && globalEnd >= 2.0) {
         brandingEvents += `Dialogue: 10,${formatTime(0.0)},${formatTime(0.4)},FIC_Topic,,0,0,0,,{\\an7\\move(${-500},${Y_heading},${X_heading},${Y_heading},0,400)\\fad(400,0)}${text}\n`;
@@ -1038,8 +1053,8 @@ export function createAssFileContent(originalScene, duration, style, width, heig
     const overlapEndGlobal_block = Math.min(globalEnd, totalDuration);
     
     if (overlapStartGlobal_block < overlapEndGlobal_block) {
-      const epText = (style.episodeNumber || 'EP 01').trim();
-      const seriesText = (style.seriesName || 'FITNESSINCHUNKS').trim().toUpperCase();
+      const epText = stripEmojis((style.episodeNumber || 'EP 01').trim());
+      const seriesText = stripEmojis((style.seriesName || 'FITNESSINCHUNKS').trim().toUpperCase());
       
       const endScreenThreshold = Math.max(0, totalDuration - 2.0);
       const segments = [];
@@ -1267,7 +1282,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     
     const renderChunkTextForLayer = (chunk, activeIdx, layerType) => {
       return chunk.map((item, idx) => {
-        const rawWord = item.word;
+        let rawWord = item.word;
+        if (rawWord) {
+          rawWord = stripEmojis(rawWord);
+        }
         const category = getWordCategory(item.word);
         const isActive = (idx === activeIdx);
         
@@ -2061,7 +2079,7 @@ export async function assembleVideo(options, onProgress) {
 
     const sourceDuration = isSpeedRamped ? s3 : effectiveSceneDuration;
 
-    // Build B-roll filter string (trim, tpad, speedRamp, scaling, cropping, zoom, ping-pong)
+    let applyMinterpolate = false;
     let brollFilterString = '';
     if (clipPath) {
       let brollFilter = `setpts=PTS-STARTPTS,trim=duration=${sourceDuration}`;
@@ -2077,10 +2095,9 @@ export async function assembleVideo(options, onProgress) {
         const setptsExpr = `(if(lt(T, ${s1}), (-${v0} + sqrt(max(0, ${v0}*${v0} + 8*${a1}*T))) / (4*${a1}), if(lt(T, ${s2}), 0.25*${effectiveSceneDuration} + (T - ${s1}) / ${v1}, 0.75*${effectiveSceneDuration} + (-${v1} + sqrt(max(0, ${v1}*${v1} + 8*${a2}*(T - ${s2})))) / (4*${a2}))))/TB`;
         brollFilter += `,setpts='${setptsExpr}'`;
 
-        // Apply optical flow / motion compensated interpolation if the speed drops below 1.0x (slow motion)
         const hasSlowMotion = v0 < 1.0 || v1 < 1.0 || v2 < 1.0;
         if (hasSlowMotion) {
-          brollFilter += `,minterpolate=fps=${targetFps}:mi_mode=mci`;
+          applyMinterpolate = true;
         }
       }
 
@@ -2090,6 +2107,11 @@ export async function assembleVideo(options, onProgress) {
       } else {
         const scaleAndPad = `scale=w=${targetWidth}:h=${targetHeight}:force_original_aspect_ratio=decrease,pad=${targetWidth}:${targetHeight}:(ow-iw)/2:(oh-ih)/2:color=black`;
         brollFilter += `,${scaleAndPad}`;
+      }
+
+      // Apply optical flow slow motion interpolation after scaling to reduce resolution workload (highly optimized)
+      if (applyMinterpolate) {
+        brollFilter += `,minterpolate=fps=${targetFps}:mi_mode=mci:me_mode=bidir:me=ds:scd=none`;
       }
 
       // Ping-pong (Beat Bounce)
@@ -2716,7 +2738,7 @@ export async function assembleVideo(options, onProgress) {
       // Extract highlights and blur, then screen blend back
       filterComplex += `;[${inputLabel}]split=2[glow_orig_${i}][glow_src_${i}]`;
       filterComplex += `;[glow_src_${i}]lutyuv=y='if(gt(val,${threshold}),(val-${threshold})*255/(255-${threshold}),0)':u=128:v=128,boxblur=lr=${radius}:lp=2[${blurredLabel}]`;
-      filterComplex += `;[glow_orig_${i}][${blurredLabel}]blend=all_mode=screen:all_opacity=${opacity}[${outputLabel}]`;
+      filterComplex += `;[glow_orig_${i}][${blurredLabel}]blend=c0_mode=screen:c0_opacity=${opacity}[${outputLabel}]`;
       
       finalComposedLabel = outputLabel;
     }

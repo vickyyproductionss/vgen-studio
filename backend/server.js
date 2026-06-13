@@ -7,9 +7,21 @@ import path from 'path';
 import fs from 'fs/promises';
 import { existsSync, readFileSync, writeFileSync, appendFileSync, statSync, unlinkSync } from 'fs';
 import { fileURLToPath } from 'url';
+import { spawn } from 'child_process';
+import ffmpegPath from 'ffmpeg-static';
 
 // Import services
-import { analyzeVideo, alignScriptAndAudio, matchClipsToScenes, enhanceScriptWithTags } from './services/gemini.js';
+import { 
+  analyzeVideo, 
+  alignScriptAndAudio, 
+  matchClipsToScenes, 
+  enhanceScriptWithTags,
+  analyzeRecreatedReel,
+  matchRecreatedScenes,
+  analyzeSubjectPhoto,
+  generateSubjectSummary,
+  generateAiAsset
+} from './services/gemini.js';
 import { getVoices, generateSpeech } from './services/elevenlabs.js';
 import { getVideoDuration, generateThumbnail, assembleVideo, ensureFontExists, extractAudioFromVideo, getLocalWordTimings } from './services/video.js';
 import { detectBeats } from './services/beats.js';
@@ -71,11 +83,15 @@ const CLIPS_DIR = path.join(UPLOADS_DIR, 'clips');
 const THUMBNAILS_DIR = path.join(UPLOADS_DIR, 'thumbnails');
 const GENERATED_DIR = path.join(UPLOADS_DIR, 'generated');
 const MUSIC_DIR = path.join(UPLOADS_DIR, 'music');
+const RECREATE_DIR = path.join(UPLOADS_DIR, 'recreate');
+const SUBJECT_DIR = path.join(UPLOADS_DIR, 'subject');
 
 await fs.mkdir(CLIPS_DIR, { recursive: true });
 await fs.mkdir(THUMBNAILS_DIR, { recursive: true });
 await fs.mkdir(GENERATED_DIR, { recursive: true });
 await fs.mkdir(MUSIC_DIR, { recursive: true });
+await fs.mkdir(RECREATE_DIR, { recursive: true });
+await fs.mkdir(SUBJECT_DIR, { recursive: true });
 
 // Serve uploads folder as static
 app.use('/uploads', express.static(UPLOADS_DIR));
@@ -110,6 +126,17 @@ const musicStorage = multer.diskStorage({
   }
 });
 const uploadMusic = multer({ storage: musicStorage });
+
+const subjectStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, SUBJECT_DIR);
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname);
+    cb(null, `${uuidv4()}${ext}`);
+  }
+});
+const uploadSubject = multer({ storage: subjectStorage });
 
 // Active jobs tracking
 const activeJobs = new Map();
@@ -289,6 +316,224 @@ app.post('/api/settings', async (req, res) => {
     res.json(settings);
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// ==========================================
+// Subject Profile API
+// ==========================================
+app.get('/api/subject', async (req, res) => {
+  const userId = getUserId(req);
+  try {
+    const profile = await dbService.getSubjectProfile(userId);
+    res.json(profile);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/subject/upload', uploadSubject.single('photo'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'No photo file provided.' });
+  }
+  const angle = req.body.angle || 'Front';
+  const userId = getUserId(req);
+  const absolutePath = req.file.path;
+  const relativePath = `/uploads/subject/${req.file.filename}`;
+
+  try {
+    const settings = await dbService.getSettings();
+    const apiKey = process.env.GEMINI_API_KEY || settings.geminiApiKey;
+
+    // 1. Analyze single photo with Gemini
+    console.log(`[Subject API] Analyzing uploaded photo for angle: ${angle}...`);
+    const analysis = await analyzeSubjectPhoto(absolutePath, angle, apiKey);
+
+    // 2. Load current profile
+    const profile = await dbService.getSubjectProfile(userId);
+    profile.photos = profile.photos || [];
+
+    const photoId = uuidv4();
+    const newPhoto = {
+      id: photoId,
+      path: relativePath,
+      angle,
+      analysis
+    };
+    profile.photos.push(newPhoto);
+
+    // 3. Automatically regenerate physical summary & traits list
+    console.log(`[Subject API] Regenerating overall subject summary...`);
+    const summaryData = await generateSubjectSummary(
+      profile.photos.map(p => ({ angle: p.angle, ...p.analysis })),
+      apiKey
+    );
+    profile.summary = summaryData.summary;
+    profile.traitsList = summaryData.traitsList;
+
+    await dbService.saveSubjectProfile(userId, profile);
+    res.json({ success: true, photo: newPhoto, profile });
+  } catch (error) {
+    console.error('[Subject API Error] Upload/Analysis failed:', error);
+    // clean up uploaded file if analysis fails
+    try {
+      await fs.unlink(absolutePath);
+    } catch (_) {}
+    res.status(500).json({ error: `Upload analysis failed: ${error.message}` });
+  }
+});
+
+app.delete('/api/subject/photo/:photoId', async (req, res) => {
+  const userId = getUserId(req);
+  const { photoId } = req.params;
+
+  try {
+    const profile = await dbService.getSubjectProfile(userId);
+    profile.photos = profile.photos || [];
+    
+    const photoIdx = profile.photos.findIndex(p => p.id === photoId);
+    if (photoIdx === -1) {
+      return res.status(404).json({ error: 'Photo not found in profile.' });
+    }
+
+    const photo = profile.photos[photoIdx];
+    profile.photos.splice(photoIdx, 1);
+
+    // Clean up physical file on disk
+    try {
+      const absPath = resolvePath(photo.path.replace(/^\//, ''));
+      if (existsSync(absPath)) {
+        await fs.unlink(absPath);
+      }
+    } catch (err) {
+      console.warn('[Subject API] Failed to delete physical photo file:', err.message);
+    }
+
+    // Regenerate summary if photos remain, otherwise clear it
+    if (profile.photos.length > 0) {
+      const settings = await dbService.getSettings();
+      const apiKey = process.env.GEMINI_API_KEY || settings.geminiApiKey;
+      const summaryData = await generateSubjectSummary(
+        profile.photos.map(p => ({ angle: p.angle, ...p.analysis })),
+        apiKey
+      );
+      profile.summary = summaryData.summary;
+      profile.traitsList = summaryData.traitsList;
+    } else {
+      profile.summary = '';
+      profile.traitsList = [];
+    }
+
+    await dbService.saveSubjectProfile(userId, profile);
+    res.json({ success: true, profile });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/subject', async (req, res) => {
+  const userId = getUserId(req);
+  try {
+    const profile = await dbService.getSubjectProfile(userId);
+    profile.photos = profile.photos || [];
+
+    // Delete all files from disk
+    for (const photo of profile.photos) {
+      try {
+        const absPath = resolvePath(photo.path.replace(/^\//, ''));
+        if (existsSync(absPath)) {
+          await fs.unlink(absPath);
+        }
+      } catch (_) {}
+    }
+
+    await dbService.deleteSubjectProfile(userId);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/subject/summarize', async (req, res) => {
+  const userId = getUserId(req);
+  try {
+    const profile = await dbService.getSubjectProfile(userId);
+    profile.photos = profile.photos || [];
+
+    if (profile.photos.length === 0) {
+      return res.status(400).json({ error: 'No photos uploaded to summarize.' });
+    }
+
+    const settings = await dbService.getSettings();
+    const apiKey = process.env.GEMINI_API_KEY || settings.geminiApiKey;
+
+    const summaryData = await generateSubjectSummary(
+      profile.photos.map(p => ({ angle: p.angle, ...p.analysis })),
+      apiKey
+    );
+    profile.summary = summaryData.summary;
+    profile.traitsList = summaryData.traitsList;
+
+    await dbService.saveSubjectProfile(userId, profile);
+    res.json({ success: true, profile });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==========================================
+// AI Generation API
+// ==========================================
+app.post('/api/generate-ai-clip', async (req, res) => {
+  const { prompt, type, duration } = req.body;
+  if (!prompt) {
+    return res.status(400).json({ error: 'Prompt is required for generation.' });
+  }
+
+  const userId = getUserId(req);
+  try {
+    const settings = await dbService.getSettings();
+    const apiKey = process.env.GEMINI_API_KEY || settings.geminiApiKey;
+
+    // Check if there is an uploaded subject profile photo to use as visual identity reference
+    let subjectPhotoPath = null;
+    try {
+      const profile = await dbService.getSubjectProfile(userId);
+      if (profile && profile.photos && profile.photos.length > 0) {
+        // Prefer Front photo, fallback to first photo
+        const frontPhoto = profile.photos.find(p => p.angle.toLowerCase() === 'front') || profile.photos[0];
+        const relativePath = frontPhoto.path.replace(/^\//, ''); // remove leading slash
+        subjectPhotoPath = resolvePath(relativePath);
+        console.log(`[AI Clip API] Using subject photo reference: ${subjectPhotoPath}`);
+      }
+    } catch (_) {}
+
+    // Generate clip via Vertex AI Imagen 3 + FFmpeg animate
+    console.log(`[AI Clip API] Generating asset... prompt="${prompt}" type=${type} dur=${duration}`);
+    const result = await generateAiAsset(prompt, type || 'video', duration || 5, apiKey, subjectPhotoPath);
+
+    // Save clip to DB
+    const newClip = {
+      id: result.id,
+      userId,
+      path: result.path,
+      name: `AI - ${prompt.substring(0, 25)}`,
+      thumbnail: result.thumbnail,
+      duration: result.duration,
+      description: 'AI Generated clip for prompt: ' + prompt,
+      tags: ['ai_generated', type || 'video'],
+      status: 'analyzing'
+    };
+    await dbService.saveClip(newClip);
+
+    // Run standard Gemini visual analysis in background to describe the clip in detail and generate tags
+    const absoluteVideoPath = resolvePath(result.path);
+    analyzeVideoInBackground(result.id, absoluteVideoPath, apiKey);
+
+    res.json({ success: true, clip: newClip });
+  } catch (error) {
+    console.error('[AI Clip API Error]', error);
+    res.status(500).json({ error: `AI Clip generation failed: ${error.message}` });
   }
 });
 
@@ -620,9 +865,7 @@ app.post('/api/clips/add-path', async (req, res) => {
   try {
     const settings = await dbService.getSettings();
     const apiKey = process.env.GEMINI_API_KEY || settings.geminiApiKey;
-    if (!apiKey && !process.env.GOOGLE_APPLICATION_CREDENTIALS && !process.env.K_SERVICE) {
-      return res.status(400).json({ error: 'Gemini API key or Vertex AI credentials are required.' });
-    }
+    // Vertex AI client fallback
 
     const clipId = uuidv4();
     const filename = path.basename(absolutePath);
@@ -680,9 +923,7 @@ app.post('/api/clips/upload', upload.array('videos', 20), async (req, res) => {
   try {
     const settings = await dbService.getSettings();
     const apiKey = process.env.GEMINI_API_KEY || settings.geminiApiKey;
-    if (!apiKey && !process.env.GOOGLE_APPLICATION_CREDENTIALS && !process.env.K_SERVICE) {
-      return res.status(400).json({ error: 'Gemini API key or Vertex AI credentials are required.' });
-    }
+    // Vertex AI client fallback
 
     const importedClips = [];
 
@@ -883,9 +1124,7 @@ app.post('/api/clips/add-folder', async (req, res) => {
     const userId = getUserId(req);
     const settings = await dbService.getSettings();
     const apiKey = process.env.GEMINI_API_KEY || settings.geminiApiKey;
-    if (!apiKey && !process.env.GOOGLE_APPLICATION_CREDENTIALS && !process.env.K_SERVICE) {
-      return res.status(400).json({ error: 'Gemini API key or Vertex AI credentials are required.' });
-    }
+    // Vertex AI client fallback
 
     const files = await fs.readdir(absolutePath);
     const videoExtensions = ['.mp4', '.mkv', '.mov', '.m4v', '.webm'];
@@ -1020,9 +1259,7 @@ app.post('/api/clips/reanalyze-all', async (req, res) => {
   try {
     const settings = await dbService.getSettings();
     const apiKey = settings.geminiApiKey;
-    if (!apiKey && !process.env.GOOGLE_APPLICATION_CREDENTIALS && !process.env.K_SERVICE) {
-      return res.status(400).json({ error: 'Gemini API key or Vertex AI credentials are required.' });
-    }
+    // Vertex AI client fallback
 
     const clips = await dbService.getClips(userId);
     const clipsToAnalyze = clips.filter(clip => !clip.segments || clip.segments.length === 0);
@@ -1590,9 +1827,7 @@ app.post('/api/enhance-script', async (req, res) => {
   try {
     const settings = await dbService.getSettings();
     const apiKey = process.env.GEMINI_API_KEY || settings.geminiApiKey;
-    if (!apiKey && !process.env.GOOGLE_APPLICATION_CREDENTIALS && !process.env.K_SERVICE) {
-      return res.status(400).json({ error: 'Gemini API key or Vertex AI credentials are required.' });
-    }
+    // Vertex AI client fallback
 
     const enhancedText = await enhanceScriptWithTags(scriptText, apiKey);
     res.json({ success: true, enhancedText });
@@ -1614,9 +1849,7 @@ app.post('/api/align-script', async (req, res) => {
   try {
     const settings = await dbService.getSettings();
     const apiKey = process.env.GEMINI_API_KEY || settings.geminiApiKey;
-    if (!apiKey && !process.env.GOOGLE_APPLICATION_CREDENTIALS && !process.env.K_SERVICE) {
-      return res.status(400).json({ error: 'Gemini API key or Vertex AI credentials are required.' });
-    }
+    // Vertex AI client fallback
 
     let resolved = null;
     if (gcsService.isGcsEnabled() && audioPath.startsWith('http')) {
@@ -2035,7 +2268,7 @@ app.post('/api/beat-sync/analyze', async (req, res) => {
 
 // 4. Storyboard clip matching (via Gemini)
 app.post('/api/match-clips', async (req, res) => {
-  const { scenes, talkingHead } = req.body;
+  const { scenes, talkingHead, useAiFallback } = req.body;
   if (!scenes || !Array.isArray(scenes)) {
     return res.status(400).json({ error: 'Storyboard scenes list is required.' });
   }
@@ -2043,11 +2276,21 @@ app.post('/api/match-clips', async (req, res) => {
   try {
     const settings = await dbService.getSettings();
     const apiKey = process.env.GEMINI_API_KEY || settings.geminiApiKey;
-    if (!apiKey && !process.env.GOOGLE_APPLICATION_CREDENTIALS && !process.env.K_SERVICE) {
-      return res.status(400).json({ error: 'Gemini API key or Vertex AI credentials are required.' });
-    }
-
     const userId = getUserId(req);
+
+    // Retrieve subject profile references if available
+    let subjectPhotoPath = null;
+    let profileSummary = '';
+    try {
+      const profile = await dbService.getSubjectProfile(userId);
+      if (profile && profile.photos && profile.photos.length > 0) {
+        const frontPhoto = profile.photos.find(p => p.angle.toLowerCase() === 'front') || profile.photos[0];
+        const relativePath = frontPhoto.path.replace(/^\//, '');
+        subjectPhotoPath = resolvePath(relativePath);
+        profileSummary = profile.summary || '';
+      }
+    } catch (_) {}
+
     const clips = await dbService.getClips(userId);
 
     // Only match against "ready" status clips
@@ -2062,11 +2305,77 @@ app.post('/api/match-clips', async (req, res) => {
         segments: c.segments || []
       }));
 
-    if (readyClips.length === 0) {
-      return res.status(400).json({ error: 'No analyzed clips found in the library. Please import and analyze video clips first.' });
+    let matches = [];
+    if (readyClips.length > 0) {
+      matches = await matchClipsToScenes(scenes, readyClips, apiKey, !!talkingHead);
+    } else {
+      // If no library clips exist, initialize empty matches
+      matches = scenes.map((s, idx) => ({
+        sceneIndex: idx,
+        clipId: '',
+        clipStart: 0,
+        reason: 'No library clips available.'
+      }));
     }
 
-    const matches = await matchClipsToScenes(scenes, readyClips, apiKey, !!talkingHead);
+    // Process AI Fallback for unmatched scenes
+    if (useAiFallback) {
+      console.log('[Match Clips] AI Fallback is active. Checking for unmatched scenes...');
+      for (const match of matches) {
+        const scene = scenes[match.sceneIndex];
+        const isMatched = match.clipId && match.clipId !== 'original' && readyClips.some(c => c.id === match.clipId);
+        
+        if (!isMatched) {
+          console.log(`[Match Clips] Scene ${match.sceneIndex} is unmatched. Generating AI Fallback clip...`);
+          try {
+            const scenePrompt = scene.visual_description || scene.text || 'abstract cinematic slow motion';
+            
+            // Build the detailed prompt incorporating subject summary if available
+            let fullPrompt = scenePrompt;
+            if (profileSummary) {
+              fullPrompt = `High quality, 8k, photorealistic. Subject appearance details: ${profileSummary}. Scene action: ${scenePrompt}`;
+            }
+
+            const sceneDuration = scene.duration || (scene.end_time - scene.start_time) || 5;
+            
+            // Generate the clip (defaulting to video motion)
+            const result = await generateAiAsset(fullPrompt, 'video', sceneDuration, apiKey, subjectPhotoPath);
+            
+            // Create a new clip in the library
+            const newClip = {
+              id: result.id,
+              userId,
+              path: result.path,
+              name: `AI - ${scenePrompt.substring(0, 25)}`,
+              thumbnail: result.thumbnail,
+              duration: result.duration,
+              description: 'AI Generated fallback: ' + fullPrompt,
+              tags: ['ai_generated', 'fallback'],
+              status: 'analyzing'
+            };
+            await dbService.saveClip(newClip);
+
+            // Trigger background visual analysis
+            const absoluteVideoPath = resolvePath(result.path);
+            analyzeVideoInBackground(result.id, absoluteVideoPath, apiKey);
+
+            // Assign the AI generated clip to this scene match!
+            match.clipId = result.id;
+            match.clipStart = 0;
+            match.reason = `AI generated fallback clip for: "${scenePrompt.substring(0, 30)}..."`;
+            
+          } catch (err) {
+            console.error(`[Match Clips] Failed to generate AI fallback for scene ${match.sceneIndex}:`, err);
+          }
+        }
+      }
+    } else {
+      // If AI fallback is false and no clips are ready, throw error
+      if (readyClips.length === 0) {
+        return res.status(400).json({ error: 'No analyzed clips found in the library. Please import and analyze video clips first, or toggle AI Generated Fallback.' });
+      }
+    }
+
     res.json({ success: true, matches });
   } catch (error) {
     console.error('Error in /api/match-clips:', error);
@@ -2350,6 +2659,345 @@ app.get('/api/jobs/:id/progress', (req, res) => {
   req.on('close', () => {
     clearInterval(intervalId);
   });
+});
+
+// Helper to run python script for downloading reels
+function runDownloadReel(url, outDir, filename, ffmpegPath) {
+  return new Promise((resolve, reject) => {
+    const scriptPath = path.join(__dirname, 'services', 'download_reel.py');
+    const args = [scriptPath, url, outDir, filename];
+    if (ffmpegPath) {
+      args.push(ffmpegPath);
+    }
+    
+    console.log(`[Recreate] Running downloader script: python3 ${args.join(' ')}`);
+    const proc = spawn('python3', args);
+    let stdout = '';
+    let stderr = '';
+    
+    proc.stdout.on('data', (d) => stdout += d.toString());
+    proc.stderr.on('data', (d) => stderr += d.toString());
+    
+    proc.on('close', (code) => {
+      console.log(`[Recreate] Downloader stdout: ${stdout}`);
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(`Reel download failed with code ${code}. Stderr: ${stderr}`));
+      }
+    });
+  });
+}
+
+// POST endpoint to download and analyze Reel
+app.post('/api/recreate/analyze', async (req, res) => {
+  const { url, projectName, recreateId, useAiFallback } = req.body;
+  const userId = getUserId(req);
+
+  let videoFilename;
+  let videoPath;
+  let audioFilename;
+  let audioPath;
+  let analysis;
+  let originalUrl = url;
+
+  try {
+    const settings = await dbService.getSettings();
+    const apiKey = process.env.GEMINI_API_KEY || settings.geminiApiKey;
+
+    if (recreateId) {
+      console.log(`[Recreate] Reusing saved recreation: ${recreateId}`);
+      const recreate = await dbService.getRecreate(recreateId);
+      if (!recreate) {
+        return res.status(404).json({ error: 'Saved recreation not found.' });
+      }
+
+      if (recreate.userId !== userId) {
+        return res.status(403).json({ error: 'Unauthorized to use this recreation.' });
+      }
+
+      videoFilename = path.basename(recreate.videoUrl);
+      videoPath = path.join(RECREATE_DIR, videoFilename);
+      audioFilename = path.basename(recreate.audioUrl);
+      audioPath = path.join(RECREATE_DIR, audioFilename);
+      analysis = recreate.analysis;
+      originalUrl = recreate.url;
+
+      // Verify files exist on disk
+      if (!existsSync(videoPath) || !existsSync(audioPath)) {
+        return res.status(400).json({
+          error: 'The cached video or audio files for this recreation were not found on disk. Please recreate from URL.'
+        });
+      }
+    } else {
+      if (!url) {
+        return res.status(400).json({ error: 'Reel URL is required.' });
+      }
+
+      const newRecreateId = uuidv4();
+      videoFilename = `reel_${newRecreateId}.mp4`;
+      videoPath = path.join(RECREATE_DIR, videoFilename);
+      audioFilename = `audio_${newRecreateId}.mp3`;
+      audioPath = path.join(RECREATE_DIR, audioFilename);
+
+      // 1. Download Video
+      console.log(`[Recreate] Starting download for: ${url}`);
+      await runDownloadReel(url, RECREATE_DIR, videoFilename, ffmpegPath);
+
+      if (!existsSync(videoPath)) {
+        throw new Error('Downloaded video file not found.');
+      }
+
+      // 2. Extract Audio
+      console.log(`[Recreate] Extracting audio from video: ${videoPath} -> ${audioPath}`);
+      await extractAudioFromVideo(videoPath, audioPath);
+
+      if (!existsSync(audioPath)) {
+        throw new Error('Extracted audio file not found.');
+      }
+
+      // 3. Analyze Video with Gemini
+      console.log(`[Recreate] Running Gemini analysis on Reel...`);
+      analysis = await analyzeRecreatedReel(videoPath, apiKey);
+
+      // Save to database
+      console.log(`[Recreate] Saving download and analysis progress...`);
+      await dbService.saveRecreate({
+        id: newRecreateId,
+        userId,
+        url,
+        projectName: projectName || `Recreated Reel (${new Date().toLocaleDateString()})`,
+        videoUrl: `/uploads/recreate/${videoFilename}`,
+        audioUrl: `/uploads/recreate/${audioFilename}`,
+        analysis,
+        createdAt: new Date().toISOString()
+      });
+    }
+
+    // 4. Retrieve Clips and Match them semantically (only matching existing clips)
+    console.log(`[Recreate] Fetching library clips...`);
+    const allClips = await dbService.getClips(userId);
+    const clips = allClips.filter(clip => {
+      const isGcs = gcsService.isGcsEnabled();
+      return isGcs ? !!clip.path : existsSync(resolvePath(clip.path));
+    });
+
+    // Retrieve subject profile references if available
+    let subjectPhotoPath = null;
+    let profileSummary = '';
+    try {
+      const profile = await dbService.getSubjectProfile(userId);
+      if (profile && profile.photos && profile.photos.length > 0) {
+        const frontPhoto = profile.photos.find(p => p.angle.toLowerCase() === 'front') || profile.photos[0];
+        const relativePath = frontPhoto.path.replace(/^\//, '');
+        subjectPhotoPath = resolvePath(relativePath);
+        profileSummary = profile.summary || '';
+      }
+    } catch (_) {}
+    
+    let matches = [];
+    if (clips.length > 0 && analysis.scenes && analysis.scenes.length > 0) {
+      console.log(`[Recreate] Matching library clips to analyzed scenes...`);
+      matches = await matchRecreatedScenes(analysis.scenes, clips, apiKey);
+    }
+    
+    const matchedScenes = [];
+    if (analysis.scenes && analysis.scenes.length > 0) {
+      for (let idx = 0; idx < analysis.scenes.length; idx++) {
+        const scene = analysis.scenes[idx];
+        const match = matches.find(m => m.sceneIndex === idx);
+        
+        let finalClipId = match ? match.clipId : "";
+        let finalClipStart = match ? match.clipStart : 0;
+
+        // If no library clip was matched, and AI fallback is enabled
+        if (!finalClipId && useAiFallback) {
+          console.log(`[Recreate] Scene ${idx} has no matching clip. Generating AI fallback...`);
+          try {
+            const scenePrompt = scene.visual_description || 'abstract cinematic b-roll';
+            
+            // Incorporate subject profile summary
+            let fullPrompt = scenePrompt;
+            if (profileSummary) {
+              fullPrompt = `High quality, 8k, photorealistic. Subject appearance: ${profileSummary}. Scene details: ${scenePrompt}`;
+            }
+
+            const sceneDuration = scene.end_time - scene.start_time || 5;
+            const assetType = scene.is_static ? 'image' : 'video';
+            
+            const result = await generateAiAsset(fullPrompt, assetType, sceneDuration, apiKey, subjectPhotoPath);
+            
+            // Create a new clip in the library
+            const newClip = {
+              id: result.id,
+              userId,
+              path: result.path,
+              name: `AI - ${scenePrompt.substring(0, 25)}`,
+              thumbnail: result.thumbnail,
+              duration: result.duration,
+              description: 'AI Generated replicate fallback: ' + fullPrompt,
+              tags: ['ai_generated', 'recreate_fallback', assetType],
+              status: 'analyzing'
+            };
+            await dbService.saveClip(newClip);
+
+            // Trigger background visual analysis
+            const absoluteVideoPath = resolvePath(result.path);
+            analyzeVideoInBackground(result.id, absoluteVideoPath, apiKey);
+
+            finalClipId = result.id;
+            finalClipStart = 0;
+          } catch (err) {
+            console.error(`[Recreate] Failed to generate AI fallback for scene ${idx}:`, err);
+          }
+        }
+
+        // Find overlays that overlap this scene
+        const sceneOverlays = (analysis.textOverlays || []).filter(o => 
+          o.start_time >= scene.start_time && o.start_time < scene.end_time
+        );
+        
+        let sceneText = "";
+        let sceneWords = [];
+        for (const overlay of sceneOverlays) {
+          const wordsList = overlay.text.split(/\s+/).filter(Boolean);
+          if (wordsList.length > 0) {
+            if (sceneText) sceneText += " ";
+            sceneText += overlay.text;
+            
+            const overlayDuration = overlay.end_time - overlay.start_time;
+            const wordDur = overlayDuration / wordsList.length;
+            for (let i = 0; i < wordsList.length; i++) {
+              sceneWords.push({
+                word: wordsList[i],
+                start_time: Number((overlay.start_time + i * wordDur).toFixed(3)),
+                end_time: Number((overlay.start_time + (i + 1) * wordDur).toFixed(3))
+              });
+            }
+          }
+        }
+
+        matchedScenes.push({
+          text: sceneText,
+          start_time: scene.start_time,
+          end_time: scene.end_time,
+          clipId: finalClipId,
+          clipStart: finalClipStart,
+          words: sceneWords
+        });
+      }
+    }
+
+    // 5. Get video audio duration to verify
+    const audioDuration = await getVideoDuration(audioPath);
+
+    // 6. Create Project
+    const projectId = uuidv4();
+    const newProject = {
+      id: projectId,
+      userId,
+      name: projectName || `Recreated Reel (${new Date().toLocaleDateString()})`,
+      type: 'create',
+      updatedAt: new Date().toISOString(),
+      state: {
+        scriptText: analysis.description || "",
+        selectedVoice: settings.lastSelectedVoice || "",
+        audioSource: "upload",
+        voiceoverPath: `/uploads/recreate/${audioFilename}`,
+        voiceoverUrl: `/uploads/recreate/${audioFilename}`,
+        originalVideoPath: `/uploads/recreate/${videoFilename}`,
+        originalVideoUrl: `/uploads/recreate/${videoFilename}`,
+        scenes: matchedScenes,
+        aspectRatio: "9:16",
+        fillMode: "crop",
+        bgMusicPath: "",
+        bgMusicVolume: 0.15,
+        fontName: "Arial",
+        fontSize: 24,
+        fontColor: "#FFFFFF",
+        outlineColor: "#000000",
+        bold: true,
+        italic: false,
+        shadow: true,
+        textFade: true,
+        textTransition: "none",
+        textMotion: "none",
+        activeWordScale: 1.15,
+        exportResolution: "1080p",
+        exportFps: 30
+      }
+    };
+
+    await dbService.saveProject(newProject);
+    await dbService.saveSettings({ lastActiveProjectId: newProject.id });
+
+    res.json({
+      success: true,
+      project: newProject,
+      analysis,
+      videoUrl: `/uploads/recreate/${videoFilename}`,
+      audioUrl: `/uploads/recreate/${audioFilename}`
+    });
+
+  } catch (error) {
+    console.error('[Recreate Error] Analysis/Creation failed:', error);
+    logErrorToFile('recreateAnalyze', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET endpoint to retrieve recreation history
+app.get('/api/recreates', async (req, res) => {
+  try {
+    const userId = getUserId(req);
+    const recreates = await dbService.getRecreates(userId);
+    const sorted = recreates.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    res.json(sorted);
+  } catch (error) {
+    console.error('[Recreates Get Error]', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// DELETE endpoint to delete a recreation item and its media files
+app.delete('/api/recreates/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = getUserId(req);
+
+    const recreate = await dbService.getRecreate(id);
+    if (!recreate) {
+      return res.status(404).json({ error: 'Recreation not found.' });
+    }
+
+    if (recreate.userId !== userId) {
+      return res.status(403).json({ error: 'Unauthorized to delete this recreation.' });
+    }
+
+    // Delete database entry first
+    await dbService.deleteRecreate(id);
+
+    // Clean up files on disk
+    if (recreate.videoUrl) {
+      const videoFilename = path.basename(recreate.videoUrl);
+      const videoPath = path.join(RECREATE_DIR, videoFilename);
+      if (existsSync(videoPath)) {
+        unlinkSync(videoPath);
+      }
+    }
+    if (recreate.audioUrl) {
+      const audioFilename = path.basename(recreate.audioUrl);
+      const audioPath = path.join(RECREATE_DIR, audioFilename);
+      if (existsSync(audioPath)) {
+        unlinkSync(audioPath);
+      }
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('[Recreates Delete Error]', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Serve SPA route fallback for client-side routing
