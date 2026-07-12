@@ -47,3 +47,9 @@ stitch_v_gen_studio_redesign/
 
 # Eslint report
 eslint_report.txt
+
+# Large video files
+*.mp4
+
+# Local google-cloud-sdk
+backend/google-cloud-sdk/

@@ -44,3 +44,7 @@ stitch_v_gen_studio_redesign/
 # Editor
 .vscode/
 .idea/
+
+# Large binaries & GCP local tools
+backend/google-cloud-sdk/
+*.mp4
