@@ -6,7 +6,7 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const DB_PATH = path.resolve(__dirname, '..', 'db.json');
-const PROJECT_ID = 'flowsocial-498207';
+const PROJECT_ID = process.env.GCP_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT || 'flowsocial-498207';
 
 let firestore = null;
 let useLocalDb = false;

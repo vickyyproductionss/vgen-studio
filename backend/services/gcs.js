@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const PROJECT_ID = 'flowsocial-498207';
+const PROJECT_ID = process.env.GCP_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT || 'flowsocial-498207';
 const BUCKET_NAME = process.env.GCS_BUCKET_NAME || 'flowsocial-vgen-studio-assets';
 
 let storage = null;
