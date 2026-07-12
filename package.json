@@ -11,13 +11,13 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@remotion/cli": "^4.0.478",
-    "@remotion/player": "^4.0.478",
-    "@remotion/transitions": "^4.0.478",
+    "@remotion/cli": "4.0.478",
+    "@remotion/player": "4.0.478",
+    "@remotion/transitions": "4.0.478",
     "lucide-react": "^1.17.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
-    "remotion": "^4.0.478"
+    "remotion": "4.0.478"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
