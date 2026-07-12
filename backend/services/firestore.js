@@ -628,7 +628,8 @@ export const dbService = {
       console.error('[Database Error] Failed to delete subject profile:', err.message);
       throw err;
     }
-  }
+  },
+
   // --- Render Jobs (background rendering persistence) ---
 
   async saveRenderJob(job) {
