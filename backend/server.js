@@ -241,6 +241,11 @@ app.use('/api', (req, res, next) => {
   if (publicPaths.includes(requestPath)) {
     return next();
   }
+
+  // Allow Remotion server-side renderer to fetch clip videos and job progress
+  // without auth headers (these are server-to-server calls inside the container)
+  if (/^\/clips\/[^/]+\/video$/.test(requestPath)) return next();
+  if (/^\/jobs\/[^/]+\/progress$/.test(requestPath)) return next();
   
   const userId = getUserId(req);
   if (isProduction && userId === 'local-user') {
@@ -1491,7 +1496,10 @@ app.get('/api/clips/:id/video', async (req, res) => {
   const userId = getUserId(req);
   try {
     const clip = await dbService.getClip(id);
-    if (!clip || (clip.userId || 'local-user') !== userId) {
+    // In production, server-side Remotion renderer calls this without auth headers.
+    // Allow access if clip exists; userId check only applies to authenticated browser requests.
+    const isServerSideRender = isProduction && userId === 'local-user';
+    if (!clip || (!isServerSideRender && (clip.userId || 'local-user') !== userId)) {
       return res.status(404).json({ error: 'Clip not found' });
     }
 
