@@ -27,8 +27,14 @@ backend/.env
 # Local database (Firestore replaces this)
 backend/db.json
 
-# Local uploads (GCS replaces this)
-backend/uploads/
+# Local uploads - exclude user-generated content but keep static SFX/preset assets
+backend/uploads/clips/
+backend/uploads/generated/
+backend/uploads/recreate/
+backend/uploads/subject/
+backend/uploads/music/
+backend/uploads/thumbnails/
+backend/uploads/avatars/
 backend/data/
 
 # OS / Editor files
