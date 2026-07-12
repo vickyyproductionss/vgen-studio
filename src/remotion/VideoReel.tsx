@@ -1,0 +1,1136 @@
+import React from 'react';
+import { delayRender, continueRender, Sequence, Audio, AbsoluteFill, useCurrentFrame, useVideoConfig, spring, prefetch, OffthreadVideo, interpolate } from 'remotion';
+import { SubtitleWord } from './components/SubtitleWord';
+import type { WordStyle } from './components/SubtitleWord';
+import { StoryGraphCanvas } from './components/StoryGraphCanvas';
+import type { GraphEntity, GraphEvent } from './components/StoryGraphCanvas';
+import { QuoteCard } from './components/QuoteCard';
+import { VersusLayout } from './components/VersusLayout';
+import { StatCallout } from './components/StatCallout';
+import { TimelineCheckpoint } from './components/TimelineCheckpoint';
+import { DangerCallout } from './components/DangerCallout';
+import { ProgressRatio } from './components/ProgressRatio';
+import { ProTip } from './components/ProTip';
+import { VersusMeter } from './components/VersusMeter';
+import { TierListRanker } from './components/TierListRanker';
+
+export interface Scene {
+  text: string;
+  start_time: number;
+  end_time: number;
+  clipId?: string;
+  clipUrl?: string | null;
+  clipStart?: number;
+  words?: {
+    word: string;
+    start_time: number;
+    end_time: number;
+    sfx?: string;
+  }[];
+  shake?: boolean;
+  shakeIntensity?: number;
+  shakeSpeed?: number;
+  zoom?: boolean;
+  sfx?: string;
+  graphContext?: string;
+  transition?: string;
+  layout?: 'graph' | 'versus' | 'quote' | 'stat_callout' | 'timeline_checkpoint' | 'full_broll';
+  layoutProps?: {
+    quoteText?: string;
+    quoteAuthor?: string;
+    statValue?: string;
+    statLabel?: string;
+    versusLeft?: string;
+    versusRight?: string;
+    versusLabel?: string;
+    versusLeftFeatures?: string[];
+    versusRightFeatures?: string[];
+    timelineDate?: string;
+    timelineLabel?: string;
+  };
+  ambientSoundscape?: string;
+  postProcessingPreset?: string;
+}
+
+const emphasisWords = [
+  'million', 'billion', 'secret', 'crash', 'danger', 'free', 'money', 'easy', 'growth', 'extreme', 
+  'never', 'always', 'stop', 'go', 'die', 'live', 'win', 'lose', 'rich', 'poor', 'destroy', 'build', 
+  'hack', 'hidden', 'viral', 'massive', 'insane', 'growthful', 'perfect', 'success', 'love', 'fast', 
+  'gym', 'workout', 'fitness', 'strong', 'fire', 'broke', 'king', 'queen', 'power', 'energy', 'warning',
+  'doctor', 'pizza', 'excited', 'wow', 'shocked', 'surprised', 'confused', 'truth', 'wild', 'beast'
+];
+
+export interface VideoReelProps {
+  scenes: Scene[];
+  voiceoverUrl?: string;
+  voiceoverVolume?: number;
+  bgMusicUrl?: string;
+  bgMusicVolume?: number;
+  videoVolume?: number;
+  sfxVolume?: number;
+  subtitleMode: 'classic' | 'pop' | 'smart-highlight' | 'centered-word';
+  fontName: string;
+  fontSize: number;
+  bold: boolean;
+  italic: boolean;
+  shadow: boolean;
+  shadowColor?: string;
+  shadowBlur?: number;
+  shadowDistance?: number;
+  shadowAngle?: number;
+  shadowOpacity?: number;
+  outlineColor?: string;
+  outlineThickness?: number;
+  letterSpacing?: number;
+  wordSpacing?: number;
+  // Top-level glow — overrides whatever neonGlow is set inside normalStyle/highlightStyle
+  neonGlow?: boolean;
+  glowColor?: string;
+  glowBlur?: number;
+  glowDistance?: number;
+  activeWordScale: number;
+  normalStyle?: WordStyle;
+  highlightStyle?: WordStyle;
+  emojiStyle?: WordStyle;
+  aspectRatio?: '9:16' | '16:9' | '1:1';
+  fillMode?: 'crop' | 'fit';
+  textPositionX?: number;
+  textPositionY?: number;
+  maxWordsPerLine?: number;
+  baseUrl?: string;
+  highlightTrigger?: 'all' | 'emphasis' | 'emoji' | 'none';
+  textCase?: 'default' | 'upper' | 'first-word-larger';
+  autoEmphasis?: boolean;
+  entities?: GraphEntity[];
+  graphEvents?: GraphEvent[];
+  graphSettings?: {
+    overlayOnBroll?: boolean;
+    brollOpacity?: number;
+    glowIntensity?: number;
+  } | null;
+  brandPrimaryColor?: string;
+  brandSecondaryColor?: string;
+  backgroundColor?: string;
+  backgroundPattern?: 'grid' | 'dots' | 'radial' | 'none';
+  backgroundImageUrl?: string;
+  isRendering?: boolean;
+  subtitlesOnly?: boolean;
+  cardPositionY?: number;
+  cardScale?: number;
+  cardFontName?: string;
+  showLayoutCards?: boolean;
+  applyHUDToAll?: boolean;
+}
+
+// Hook to dynamically load Google Fonts and pause Remotion render until loaded
+const useGoogleFont = (fontName: string) => {
+  React.useEffect(() => {
+    const systemFonts = ['Arial', 'Impact', 'Courier New', 'Times New Roman', 'Trebuchet MS'];
+    if (systemFonts.includes(fontName) || !fontName) {
+      return;
+    }
+
+    const handle = delayRender(`Loading font: ${fontName}`);
+    let targetFont = fontName;
+    if (fontName.startsWith('Kalam')) {
+      targetFont = 'Kalam';
+    }
+
+    const fontId = `google-font-reel-${targetFont.toLowerCase().replace(/\s+/g, '-')}`;
+    
+    // Check if link tag is already injected
+    if (document.getElementById(fontId)) {
+      continueRender(handle);
+      return;
+    }
+
+    const link = document.createElement('link');
+    link.id = fontId;
+    link.rel = 'stylesheet';
+    link.href = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(targetFont)}:wght@400;700;900&display=swap`;
+    
+    link.onload = () => {
+      if (document.fonts) {
+        document.fonts.load(`12px "${targetFont}"`).then(() => {
+          continueRender(handle);
+        }).catch((err) => {
+          console.warn(`document.fonts failed to load ${targetFont}:`, err);
+          continueRender(handle);
+        });
+      } else {
+        continueRender(handle);
+      }
+    };
+
+    link.onerror = (err) => {
+      console.error(`Failed to load link stylesheet for font ${targetFont}:`, err);
+      continueRender(handle);
+    };
+
+    document.head.appendChild(link);
+  }, [fontName]);
+};
+
+const resolveAssetUrl = (url: string, baseUrl?: string, isRendering?: boolean) => {
+  if (!url) return '';
+  if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) return url;
+  
+  // Handle absolute local paths (macOS/Linux)
+  if (url.startsWith('/') && (
+    url.startsWith('/Volumes/') || 
+    url.startsWith('/Users/') || 
+    url.startsWith('/var/') || 
+    url.startsWith('/tmp/')
+  )) {
+    // Always route through Express backend at port 8000 using serve-local-file.
+    // During rendering (isRendering=true), Remotion's internal proxy (localhost:3001/3002)
+    // CANNOT serve /Volumes/ paths on macOS — it times out after 28s.
+    // The Express backend at port 8000 properly supports HTTP range requests and is
+    // accessible from within the Remotion headless renderer environment.
+    const backendBase = isRendering ? 'http://localhost:8000' : (baseUrl || '');
+    return `${backendBase}/api/serve-local-file?path=${encodeURIComponent(url)}`;
+  }
+  
+  const base = baseUrl || '';
+  return `${base}${url}`;
+};
+
+export const VideoReel: React.FC<VideoReelProps> = ({
+  scenes,
+  voiceoverUrl,
+  voiceoverVolume = 1.0,
+  bgMusicUrl,
+  bgMusicVolume = 0.15,
+  videoVolume = 0.0,
+  sfxVolume = 1.0,
+  subtitleMode,
+  fontName,
+  fontSize,
+  bold,
+  italic,
+  shadow,
+  shadowColor = '#000000',
+  shadowBlur = 4,
+  shadowDistance = 2,
+  shadowAngle = 45,
+  shadowOpacity = 0.6,
+  outlineColor,
+  outlineThickness = 1.5,
+  letterSpacing = 0,
+  wordSpacing = 0,
+  neonGlow,
+  glowColor,
+  glowBlur: glowBlurProp,
+  glowDistance: glowDistanceProp,
+  activeWordScale: _activeWordScale,
+  normalStyle,
+  highlightStyle,
+  emojiStyle,
+  aspectRatio: _aspectRatio = '9:16',
+  fillMode = 'crop',
+  textPositionX = 0,
+  textPositionY = -70,
+  maxWordsPerLine = 3,
+  baseUrl,
+  highlightTrigger = 'all',
+  textCase = 'default',
+  autoEmphasis = false,
+  entities = [],
+  graphEvents = [],
+  graphSettings = null,
+  brandPrimaryColor = '#d4af37',
+  brandSecondaryColor = '#f5e6a3',
+  backgroundColor = '#080c18',
+  backgroundPattern = 'grid',
+  backgroundImageUrl = '',
+  subtitlesOnly = false,
+  isRendering = false,
+  cardPositionY = 0,
+  cardScale = 1.0,
+  cardFontName,
+  showLayoutCards = true,
+  applyHUDToAll = true,
+}) => {
+  useGoogleFont(fontName);
+
+  React.useEffect(() => {
+    if (isRendering) return;
+
+    // Collect all unique URLs that we want to prefetch
+    const urlsToPrefetch: string[] = [];
+    
+    if (voiceoverUrl) {
+      urlsToPrefetch.push(resolveAssetUrl(voiceoverUrl, baseUrl));
+    }
+    if (bgMusicUrl) {
+      urlsToPrefetch.push(resolveAssetUrl(bgMusicUrl, baseUrl));
+    }
+    
+    scenes.forEach((scene) => {
+      const clipUrl = scene.clipUrl !== undefined
+        ? scene.clipUrl
+        : (!scene.clipId || scene.clipId === 'original'
+          ? null
+          : `/api/clips/${scene.clipId}/video`);
+          
+      if (clipUrl) {
+        const resolved = resolveAssetUrl(clipUrl, baseUrl);
+        if (!urlsToPrefetch.includes(resolved)) {
+          urlsToPrefetch.push(resolved);
+        }
+      }
+      
+      if (scene.sfx && scene.sfx !== 'none') {
+        const sfxUrl = resolveAssetUrl(`/uploads/sfx/${scene.sfx.endsWith('.mp3') ? scene.sfx : `${scene.sfx}.mp3`}`, baseUrl);
+        if (!urlsToPrefetch.includes(sfxUrl)) {
+          urlsToPrefetch.push(sfxUrl);
+        }
+      }
+      
+      if (scene.ambientSoundscape && scene.ambientSoundscape !== 'none') {
+        const ambientUrl = resolveAssetUrl(`/uploads/sfx/${scene.ambientSoundscape}.mp3`, baseUrl);
+        if (!urlsToPrefetch.includes(ambientUrl)) {
+          urlsToPrefetch.push(ambientUrl);
+        }
+      }
+    });
+
+    let active = true;
+    const prefetches: { free: () => void }[] = [];
+
+    const runPrefetchQueue = async () => {
+      console.log(`[Prefetch] Starting sequential prefetch of ${urlsToPrefetch.length} assets...`);
+      for (const url of urlsToPrefetch) {
+        if (!active) break;
+        try {
+          console.log(`[Prefetch] Loading: ${url}`);
+          const p = prefetch(url);
+          prefetches.push(p);
+          // Wait for it to finish or timeout after 5 seconds to keep queue moving
+          await Promise.race([
+            p.waitUntilDone(),
+            new Promise((resolve) => setTimeout(resolve, 5000))
+          ]);
+          console.log(`[Prefetch] Ready: ${url}`);
+        } catch (err) {
+          console.warn(`[Prefetch] Failed: ${url}`, err);
+        }
+      }
+      console.log('[Prefetch] Sequential prefetch queue completed.');
+    };
+
+    runPrefetchQueue();
+
+    return () => {
+      active = false;
+      console.log('[Prefetch] Cleaning up prefetch objects...');
+      prefetches.forEach((p) => {
+        try {
+          p.free();
+        } catch (e) {
+          // ignore
+        }
+      });
+    };
+  }, [scenes, voiceoverUrl, bgMusicUrl, baseUrl]);
+  const frame = useCurrentFrame();
+  const { fps, width, height } = useVideoConfig();
+  const currentTime = frame / fps;
+
+  // Pre-calculate frame boundaries to prevent microsecond black gaps due to floating-point rounding mismatches
+  const boundaries: number[] = [];
+  if (scenes.length > 0) {
+    boundaries.push(Math.round(scenes[0].start_time * fps));
+    for (let i = 1; i < scenes.length; i++) {
+      // Set the boundary to the rounded start_time, but ensure it is strictly increasing
+      boundaries.push(Math.max(boundaries[i - 1] + 1, Math.round(scenes[i].start_time * fps)));
+    }
+    // Set the last boundary to the rounded end_time of the last scene
+    boundaries.push(Math.max(boundaries[boundaries.length - 1] + 1, Math.round(scenes[scenes.length - 1].end_time * fps)));
+  }
+
+  const hasGraph = !subtitlesOnly && entities && entities.length > 0 && graphEvents && graphEvents.length > 0;
+  const overlayOnBroll = graphSettings?.overlayOnBroll ?? false;
+  const brollOpacity = graphSettings?.brollOpacity ?? 0.35;
+
+  const currentSceneIndex = scenes.findIndex(
+    (s, idx) => frame >= boundaries[idx] && frame < boundaries[idx + 1]
+  );
+  const currentScene = scenes[currentSceneIndex];
+
+  const resolvedBgImage = backgroundImageUrl ? resolveAssetUrl(backgroundImageUrl, baseUrl) : null;
+
+  let bgImageStyle = 'none';
+  let bgSizeStyle = 'auto';
+
+  if (resolvedBgImage) {
+    bgImageStyle = `url(${resolvedBgImage})`;
+    bgSizeStyle = 'cover';
+  } else if (backgroundPattern === 'grid') {
+    bgImageStyle = `linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px), radial-gradient(circle at center, rgba(16, 24, 48, 0.8) 0%, ${backgroundColor} 100%)`;
+    bgSizeStyle = '40px 40px, 40px 40px, auto';
+  } else if (backgroundPattern === 'dots') {
+    bgImageStyle = `radial-gradient(rgba(255, 255, 255, 0.04) 1.5px, transparent 1.5px), radial-gradient(circle at center, rgba(16, 24, 48, 0.7) 0%, ${backgroundColor} 100%)`;
+    bgSizeStyle = '30px 30px, auto';
+  } else if (backgroundPattern === 'radial') {
+    bgImageStyle = `radial-gradient(circle at center, rgba(255, 255, 255, 0.08) 0%, transparent 60%), radial-gradient(circle at center, ${brandPrimaryColor}15 0%, ${backgroundColor} 100%)`;
+    bgSizeStyle = 'auto';
+  }
+
+  return (
+    <AbsoluteFill
+      style={{
+        backgroundColor: backgroundColor || '#080c18',
+        backgroundImage: bgImageStyle,
+        backgroundSize: bgSizeStyle,
+        backgroundPosition: 'center',
+        overflow: 'hidden',
+      }}
+    >
+      {/* 0. Story Graph Canvas Layer */}
+      {hasGraph && (
+        <div
+          style={{
+            position: 'absolute',
+            left: 0,
+            top: 0,
+            width: '100%',
+            height: '100%',
+            opacity: (!currentScene || currentScene.layout === 'graph' || !currentScene.layout) ? 1.0 : 0.0,
+            transition: 'opacity 0.4s ease-in-out',
+            zIndex: 10,
+            pointerEvents: 'none',
+          }}
+        >
+          <StoryGraphCanvas
+            entities={entities}
+            graphEvents={graphEvents}
+            scenes={scenes}
+            graphSettings={graphSettings}
+          />
+        </div>
+      )}
+      {/* 1. Background Music */}
+      {bgMusicUrl && (
+        <Audio
+          src={resolveAssetUrl(bgMusicUrl, baseUrl)}
+          volume={bgMusicVolume}
+          crossOrigin="anonymous"
+          pauseWhenBuffering={true}
+          onError={(error) => {
+            console.error("Remotion Audio Error (BGM):", error);
+            const targetPort = 8000;
+            const backendUrl = window.location.port 
+              ? `${window.location.protocol}//${window.location.hostname}:${targetPort}`
+              : window.location.origin;
+            fetch(`${backendUrl}/api/log-client-error`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                error: error?.toString() || 'HTML5 Audio Error',
+                message: `Failed to load background music: ${bgMusicUrl}`,
+                stack: error?.stack || new Error().stack,
+                component: 'VideoReel-AudioComponent-BGM'
+              })
+            }).catch(err => console.error("Failed to report audio error to backend:", err));
+            return 'fallback';
+          }}
+        />
+      )}
+
+      {/* 2. Voiceover Track */}
+      {voiceoverUrl && !subtitlesOnly && (
+        <Audio
+          src={resolveAssetUrl(voiceoverUrl, baseUrl)}
+          volume={voiceoverVolume}
+          crossOrigin="anonymous"
+          pauseWhenBuffering={true}
+          onError={(error) => {
+            console.error("Remotion Audio Error (Voiceover):", error);
+            const targetPort = 8000;
+            const backendUrl = window.location.port 
+              ? `${window.location.protocol}//${window.location.hostname}:${targetPort}`
+              : window.location.origin;
+            fetch(`${backendUrl}/api/log-client-error`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                error: error?.toString() || 'HTML5 Audio Error',
+                message: `Failed to load voiceover: ${voiceoverUrl}`,
+                stack: error?.stack || new Error().stack,
+                component: 'VideoReel-AudioComponent-VO'
+              })
+            }).catch(err => console.error("Failed to report audio error to backend:", err));
+            return 'fallback';
+          }}
+        />
+      )}
+
+      {/* 3. Sequence through B-Roll scenes */}
+      {scenes.map((scene, idx) => {
+        const startFrame = boundaries[idx];
+        const endFrame = boundaries[idx + 1];
+        const durationInFrames = Math.max(1, endFrame - startFrame);
+
+        // Calculate rightBlurredMode and merge layoutProps for Versus layout
+        let rightBlurredMode: 'blurred' | 'unblurred' | 'auto-transition' = 'auto-transition';
+        let mergedVersusLeft = scene.layoutProps?.versusLeft || '';
+        let mergedVersusRight = scene.layoutProps?.versusRight || '';
+        let mergedVersusLabel = scene.layoutProps?.versusLabel || '';
+        let mergedVersusLeftFeatures = scene.layoutProps?.versusLeftFeatures || [];
+        let mergedVersusRightFeatures = scene.layoutProps?.versusRightFeatures || [];
+
+        if (scene.layout === 'versus') {
+          let hasPrev = false;
+          let hasNext = false;
+          
+          if (idx > 0) {
+            const prev = scenes[idx - 1];
+            if (prev.layout === 'versus') {
+              hasPrev = true;
+            }
+          }
+          if (idx < scenes.length - 1) {
+            const next = scenes[idx + 1];
+            if (next.layout === 'versus') {
+              hasNext = true;
+            }
+          }
+          
+          if (hasPrev && !hasNext) {
+            rightBlurredMode = 'unblurred';
+          } else if (!hasPrev && hasNext) {
+            rightBlurredMode = 'blurred';
+          } else if (hasPrev && hasNext) {
+            rightBlurredMode = 'blurred';
+          } else {
+            rightBlurredMode = 'auto-transition';
+          }
+
+          // Walk backward and forward to collect all non-empty properties
+          let searchIdx = idx - 1;
+          while (searchIdx >= 0 && scenes[searchIdx].layout === 'versus') {
+            const p = scenes[searchIdx].layoutProps;
+            if (p) {
+              if (!mergedVersusLeft && p.versusLeft) mergedVersusLeft = p.versusLeft;
+              if (!mergedVersusRight && p.versusRight) mergedVersusRight = p.versusRight;
+              if (!mergedVersusLabel && p.versusLabel) mergedVersusLabel = p.versusLabel;
+              if (mergedVersusLeftFeatures.length === 0 && p.versusLeftFeatures?.length) mergedVersusLeftFeatures = p.versusLeftFeatures;
+              if (mergedVersusRightFeatures.length === 0 && p.versusRightFeatures?.length) mergedVersusRightFeatures = p.versusRightFeatures;
+            }
+            searchIdx--;
+          }
+          searchIdx = idx + 1;
+          while (searchIdx < scenes.length && scenes[searchIdx].layout === 'versus') {
+            const p = scenes[searchIdx].layoutProps;
+            if (p) {
+              if (!mergedVersusLeft && p.versusLeft) mergedVersusLeft = p.versusLeft;
+              if (!mergedVersusRight && p.versusRight) mergedVersusRight = p.versusRight;
+              if (!mergedVersusLabel && p.versusLabel) mergedVersusLabel = p.versusLabel;
+              if (mergedVersusLeftFeatures.length === 0 && p.versusLeftFeatures?.length) mergedVersusLeftFeatures = p.versusLeftFeatures;
+              if (mergedVersusRightFeatures.length === 0 && p.versusRightFeatures?.length) mergedVersusRightFeatures = p.versusRightFeatures;
+            }
+            searchIdx++;
+          }
+        }
+
+        // Calculate current frame offset relative to this scene sequence
+        const relativeFrame = frame - startFrame;
+
+        const isSceneActive = frame >= startFrame && frame < endFrame;
+        if (!isSceneActive) return null;
+
+        // B-Roll Clip Video URL
+        const clipUrl = scene.clipUrl !== undefined
+          ? scene.clipUrl
+          : (!scene.clipId || scene.clipId === 'original'
+            ? null
+            : `/api/clips/${scene.clipId}/video`);
+
+        // Apply shake or zoom transform to clip container
+        // 1. Resolve Transitions
+        const incomingTrans = idx > 0 ? (scenes[idx - 1].transition || 'none') : 'none';
+        const incomingDur = idx > 0 ? (scenes[idx - 1].transitionDuration !== undefined ? scenes[idx - 1].transitionDuration : 0.3) : 0.3;
+        const outgoingTrans = idx < scenes.length - 1 ? (scene.transition || 'none') : 'none';
+        const outgoingDur = idx < scenes.length - 1 ? (scene.transitionDuration !== undefined ? scene.transitionDuration : 0.3) : 0.3;
+
+        const getTransType = (type: string, index: number) => {
+          if (!type || type === 'none') return 'none';
+          if (type === 'random') {
+            const transitionsList = [
+              'fade',
+              'slide-left', 'slide-right', 'slide-up', 'slide-down',
+              'zoom-in', 'zoom-out'
+            ];
+            return transitionsList[index % transitionsList.length];
+          }
+          return type;
+        };
+
+        const activeIncomingTrans = getTransType(incomingTrans, idx - 1);
+        const activeOutgoingTrans = getTransType(outgoingTrans, idx);
+
+        // 2. Interpolate transition properties
+        const incomingFrames = incomingDur * fps;
+        const outgoingFrames = outgoingDur * fps;
+
+        let transitionOpacity = 1;
+        if (!subtitlesOnly && activeIncomingTrans === 'fade' && relativeFrame < incomingFrames) {
+          transitionOpacity = interpolate(relativeFrame, [0, incomingFrames], [0, 1], {
+            extrapolateLeft: 'clamp',
+            extrapolateRight: 'clamp',
+          });
+        } else if (!subtitlesOnly && activeOutgoingTrans === 'fade' && relativeFrame > durationInFrames - outgoingFrames) {
+          transitionOpacity = interpolate(relativeFrame, [durationInFrames - outgoingFrames, durationInFrames], [1, 0], {
+            extrapolateLeft: 'clamp',
+            extrapolateRight: 'clamp',
+          });
+        }
+
+        let transitionTranslateX = 0;
+        let transitionTranslateY = 0;
+        if (!subtitlesOnly && activeIncomingTrans.startsWith('slide-') && relativeFrame < incomingFrames) {
+          const startVal = activeIncomingTrans.includes('left') ? -100 : (activeIncomingTrans.includes('right') ? 100 : 0);
+          const startValY = activeIncomingTrans.includes('up') ? 100 : (activeIncomingTrans.includes('down') ? -100 : 0);
+          if (startVal !== 0) {
+            transitionTranslateX = interpolate(relativeFrame, [0, incomingFrames], [startVal, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+          }
+          if (startValY !== 0) {
+            transitionTranslateY = interpolate(relativeFrame, [0, incomingFrames], [startValY, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+          }
+        } else if (!subtitlesOnly && activeOutgoingTrans.startsWith('slide-') && relativeFrame > durationInFrames - outgoingFrames) {
+          const endVal = activeOutgoingTrans.includes('left') ? -100 : (activeOutgoingTrans.includes('right') ? 100 : 0);
+          const endValY = activeOutgoingTrans.includes('up') ? -100 : (activeOutgoingTrans.includes('down') ? 100 : 0);
+          if (endVal !== 0) {
+            transitionTranslateX = interpolate(relativeFrame, [durationInFrames - outgoingFrames, durationInFrames], [0, endVal], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+          }
+          if (endValY !== 0) {
+            transitionTranslateY = interpolate(relativeFrame, [durationInFrames - outgoingFrames, durationInFrames], [0, endValY], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+          }
+        }
+
+        let transitionScale = 1;
+        if (!subtitlesOnly && (activeIncomingTrans.startsWith('zoom') || activeIncomingTrans.includes('zoom')) && relativeFrame < incomingFrames) {
+          const startVal = activeIncomingTrans.includes('zoom-in') ? 0.75 : 1.25;
+          transitionScale = interpolate(relativeFrame, [0, incomingFrames], [startVal, 1.0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+        } else if (!subtitlesOnly && (activeOutgoingTrans.startsWith('zoom') || activeOutgoingTrans.includes('zoom')) && relativeFrame > durationInFrames - outgoingFrames) {
+          const endVal = activeOutgoingTrans.includes('zoom-in') ? 1.25 : 0.75;
+          transitionScale = interpolate(relativeFrame, [durationInFrames - outgoingFrames, durationInFrames], [1.0, endVal], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+        }
+
+        let transitionBlur = 0;
+        if (!subtitlesOnly && activeIncomingTrans.includes('blur') && relativeFrame < incomingFrames) {
+          transitionBlur = interpolate(relativeFrame, [0, incomingFrames], [20, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+        } else if (!subtitlesOnly && activeOutgoingTrans.includes('blur') && relativeFrame > durationInFrames - outgoingFrames) {
+          transitionBlur = interpolate(relativeFrame, [durationInFrames - outgoingFrames, durationInFrames], [0, 20], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+        }
+
+        let videoTransform = '';
+        const isZoom = !subtitlesOnly && (scene.zoom || scene.transition === 'zoom-in' || scene.transition === 'zoom-out');
+        const isShake = !subtitlesOnly && (scene.shake || scene.transition === 'shake');
+        const baseScale = isShake ? (1.0 + (scene.shakeIntensity || 15) / 300) : 1.0;
+        const zoomScale = isZoom ? (1.0 + 0.1 * (relativeFrame / durationInFrames)) : 1.0;
+        const scaleVal = subtitlesOnly ? 1.0 : (baseScale * zoomScale * transitionScale);
+
+        if (isShake) {
+          const intensity = scene.shakeIntensity || 15;
+          const speed = scene.shakeSpeed || 15;
+          const t = relativeFrame / fps;
+          const dx = intensity * Math.sin(2 * Math.PI * t * speed);
+          const dy = intensity * Math.cos(2 * Math.PI * t * (speed * 1.25));
+          videoTransform = `scale(${scaleVal}) translate(${dx}px, ${dy}px)`;
+        } else if (scaleVal !== 1.0) {
+          videoTransform = `scale(${scaleVal})`;
+        }
+
+        // Subtitle Word Extraction
+        let words = scene.words || [];
+        if (words.length === 0 && scene.text) {
+          const textWords = scene.text.trim().split(/\s+/).filter(Boolean);
+          if (textWords.length > 0) {
+            const duration = (scene.end_time || 5) - (scene.start_time || 0);
+            const timePerWord = duration / textWords.length;
+            words = textWords.map((w, wIdx) => ({
+              word: w,
+              start_time: (scene.start_time || 0) + wIdx * timePerWord,
+              end_time: (scene.start_time || 0) + (wIdx + 1) * timePerWord,
+            }));
+          }
+        }
+
+        const contextOpacity = spring({
+          frame: relativeFrame,
+          fps,
+          config: {
+            damping: 15,
+            stiffness: 80,
+          },
+        });
+
+        // If highlightTrigger === 'none', override effectiveSubtitleMode to 'smart-highlight' for non-classic modes
+        const effectiveSubtitleMode = (highlightTrigger === 'none' && subtitleMode !== 'classic')
+          ? 'smart-highlight'
+          : subtitleMode;
+
+        // Position offset calculations matching editor preview
+        const vertPercent = 50 - (textPositionY / 2); // e.g. textPositionY=-70 matches bottom: ~15%
+        const effectiveVertPercent = hasGraph ? 14 : vertPercent;
+
+        // Render Subtitles
+        const renderSubtitles = () => {
+          if (words.length === 0) return null;
+
+          const subtitleContainerStyle: React.CSSProperties = {
+            position: 'absolute',
+            left: '5%',
+            right: '5%',
+            bottom: `${effectiveVertPercent}%`,
+            display: 'flex',
+            flexWrap: 'wrap',
+            justifyContent: 'center',
+            alignItems: 'center',
+            textAlign: 'center',
+            transform: `translateX(${textPositionX}px)`,
+            zIndex: 100,
+          };
+
+          const relativeTime = currentTime - scene.start_time;
+
+          // Render only the active single word
+          if (effectiveSubtitleMode === 'pop' || effectiveSubtitleMode === 'centered-word') {
+            const activeWord = words.find(w => 
+              (currentTime >= w.start_time && currentTime <= w.end_time) ||
+              (relativeTime >= w.start_time && relativeTime <= w.end_time)
+            );
+            if (!activeWord) return null;
+
+            // Highlight checking
+            const category = /[\uD800-\uDFFF\u2600-\u27BF]/.test(activeWord.word) ? 'emoji' : (
+              emphasisWords.includes(activeWord.word.toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g, "")) ? 'highlight' : 'normal'
+            );
+
+            let shouldHighlight = highlightTrigger === 'all' || 
+              (highlightTrigger === 'emphasis' && category === 'highlight') ||
+              (highlightTrigger === 'emoji' && category === 'emoji');
+
+            return (
+              <div style={subtitleContainerStyle}>
+                <SubtitleWord
+                  word={activeWord.word}
+                  isActive={shouldHighlight}
+                  fontName={fontName}
+                  fontSize={fontSize * 1.3}
+                  bold={bold}
+                  italic={italic}
+                  shadow={shadow}
+                  shadowColor={shadowColor}
+                  shadowBlur={shadowBlur}
+                  shadowDistance={shadowDistance}
+                  shadowAngle={shadowAngle}
+                  shadowOpacity={shadowOpacity}
+                  outlineColor={outlineColor}
+                  outlineThickness={outlineThickness}
+                  letterSpacing={letterSpacing}
+                  wordSpacing={wordSpacing}
+                  neonGlow={neonGlow}
+                  glowColor={glowColor}
+                  glowBlur={glowBlurProp}
+                  glowDistance={glowDistanceProp}
+                  normalStyle={normalStyle}
+                  highlightStyle={highlightStyle}
+                  emojiStyle={emojiStyle}
+                  textCase={textCase}
+                  isFirst={false}
+                />
+              </div>
+            );
+          }
+
+          // Classic / Smart-Highlight modes: render current word chunk group
+          let activeIndex = words.findIndex(w => currentTime >= w.start_time && currentTime <= w.end_time);
+          if (activeIndex === -1) {
+            activeIndex = words.findIndex(w => relativeTime >= w.start_time && relativeTime <= w.end_time);
+          }
+
+          // Hide subtitles if we are past the very last word of this scene
+          const lastWordEnd = words[words.length - 1]?.end_time || 0;
+          if (words.length > 0 && currentTime > lastWordEnd && relativeTime > lastWordEnd) {
+            return null;
+          }
+
+          const currentGroupIndex = activeIndex !== -1 ? Math.floor(activeIndex / maxWordsPerLine) : 0;
+          const currentGroupWords = highlightTrigger === 'none'
+            ? words
+            : words.slice(
+                currentGroupIndex * maxWordsPerLine,
+                (currentGroupIndex + 1) * maxWordsPerLine
+              );
+
+          return (
+            <div style={subtitleContainerStyle}>
+              {currentGroupWords.map((w, wIdx) => {
+                const isCurrentActive = activeIndex !== -1 && words[activeIndex].word === w.word && 
+                  ((currentTime >= w.start_time && currentTime <= w.end_time) || 
+                   (relativeTime >= w.start_time && relativeTime <= w.end_time));
+
+                // Highlight logic matching highlightTrigger and autoEmphasis
+                const category = /[\uD800-\uDFFF\u2600-\u27BF]/.test(w.word) ? 'emoji' : (
+                  emphasisWords.includes(w.word.toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g, "")) ? 'highlight' : 'normal'
+                );
+
+                let isHighlighted = false;
+                if (highlightTrigger !== 'none') {
+                  if (isCurrentActive) {
+                    isHighlighted = highlightTrigger === 'all' || 
+                      (highlightTrigger === 'emphasis' && category === 'highlight') ||
+                      (highlightTrigger === 'emoji' && category === 'emoji');
+                  } else if (autoEmphasis && category === 'highlight') {
+                    isHighlighted = true;
+                  }
+                }
+
+                return (
+                  <SubtitleWord
+                    key={wIdx}
+                    word={w.word}
+                    isActive={isHighlighted}
+                    fontName={fontName}
+                    fontSize={fontSize}
+                    bold={bold}
+                    italic={italic}
+                    shadow={shadow}
+                    shadowColor={shadowColor}
+                    shadowBlur={shadowBlur}
+                    shadowDistance={shadowDistance}
+                    shadowAngle={shadowAngle}
+                    shadowOpacity={shadowOpacity}
+                    outlineColor={outlineColor}
+                    outlineThickness={outlineThickness}
+                    letterSpacing={letterSpacing}
+                    wordSpacing={wordSpacing}
+                    neonGlow={neonGlow}
+                    glowColor={glowColor}
+                    glowBlur={glowBlurProp}
+                    glowDistance={glowDistanceProp}
+                    normalStyle={normalStyle}
+                    highlightStyle={highlightStyle}
+                    emojiStyle={emojiStyle}
+                    textCase={textCase}
+                    isFirst={wIdx === 0}
+                  />
+                );
+              })}
+            </div>
+          );
+        };
+
+        // Resolve post-processing filter preset style
+        let filterStyle = 'none';
+        if (!subtitlesOnly && scene.clipId !== 'original') {
+          if (scene.postProcessingPreset === 'vintage_sepia') {
+            filterStyle = 'sepia(0.55) contrast(1.1) brightness(0.95) saturate(0.85)';
+          } else if (scene.postProcessingPreset === 'cyber_neon') {
+            filterStyle = 'contrast(1.15) saturate(1.45) hue-rotate(5deg)';
+          } else if (scene.postProcessingPreset === 'noir_monochrome') {
+            filterStyle = 'grayscale(1) contrast(1.3) brightness(0.95)';
+          } else if (scene.postProcessingPreset === 'cinematic_warm') {
+            filterStyle = 'saturate(1.1) sepia(0.12) contrast(1.05) brightness(0.98)';
+          }
+        }
+
+        return (
+          <Sequence
+            key={idx}
+            from={startFrame}
+            durationInFrames={durationInFrames}
+            premountFor={90}
+            postmountFor={90}
+          >
+            <AbsoluteFill style={{ 
+              overflow: 'hidden',
+              transform: (transitionTranslateX !== 0 || transitionTranslateY !== 0) 
+                ? `translate(${transitionTranslateX}%, ${transitionTranslateY}%)` 
+                : undefined
+            }}>
+              {/* Color-graded Cinematic Container */}
+              <div
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  position: 'absolute',
+                  left: 0,
+                  top: 0,
+                  filter: transitionBlur > 0
+                    ? (filterStyle === 'none' ? `blur(${transitionBlur}px)` : `${filterStyle} blur(${transitionBlur}px)`)
+                    : filterStyle,
+                  opacity: (hasGraph && (!scene.layout || scene.layout === 'graph')) ? brollOpacity * transitionOpacity : transitionOpacity,
+                  transition: 'filter 0.3s ease-in-out',
+                }}
+              >
+                {/* B-Roll Video Element */}
+                {clipUrl && (!hasGraph || overlayOnBroll || (scene.layout && scene.layout !== 'graph')) && (
+                  <div 
+                    style={{ 
+                      width: '100%', 
+                      height: '100%', 
+                      transform: videoTransform, 
+                      opacity: 1.0,
+                    }}
+                  >
+                    <OffthreadVideo
+                      src={resolveAssetUrl(clipUrl, baseUrl, isRendering)}
+                      startFrom={Math.round(((scene.clipId === 'original' && (!scene.clipStart || scene.clipStart === 0)) ? (scene.start_time || 0) : (scene.clipStart || 0)) * fps)}
+                      volume={subtitlesOnly ? 1.0 : videoVolume}
+                      crossOrigin="anonymous"
+                      pauseWhenBuffering={true}
+                      style={{
+                        width: '100%',
+                        height: '100%',
+                        objectFit: fillMode === 'crop' ? 'cover' : 'contain',
+                      }}
+                      onError={(error) => {
+                        console.error("Remotion Video Error:", error);
+                        const targetPort = 8000;
+                        const backendUrl = window.location.port 
+                          ? `${window.location.protocol}//${window.location.hostname}:${targetPort}`
+                          : window.location.origin;
+                        fetch(`${backendUrl}/api/log-client-error`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            error: error?.toString() || 'HTML5 Video Error',
+                            message: `Failed to load video clip ${scene.clipId} for Scene ${idx} (URL: ${resolveAssetUrl(clipUrl || '', baseUrl)})`,
+                            stack: error?.stack || new Error().stack,
+                            component: 'VideoReel-VideoComponent'
+                          })
+                        }).catch(err => console.error("Failed to report video error to backend:", err));
+                        return 'fallback';
+                      }}
+                    />
+                  </div>
+                )}
+
+                {/* Dynamic Layout Overlays */}
+                {(() => {
+                  const effectiveCardPositionY = (!applyHUDToAll && scene.layoutProps?.cardPositionY !== undefined)
+                    ? Number(scene.layoutProps.cardPositionY) 
+                    : cardPositionY;
+                  const effectiveCardScale = (!applyHUDToAll && scene.layoutProps?.cardScale !== undefined)
+                    ? Number(scene.layoutProps.cardScale) 
+                    : cardScale;
+
+                  return (
+                    <>
+                      {showLayoutCards && scene.layout === 'quote' && (
+                        <QuoteCard
+                          quoteText={scene.layoutProps?.quoteText || ''}
+                          quoteAuthor={scene.layoutProps?.quoteAuthor}
+                          brandPrimaryColor={brandPrimaryColor}
+                          brandSecondaryColor={brandSecondaryColor}
+                          width={width}
+                          height={height}
+                          fontName={fontName}
+                          cardPositionY={effectiveCardPositionY}
+                          cardScale={effectiveCardScale}
+                          cardFontName={cardFontName}
+                        />
+                      )}
+                      {showLayoutCards && scene.layout === 'versus' && (
+                        <VersusLayout
+                          versusLeft={mergedVersusLeft}
+                          versusRight={mergedVersusRight}
+                          versusLabel={mergedVersusLabel}
+                          versusLeftFeatures={mergedVersusLeftFeatures}
+                          versusRightFeatures={mergedVersusRightFeatures}
+                          brandPrimaryColor={brandPrimaryColor}
+                          brandSecondaryColor={brandSecondaryColor}
+                          width={width}
+                          height={height}
+                          fontName={fontName}
+                          cardPositionY={effectiveCardPositionY}
+                          cardScale={effectiveCardScale}
+                          cardFontName={cardFontName}
+                          rightBlurredMode={rightBlurredMode}
+                          durationInFrames={durationInFrames}
+                        />
+                      )}
+                      {showLayoutCards && scene.layout === 'stat_callout' && (
+                        <StatCallout
+                          statValue={scene.layoutProps?.statValue || ''}
+                          statLabel={scene.layoutProps?.statLabel}
+                          brandPrimaryColor={brandPrimaryColor}
+                          brandSecondaryColor={brandSecondaryColor}
+                          width={width}
+                          height={height}
+                          fontName={fontName}
+                          cardPositionY={effectiveCardPositionY}
+                          cardScale={effectiveCardScale}
+                          cardFontName={cardFontName}
+                        />
+                      )}
+                      {showLayoutCards && scene.layout === 'timeline_checkpoint' && (
+                        <TimelineCheckpoint
+                          timelineDate={scene.layoutProps?.timelineDate || ''}
+                          timelineLabel={scene.layoutProps?.timelineLabel}
+                          brandPrimaryColor={brandPrimaryColor}
+                          brandSecondaryColor={brandSecondaryColor}
+                          width={width}
+                          height={height}
+                          fontName={fontName}
+                          cardPositionY={effectiveCardPositionY}
+                          cardScale={effectiveCardScale}
+                          cardFontName={cardFontName}
+                        />
+                      )}
+                      {showLayoutCards && scene.layout === 'danger_callout' && (
+                        <DangerCallout
+                          dangerTitle={scene.layoutProps?.dangerTitle}
+                          dangerText={scene.layoutProps?.dangerText || ''}
+                          brandPrimaryColor={brandPrimaryColor}
+                          brandSecondaryColor={brandSecondaryColor}
+                          width={width}
+                          height={height}
+                          fontName={fontName}
+                          cardPositionY={effectiveCardPositionY}
+                          cardScale={effectiveCardScale}
+                          cardFontName={cardFontName}
+                        />
+                      )}
+                      {showLayoutCards && scene.layout === 'progress_ratio' && (
+                        <ProgressRatio
+                          progressValue={scene.layoutProps?.progressValue || 0}
+                          progressLabel={scene.layoutProps?.progressLabel}
+                          brandPrimaryColor={brandPrimaryColor}
+                          brandSecondaryColor={brandSecondaryColor}
+                          width={width}
+                          height={height}
+                          fontName={fontName}
+                          cardPositionY={effectiveCardPositionY}
+                          cardScale={effectiveCardScale}
+                          cardFontName={cardFontName}
+                        />
+                      )}
+                      {showLayoutCards && scene.layout === 'pro_tip' && (
+                        <ProTip
+                          tipTitle={scene.layoutProps?.tipTitle}
+                          tipText={scene.layoutProps?.tipText || ''}
+                          brandPrimaryColor={brandPrimaryColor}
+                          brandSecondaryColor={brandSecondaryColor}
+                          width={width}
+                          height={height}
+                          fontName={fontName}
+                          cardPositionY={effectiveCardPositionY}
+                          cardScale={effectiveCardScale}
+                          cardFontName={cardFontName}
+                        />
+                      )}
+                      {showLayoutCards && scene.layout === 'versus_meter' && (
+                        <VersusMeter
+                          meterLeft={scene.layoutProps?.meterLeft || ''}
+                          meterRight={scene.layoutProps?.meterRight || ''}
+                          meterValue={scene.layoutProps?.meterValue || 50}
+                          meterLabel={scene.layoutProps?.meterLabel}
+                          brandPrimaryColor={brandPrimaryColor}
+                          brandSecondaryColor={brandSecondaryColor}
+                          width={width}
+                          height={height}
+                          fontName={fontName}
+                          cardPositionY={effectiveCardPositionY}
+                          cardScale={effectiveCardScale}
+                          cardFontName={cardFontName}
+                        />
+                      )}
+                      {showLayoutCards && scene.layout === 'tier_list_ranker' && (
+                        <TierListRanker
+                          tierRank={scene.layoutProps?.tierRank || 'S'}
+                          tierItem={scene.layoutProps?.tierItem || ''}
+                          tierLabel={scene.layoutProps?.tierLabel}
+                          brandPrimaryColor={brandPrimaryColor}
+                          brandSecondaryColor={brandSecondaryColor}
+                          width={width}
+                          height={height}
+                          fontName={fontName}
+                          cardPositionY={effectiveCardPositionY}
+                          cardScale={effectiveCardScale}
+                          cardFontName={cardFontName}
+                        />
+                      )}
+                    </>
+                  );
+                })()}
+              </div>
+
+              {/* Optional Neon / Cyber Vignette Overlay */}
+              {!subtitlesOnly && scene.postProcessingPreset === 'cyber_neon' && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    left: 0,
+                    top: 0,
+                    width: '100%',
+                    height: '100%',
+                    background: 'radial-gradient(circle, transparent 40%, rgba(191, 85, 236, 0.15) 100%)',
+                    mixBlendMode: 'screen',
+                    pointerEvents: 'none',
+                    zIndex: 15,
+                  }}
+                />
+              )}
+
+              {/* Scene SFX */}
+              {!subtitlesOnly && scene.sfx && scene.sfx !== 'none' && (
+                <Audio
+                  src={resolveAssetUrl(`/uploads/sfx/${scene.sfx.endsWith('.mp3') ? scene.sfx : `${scene.sfx}.mp3`}`, baseUrl)}
+                  volume={sfxVolume}
+                  crossOrigin="anonymous"
+                />
+              )}
+
+              {/* Ambient Soundscape Loop */}
+              {!subtitlesOnly && scene.ambientSoundscape && scene.ambientSoundscape !== 'none' && (
+                <Audio
+                  src={resolveAssetUrl(`/uploads/sfx/${scene.ambientSoundscape}.mp3`, baseUrl)}
+                  volume={bgMusicVolume * 0.4}
+                  loop
+                  crossOrigin="anonymous"
+                />
+              )}
+
+              {/* Subtitles Overlay */}
+              {renderSubtitles()}
+
+              {/* Story Graph Context Card (On-Screen Caption) */}
+              {scene.graphContext && hasGraph && (
+                <div style={{
+                  position: 'absolute',
+                  left: '50%',
+                  top: '68%',
+                  transform: 'translateX(-50%)',
+                  background: 'rgba(10, 15, 28, 0.75)',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  padding: '8px 20px',
+                  borderRadius: '24px',
+                  color: '#FFFFFF',
+                  fontSize: '20px',
+                  fontFamily: fontName || 'Montserrat',
+                  fontWeight: 600,
+                  boxShadow: '0 4px 20px rgba(0, 0, 0, 0.4)',
+                  backdropFilter: 'blur(8px)',
+                  zIndex: 90,
+                  textAlign: 'center',
+                  maxWidth: '85%',
+                  opacity: contextOpacity,
+                  whiteSpace: 'nowrap',
+                  textOverflow: 'ellipsis',
+                  overflow: 'hidden'
+                }}>
+                  {scene.graphContext}
+                </div>
+              )}
+            </AbsoluteFill>
+          </Sequence>
+        );
+      })}
+    </AbsoluteFill>
+  );
+};

@@ -6,8 +6,17 @@ set -e
 REGION="us-central1"
 REPO_NAME="video-automation"
 IMAGE_NAME="orchestrator"
-SERVICE_NAME="video-automation-service"
-PROJECT_ID="video-automation-studio-78216"
+
+PROJECT_ID=$1
+if [ -z "$PROJECT_ID" ]; then
+  PROJECT_ID="video-automation-studio-78216"
+fi
+
+if [ "$PROJECT_ID" = "flowsocial-498207" ]; then
+  SERVICE_NAME="video-generator"
+else
+  SERVICE_NAME="video-automation-service"
+fi
 
 echo "=================================================="
 echo "🚀 STARTING GCP DEPLOYMENT FOR VIDEO GENERATOR"
