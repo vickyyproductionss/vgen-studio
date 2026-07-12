@@ -7,7 +7,12 @@ dist/
 build/
 backend/google-cloud-sdk/
 backend/db.json
-backend/uploads/
+backend/uploads/clips/
+backend/uploads/generated/
+backend/uploads/recreate/
+backend/uploads/subject/
+backend/uploads/music/
+backend/uploads/thumbnails/
 backend/data/
 *.mp4
 *.log
