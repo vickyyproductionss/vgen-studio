@@ -108,9 +108,12 @@ export async function renderRemotionVideo(projectState, outputFilePath, progress
       serveUrl: bundleLocation,
       outputLocation: outputFilePath,
       codec: 'h264',
-      crf: 6,
-      jpegQuality: 100,
+      crf: 18,
+      jpegQuality: 90,
       pixelFormat: 'yuv420p',
+      // Limit to 1 concurrent Chrome tab to prevent OOM on Cloud Run (8GB limit).
+      // Remotion defaults to CPU count (4), which causes 4 parallel tabs to exceed memory.
+      concurrency: 1,
       inputProps: {
         ...projectState,
         isRendering: true,
