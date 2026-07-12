@@ -5,7 +5,7 @@ import multer from 'multer';
 import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
 import fs from 'fs/promises';
-import { existsSync, readFileSync, writeFileSync, appendFileSync, statSync, unlinkSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, appendFileSync, statSync, unlinkSync, createReadStream } from 'fs';
 import { fileURLToPath } from 'url';
 import { spawn } from 'child_process';
 import ffmpegPath from 'ffmpeg-static';
@@ -20,18 +20,74 @@ import {
   matchRecreatedScenes,
   analyzeSubjectPhoto,
   generateSubjectSummary,
-  generateAiAsset
+  generateAiAsset,
+  generateYoutubeScriptAndStoryboard,
+  generateYoutubeShortScript,
+  enrichScenesMetadata,
+  extractStoryGraph,
+  suggestStorytellerAndAssetsForScenes,
+  generateViralVideoIdeaFromClips
 } from './services/gemini.js';
 import { getVoices, generateSpeech } from './services/elevenlabs.js';
-import { getVideoDuration, generateThumbnail, assembleVideo, ensureFontExists, extractAudioFromVideo, getLocalWordTimings } from './services/video.js';
+import { getVideoDuration, generateThumbnail, assembleVideo, ensureFontExists, extractAudioFromVideo, getLocalWordTimings, runFFmpeg } from './services/video.js';
 import { detectBeats } from './services/beats.js';
 import { getGcpWordTimings, assignTimestampsToWords, mapTimestamps } from './services/speech.js';
 import { dbService } from './services/firestore.js';
 import { gcsService } from './services/gcs.js';
 import { Storage } from '@google-cloud/storage';
+import { searchStockVideo, downloadStockVideo } from './services/stock.js';
+import { startGcpLipsyncJob, getGcpJobStatus } from './services/gcpAvatar.js';
+import { renderRemotionVideo } from './services/remotionRenderer.js';
+// Local SadTalker kept as fallback (used if AVATAR_API_URL is not set)
+import { startLipsyncJob, lipsyncJobs } from './services/sadtalker.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+const strongVerbs = /\b(clash|clashed|clashing|sever|severed|severing|boom|boomed|booming|fuse|fused|fusing|shatter|shattered|shattering|explode|exploded|exploding|burst|bursts|smash|smashed|smashing|strike|strikes|striking|struck|impact|impacted|shake|shook|shaking|glitch|glitched|glitching)\b/i;
+
+function autoEnrichSceneVerbs(scenes) {
+  if (!scenes || !Array.isArray(scenes)) return scenes;
+  return scenes.map(scene => {
+    const text = (scene.text || '').toLowerCase();
+
+    // Default Storyteller Engine Fallbacks
+    if (scene.layout === undefined) {
+      scene.layout = 'graph';
+    }
+    if (scene.layoutProps === undefined) {
+      scene.layoutProps = {};
+    }
+    if (scene.ambientSoundscape === undefined) {
+      scene.ambientSoundscape = 'none';
+    }
+    if (scene.postProcessingPreset === undefined) {
+      scene.postProcessingPreset = 'none';
+    }
+
+    if (strongVerbs.test(text)) {
+      if (scene.shake === undefined) {
+        scene.shake = true;
+        scene.shakeIntensity = scene.shakeIntensity || 20;
+        scene.shakeSpeed = scene.shakeSpeed || 18;
+      }
+      if (!scene.sfx || scene.sfx === 'none') {
+        if (text.includes('glitch') || text.includes('fuse') || text.includes('sever')) {
+          scene.sfx = 'trans_glitch_digital';
+        } else if (text.includes('boom') || text.includes('explode') || text.includes('impact') || text.includes('clash')) {
+          scene.sfx = 'trans_swoosh_deep';
+        } else {
+          scene.sfx = 'trans_swoosh_fast';
+        }
+      }
+    } else {
+      if (scene.shake === undefined) {
+        scene.shake = false;
+      }
+    }
+    return scene;
+  });
+}
 
 function resolvePath(filePath) {
   if (!filePath) return filePath;
@@ -74,7 +130,10 @@ function logErrorToFile(context, error) {
 const app = express();
 const PORT = process.env.PORT || 8000;
 
-app.use(cors());
+app.use(cors({
+  origin: '*',
+  exposedHeaders: ['Accept-Ranges', 'Content-Range', 'Content-Length', 'Content-Type']
+}));
 app.use(express.json({ limit: '50mb' }));
 
 // Ensure required directories exist
@@ -85,6 +144,7 @@ const GENERATED_DIR = path.join(UPLOADS_DIR, 'generated');
 const MUSIC_DIR = path.join(UPLOADS_DIR, 'music');
 const RECREATE_DIR = path.join(UPLOADS_DIR, 'recreate');
 const SUBJECT_DIR = path.join(UPLOADS_DIR, 'subject');
+const AVATARS_DIR = path.join(UPLOADS_DIR, 'avatars');
 
 await fs.mkdir(CLIPS_DIR, { recursive: true });
 await fs.mkdir(THUMBNAILS_DIR, { recursive: true });
@@ -92,9 +152,17 @@ await fs.mkdir(GENERATED_DIR, { recursive: true });
 await fs.mkdir(MUSIC_DIR, { recursive: true });
 await fs.mkdir(RECREATE_DIR, { recursive: true });
 await fs.mkdir(SUBJECT_DIR, { recursive: true });
+await fs.mkdir(AVATARS_DIR, { recursive: true });
 
 // Serve uploads folder as static
-app.use('/uploads', express.static(UPLOADS_DIR));
+app.use('/uploads', express.static(UPLOADS_DIR, {
+  setHeaders: (res) => {
+    res.setHeader('Access-Control-Expose-Headers', 'Accept-Ranges, Content-Range, Content-Length, Content-Type');
+    res.setHeader('Connection', 'close');
+  }
+}));
+// Serve presets (avatar images etc.) as static
+app.use('/uploads/presets', express.static(path.join(__dirname, 'presets')));
 
 // Serve React frontend static files in production
 app.use(express.static(path.join(__dirname, '../dist')));
@@ -137,6 +205,17 @@ const subjectStorage = multer.diskStorage({
   }
 });
 const uploadSubject = multer({ storage: subjectStorage });
+
+const avatarStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, AVATARS_DIR);
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname);
+    cb(null, `avatar_${uuidv4()}${ext}`);
+  }
+});
+const uploadAvatar = multer({ storage: avatarStorage });
 
 // Active jobs tracking
 const activeJobs = new Map();
@@ -303,6 +382,12 @@ app.get('/api/settings', async (req, res) => {
     }
     if (process.env.ELEVENLABS_API_KEY) {
       cleanSettings.elevenLabsApiKey = cleanSettings.elevenLabsApiKey || '•••••••• (Set by Environment)';
+    }
+    if (process.env.PEXELS_API_KEY) {
+      cleanSettings.pexelsApiKey = cleanSettings.pexelsApiKey || '•••••••• (Set by Environment)';
+    }
+    if (process.env.PIXABAY_API_KEY) {
+      cleanSettings.pixabayApiKey = cleanSettings.pixabayApiKey || '•••••••• (Set by Environment)';
     }
     res.json(cleanSettings);
   } catch (error) {
@@ -628,8 +713,8 @@ app.get('/api/projects/:id', async (req, res) => {
 
 app.post('/api/projects', async (req, res) => {
   const { name, type } = req.body;
-  if (!type || !['create', 'beatsync', 'talkinghead'].includes(type)) {
-    return res.status(400).json({ error: 'Valid project type is required (create, beatsync, or talkinghead).' });
+  if (!type || !['create', 'beatsync', 'talkinghead', 'subtitles', 'youtube'].includes(type)) {
+    return res.status(400).json({ error: 'Valid project type is required (create, beatsync, talkinghead, subtitles, or youtube).' });
   }
   
   const userId = getUserId(req);
@@ -638,6 +723,8 @@ app.post('/api/projects', async (req, res) => {
     let defaultName = `Untitled Voiceover Project`;
     if (type === 'beatsync') defaultName = `Untitled Beat Sync Project`;
     else if (type === 'talkinghead') defaultName = `Untitled Talking Head Project`;
+    else if (type === 'subtitles') defaultName = `Untitled Add Subtitles Project`;
+    else if (type === 'youtube') defaultName = `Untitled YouTube Empire Project`;
 
     const newProject = {
       id: uuidv4(),
@@ -665,14 +752,17 @@ app.post('/api/projects', async (req, res) => {
         miniBeatEffect: "none",
         selectedVideoClipId: "",
         subtitleMode: "smart-highlight",
-        fontName: "Arial",
-        fontSize: 24,
+        highlightTrigger: "all",
+        textCase: "default",
+        autoEmphasis: false,
+        fontName: "Bangers",
+        fontSize: 48,
         fontColor: "#FFFFFF",
         outlineColor: "#000000",
-        bold: true,
+        bold: false,
         italic: false,
         shadow: true,
-        highlightColor: "#FFFF00",
+        highlightColor: "#FACC15",
         showHighlightBox: false,
         boxColor: "#8A4BF3",
         boxRounding: 8,
@@ -682,8 +772,8 @@ app.post('/api/projects', async (req, res) => {
         activeWordScale: 1.15,
         wordDisplayTime: 1.0,
         textPositionX: 0,
-        textPositionY: -70
-      } : type === 'talkinghead' ? {
+        textPositionY: -65
+      } : (type === 'talkinghead' || type === 'subtitles') ? {
         originalVideoPath: "",
         originalVideoUrl: "",
         voiceoverPath: "",
@@ -701,14 +791,17 @@ app.post('/api/projects', async (req, res) => {
         exportResolution: "1080p",
         exportFps: 30,
         subtitleMode: "classic",
-        fontName: "Arial",
-        fontSize: 24,
+        highlightTrigger: "all",
+        textCase: "default",
+        autoEmphasis: false,
+        fontName: "Bangers",
+        fontSize: 48,
         fontColor: "#FFFFFF",
         outlineColor: "#000000",
-        bold: true,
+        bold: false,
         italic: false,
         shadow: true,
-        highlightColor: "#FFFF00",
+        highlightColor: "#FACC15",
         showHighlightBox: false,
         boxColor: "#8A4BF3",
         boxRounding: 8,
@@ -718,7 +811,36 @@ app.post('/api/projects', async (req, res) => {
         activeWordScale: 1.0, 
         wordDisplayTime: 1.0,
         textPositionX: 0,
-        textPositionY: -70
+        textPositionY: -65
+      } : type === 'youtube' ? {
+        topic: "",
+        niche: "The Wisdom Blueprint",
+        scriptText: "",
+        shortScriptText: "",
+        selectedVoice: settings.lastSelectedVoice || "",
+        audioSource: "generate",
+        voiceoverPath: "",
+        voiceoverUrl: "",
+        scenes: [],
+        aspectRatio: "16:9",
+        fillMode: "crop",
+        bgMusicPath: "",
+        bgMusicVolume: 0.15,
+        fontName: "Bangers",
+        fontSize: 48,
+        fontColor: "#FFFFFF",
+        outlineColor: "#000000",
+        bold: false,
+        italic: false,
+        shadow: true,
+        textFade: true,
+        textTransition: "none",
+        textMotion: "none",
+        activeWordScale: 1.15,
+        exportResolution: "1080p",
+        exportFps: 30,
+        status: "idle",
+        shortProjectId: ""
       } : {
         scriptText: "",
         selectedVoice: settings.lastSelectedVoice || "",
@@ -730,11 +852,11 @@ app.post('/api/projects', async (req, res) => {
         fillMode: "crop",
         bgMusicPath: "",
         bgMusicVolume: 0.15,
-        fontName: "Arial",
-        fontSize: 24,
+        fontName: "Bangers",
+        fontSize: 48,
         fontColor: "#FFFFFF",
         outlineColor: "#000000",
-        bold: true,
+        bold: false,
         italic: false,
         shadow: true,
         textFade: true,
@@ -764,7 +886,13 @@ app.put('/api/projects/:id', async (req, res) => {
     }
     
     if (name !== undefined) project.name = name;
-    if (state !== undefined) project.state = { ...project.state, ...state };
+    if (state !== undefined) {
+      const updatedState = { ...state };
+      if (updatedState.scenes) {
+        updatedState.scenes = autoEnrichSceneVerbs(updatedState.scenes);
+      }
+      project.state = { ...project.state, ...updatedState };
+    }
     project.updatedAt = new Date().toISOString();
     
     await dbService.saveProject(project);
@@ -928,8 +1056,64 @@ app.post('/api/clips/upload', upload.array('videos', 20), async (req, res) => {
     const importedClips = [];
 
     for (const file of req.files) {
-      const absolutePath = file.path;
+      let absolutePath = file.path;
+      const ext = path.extname(file.originalname).toLowerCase();
+      const imageExtensions = ['.jpg', '.jpeg', '.png', '.webp', '.heic'];
+
+      if (imageExtensions.includes(ext)) {
+        const videoFilename = `${path.basename(file.filename, path.extname(file.filename))}_conv.mp4`;
+        const videoPath = path.join(CLIPS_DIR, videoFilename);
+        
+        try {
+          await runFFmpeg([
+            '-loop', '1',
+            '-i', absolutePath,
+            '-c:v', 'libx264',
+            '-t', '10',
+            '-pix_fmt', 'yuv420p',
+            '-vf', 'scale=truncate(iw/2)*2:truncate(ih/2)*2',
+            '-y',
+            videoPath
+          ]);
+
+          // Clean up the original uploaded image file
+          await fs.unlink(absolutePath).catch(() => {});
+          
+          absolutePath = videoPath;
+          file.path = videoPath;
+          file.filename = videoFilename;
+        } catch (convErr) {
+          console.error(`Failed to convert image ${file.originalname} to video:`, convErr);
+        }
+      }
+
       const clipId = path.basename(file.filename, path.extname(file.filename));
+      
+      // Transcode video to 30 fps CFR H.264 to prevent seeking/jitter issues
+      const transcodedFilename = `${clipId}_cfr.mp4`;
+      const transcodedPath = path.join(CLIPS_DIR, transcodedFilename);
+      try {
+        console.log(`[Upload] Transcoding uploaded file ${absolutePath} to CFR 30fps H.264...`);
+        await runFFmpeg([
+          '-i', absolutePath,
+          '-vf', "fps=30,scale='if(gt(iw,ih),min(1920,iw),-2)':'if(gt(iw,ih),-2,min(1920,ih))',scale=trunc(iw/2)*2:trunc(ih/2)*2",
+          '-c:v', 'libx264',
+          '-pix_fmt', 'yuv420p',
+          '-c:a', 'aac',
+          '-b:a', '128k',
+          '-y',
+          transcodedPath
+        ]);
+        if (absolutePath !== transcodedPath) {
+          await fs.unlink(absolutePath).catch(() => {});
+        }
+        absolutePath = transcodedPath;
+        file.path = transcodedPath;
+        file.filename = transcodedFilename;
+      } catch (transcodeErr) {
+        console.error(`Failed to transcode uploaded file ${file.originalname} to CFR:`, transcodeErr);
+      }
+
       const thumbnailFilename = `${clipId}.jpg`;
       const thumbnailPath = path.join(THUMBNAILS_DIR, thumbnailFilename);
 
@@ -1065,7 +1249,30 @@ app.post('/api/clips/finalize-upload', async (req, res) => {
     const settings = await dbService.getSettings();
     const apiKey = process.env.GEMINI_API_KEY || settings.geminiApiKey;
 
-    const localTempPath = session.filePath;
+    let localTempPath = session.filePath;
+
+    // Transcode video to 30 fps CFR H.264 to prevent seeking/jitter issues
+    const transcodedFilename = `${clipId}_cfr.mp4`;
+    const transcodedPath = path.join(CLIPS_DIR, transcodedFilename);
+    try {
+      console.log(`[Finalize Upload] Transcoding chunked file ${localTempPath} to CFR 30fps H.264...`);
+      await runFFmpeg([
+        '-i', localTempPath,
+        '-vf', "fps=30,scale='if(gt(iw,ih),min(1920,iw),-2)':'if(gt(iw,ih),-2,min(1920,ih))',scale=trunc(iw/2)*2:trunc(ih/2)*2",
+        '-c:v', 'libx264',
+        '-pix_fmt', 'yuv420p',
+        '-c:a', 'aac',
+        '-b:a', '128k',
+        '-y',
+        transcodedPath
+      ]);
+      if (localTempPath !== transcodedPath) {
+        await fs.unlink(localTempPath).catch(() => {});
+      }
+      localTempPath = transcodedPath;
+    } catch (transcodeErr) {
+      console.error(`Failed to transcode chunked file to CFR:`, transcodeErr);
+    }
 
     // Generate thumbnail
     const thumbnailFilename = `${clipId}.jpg`;
@@ -1078,7 +1285,7 @@ app.post('/api/clips/finalize-upload', async (req, res) => {
 
     // Upload to GCS if enabled
     if (gcsService.isGcsEnabled()) {
-      const gcsVideoPath = `clips/${clipId}${session.ext}`;
+      const gcsVideoPath = `clips/${clipId}_cfr.mp4`;
       finalVideoPath = await gcsService.uploadFile(localTempPath, gcsVideoPath);
       finalThumbnailUrl = await gcsService.uploadFile(thumbnailLocalPath, `thumbnails/${thumbnailFilename}`);
       try { await fs.unlink(thumbnailLocalPath); } catch (_) {}
@@ -1200,6 +1407,84 @@ app.post('/api/clips/add-folder', async (req, res) => {
   }
 });
 
+// Serve arbitrary local file (for local development assets outside project dir)
+app.get('/api/serve-local-file', (req, res) => {
+  const filePath = req.query.path;
+  if (!filePath) {
+    return res.status(400).json({ error: 'Path parameter is required' });
+  }
+  
+  // Security check: only allow absolute paths on the local machine
+  if (!filePath.startsWith('/')) {
+    return res.status(400).json({ error: 'Invalid path' });
+  }
+  
+  if (!existsSync(filePath)) {
+    return res.status(404).json({ error: 'File not found' });
+  }
+
+  res.setHeader('Access-Control-Expose-Headers', 'Accept-Ranges, Content-Range, Content-Length, Content-Type');
+
+  const stat = statSync(filePath);
+  const fileSize = stat.size;
+  const range = req.headers.range;
+
+  if (range) {
+    const parts = range.replace(/bytes=/, "").split("-");
+    const start = parseInt(parts[0], 10);
+    const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+    
+    if (start >= fileSize || end >= fileSize) {
+      res.status(416)
+        .set("Content-Range", `bytes */${fileSize}`)
+        .set("Connection", "close")
+        .send();
+      return;
+    }
+    
+    const chunksize = (end - start) + 1;
+    const file = createReadStream(filePath, { start, end });
+    const head = {
+      'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+      'Accept-Ranges': 'bytes',
+      'Content-Length': chunksize,
+      'Content-Type': filePath.endsWith('.wav') ? 'audio/wav' : (filePath.endsWith('.mp3') ? 'audio/mpeg' : 'video/mp4'),
+      'Connection': 'close'
+    };
+    
+    res.writeHead(206, head);
+    file.pipe(res);
+  } else {
+    const head = {
+      'Content-Length': fileSize,
+      'Content-Type': filePath.endsWith('.wav') ? 'audio/wav' : (filePath.endsWith('.mp3') ? 'audio/mpeg' : 'video/mp4'),
+      'Accept-Ranges': 'bytes',
+      'Connection': 'close'
+    };
+    res.writeHead(200, head);
+    createReadStream(filePath).pipe(res);
+  }
+});
+
+// Endpoint for client-side logging
+app.post('/api/log-client-error', (req, res) => {
+  const { error, message, stack, component } = req.body;
+  console.error(`\n[Client Log - ${component || 'General'}] ${message || error}`);
+  if (stack) {
+    console.error(stack);
+  }
+  
+  try {
+    logErrorToFile(`Client - ${component || 'General'}`, {
+      message: message || error || 'Unknown client error',
+      stack: stack || 'No client stack trace'
+    });
+  } catch (err) {
+    console.error('Failed to log client error to file:', err);
+  }
+  res.json({ success: true });
+});
+
 // Stream clip video file directly
 app.get('/api/clips/:id/video', async (req, res) => {
   const { id } = req.params;
@@ -1220,7 +1505,47 @@ app.get('/api/clips/:id/video', async (req, res) => {
       return res.status(404).json({ error: 'Clip video file does not exist on disk' });
     }
 
-    res.sendFile(resolved);
+    res.setHeader('Access-Control-Expose-Headers', 'Accept-Ranges, Content-Range, Content-Length, Content-Type');
+
+    const stat = statSync(resolved);
+    const fileSize = stat.size;
+    const range = req.headers.range;
+
+    if (range) {
+      const parts = range.replace(/bytes=/, "").split("-");
+      const start = parseInt(parts[0], 10);
+      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+      
+      if (start >= fileSize || end >= fileSize) {
+        res.status(416)
+          .set("Content-Range", `bytes */${fileSize}`)
+          .set("Connection", "close")
+          .send();
+        return;
+      }
+      
+      const chunksize = (end - start) + 1;
+      const file = createReadStream(resolved, { start, end });
+      const head = {
+        'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+        'Accept-Ranges': 'bytes',
+        'Content-Length': chunksize,
+        'Content-Type': resolved.endsWith('.wav') ? 'audio/wav' : (resolved.endsWith('.mp3') ? 'audio/mpeg' : 'video/mp4'),
+        'Connection': 'close'
+      };
+      
+      res.writeHead(206, head);
+      file.pipe(res);
+    } else {
+      const head = {
+        'Content-Length': fileSize,
+        'Content-Type': resolved.endsWith('.wav') ? 'audio/wav' : (resolved.endsWith('.mp3') ? 'audio/mpeg' : 'video/mp4'),
+        'Accept-Ranges': 'bytes',
+        'Connection': 'close'
+      };
+      res.writeHead(200, head);
+      createReadStream(resolved).pipe(res);
+    }
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -1306,7 +1631,14 @@ async function analyzeVideoInBackground(clipId, filePath, apiKey) {
     const clip = await dbService.getClip(clipId);
     if (clip) {
       clip.description = analysis.description;
-      clip.tags = analysis.tags;
+      // Preserve special system tags so stock and AI videos aren't mistakenly categorized as user uploads
+      const systemTags = (clip.tags || []).filter(tag => 
+        tag === 'stock_downloaded' || 
+        tag === 'ai_generated' || 
+        tag === 'fallback' || 
+        tag === 'recreate_fallback'
+      );
+      clip.tags = Array.from(new Set([...systemTags, ...(analysis.tags || [])]));
       clip.segments = analysis.segments || [];
       clip.status = 'ready';
       await dbService.saveClip(clip);
@@ -1700,6 +2032,43 @@ app.post('/api/upload-audio', audioUpload.single('audio'), async (req, res) => {
   }
 });
 
+// Multer configuration for background image upload
+const bgImageUpload = multer({
+  storage: multer.diskStorage({
+    destination: UPLOADS_DIR,
+    filename: (req, file, cb) => {
+      cb(null, `bg_${uuidv4()}${path.extname(file.originalname)}`);
+    }
+  })
+});
+
+// Upload background image endpoint
+app.post('/api/upload-bg', bgImageUpload.single('image'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'No image file provided.' });
+  }
+  try {
+    let finalPath = req.file.path;
+    let finalUrl = `/uploads/${req.file.filename}`;
+
+    if (gcsService.isGcsEnabled()) {
+      finalPath = await gcsService.uploadFile(req.file.path, `bg/${req.file.filename}`);
+      finalUrl = finalPath;
+      try {
+        await fs.unlink(req.file.path);
+      } catch (_) {}
+    }
+
+    res.json({
+      success: true,
+      url: finalUrl
+    });
+  } catch (err) {
+    logErrorToFile('/api/upload-bg', err);
+    return res.status(500).json({ error: `Failed to upload background: ${err.message}` });
+  }
+});
+
 // Multer configuration for talking head video upload
 const talkingHeadVideoUpload = multer({
   storage: multer.diskStorage({
@@ -1758,6 +2127,187 @@ app.post('/api/upload-talkinghead', talkingHeadVideoUpload.single('video'), asyn
     logErrorToFile('/api/upload-talkinghead [Video Extraction]', err);
     return res.status(500).json({ error: `Failed to extract audio from video: ${err.message}` });
   }
+});
+
+// 2ca. Generate AI Lipsync Avatar (SadTalker) — async job, returns jobId immediately
+app.post('/api/youtube/generate-avatar', async (req, res) => {
+  const { projectId, avatarPath, enhancer } = req.body;
+  if (!projectId || !avatarPath) {
+    return res.status(400).json({ error: 'projectId and avatarPath are required.' });
+  }
+
+  try {
+    const project = await dbService.getProject(projectId);
+    if (!project) return res.status(404).json({ error: 'Project not found.' });
+
+    const voiceoverPath = project.state?.voiceoverPath;
+    if (!voiceoverPath) return res.status(400).json({ error: 'No voiceover audio found. Generate audio first.' });
+
+    const resolvedAudioPath = resolvePath(voiceoverPath);
+    if (!resolvedAudioPath || !existsSync(resolvedAudioPath)) {
+      return res.status(404).json({ error: `Voiceover file not found on disk: ${resolvedAudioPath}` });
+    }
+
+    // Resolve avatar — preset or custom upload
+    let resolvedAvatarPath = '';
+    const presetBaseName = path.basename(avatarPath);
+    const presetPath = path.join(__dirname, 'presets', 'avatars', presetBaseName);
+    resolvedAvatarPath = existsSync(presetPath) ? presetPath : resolvePath(avatarPath);
+    if (!resolvedAvatarPath || !existsSync(resolvedAvatarPath)) {
+      return res.status(404).json({ error: `Avatar image not found: ${avatarPath}` });
+    }
+
+    // ── Use GCP Avatar Pipeline if configured, fallback to local SadTalker ────
+    const useGcp = !!process.env.AVATAR_API_URL;
+    let jobId;
+
+    if (useGcp) {
+      // Cloud path — fast, GPU-powered, no local VRAM constraints
+      console.log(`[API generate-avatar] Using GCP Avatar Pipeline (${process.env.AVATAR_API_URL})`);
+      jobId = startGcpLipsyncJob(resolvedAvatarPath, resolvedAudioPath, { projectId });
+    } else {
+      // Local fallback — SadTalker on Mac (requires conda env)
+      const sadtalkerDir = path.join(__dirname, 'sadtalker');
+      if (!existsSync(path.join(sadtalkerDir, 'inference.py'))) {
+        return res.status(500).json({
+          error: 'No avatar pipeline configured. Set AVATAR_API_URL in .env to use GCP, or install SadTalker locally.'
+        });
+      }
+      console.log(`[API generate-avatar] Using local SadTalker (fallback)`);
+      jobId = startLipsyncJob(resolvedAvatarPath, resolvedAudioPath, {
+        still: true,
+        enhancer: false,
+        preprocess: 'crop',
+        size: 256,
+        projectId
+      });
+    }
+
+    // Store jobId on project for later state save
+    project.state = project.state || {};
+    project.state.lipsyncJobId = jobId;
+    project.state.lipsyncMode = useGcp ? 'gcp' : 'local';
+    await dbService.saveProject(project);
+
+    console.log(`[API generate-avatar] Started job ${jobId} (mode: ${useGcp ? 'gcp' : 'local'})`);
+    return res.json({ success: true, jobId, mode: useGcp ? 'gcp' : 'local', message: 'Lipsync job started. Poll /api/youtube/avatar-progress/:jobId for updates.' });
+
+  } catch (error) {
+    console.error('Error starting avatar job:', error);
+    logErrorToFile('/api/youtube/generate-avatar', error);
+    return res.status(500).json({ error: `Failed to start lipsync job: ${error.message}` });
+  }
+});
+
+// 2ca-poll. Poll lipsync job progress (supports both GCP and local SadTalker jobs)
+app.get('/api/youtube/avatar-progress/:jobId', async (req, res) => {
+  const { jobId } = req.params;
+
+  // Check GCP job map first (GCP job IDs start with 'gcp_')
+  const isGcpJob = jobId.startsWith('gcp_');
+  let job = isGcpJob ? getGcpJobStatus(jobId) : lipsyncJobs.get(jobId);
+  if (!job) return res.status(404).json({ error: 'Job not found or expired.' });
+
+  const elapsedSec = isGcpJob
+    ? Math.floor((job.elapsedMs || 0) / 1000)
+    : Math.floor((Date.now() - job.startedAt) / 1000);
+
+  const response = {
+    jobId,
+    mode:       isGcpJob ? 'gcp' : 'local',
+    status:     job.status,
+    stage:      job.stage,
+    stageLabel: job.stageLabel || job.stage,
+    percent:    isGcpJob ? job.progress : job.percent,
+    elapsedSec,
+    error:      job.error || null,
+  };
+
+  // If done, attach result and save to project
+  const isDone = job.status === 'done';
+  if (isDone) {
+    // GCP jobs return a public HTTPS video URL
+    const videoUrl = isGcpJob ? job.videoUrl : job.result?.originalVideoUrl;
+    const videoPath = isGcpJob ? job.videoUrl : job.result?.originalVideoPath;
+    if (videoUrl) {
+      response.originalVideoPath = videoPath;
+      response.originalVideoUrl  = videoUrl;
+    }
+
+    // Persist to project state
+    try {
+      const { projectId } = req.query;
+      if (projectId && videoUrl) {
+        const project = await dbService.getProject(projectId);
+        if (project) {
+          project.state = project.state || {};
+          project.state.originalVideoPath = videoPath;
+          project.state.originalVideoUrl  = videoUrl;
+          project.state.talkingHeadEnabled = true;
+          await dbService.saveProject(project);
+        }
+      }
+    } catch (_) {}
+
+    // Clean up local job from memory after delivering result
+    if (!isGcpJob) setTimeout(() => lipsyncJobs.delete(jobId), 60_000);
+  }
+
+  return res.json(response);
+});
+
+// 2cb. Upload custom avatar image
+app.post('/api/youtube/upload-avatar', uploadAvatar.single('avatar'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'No avatar file uploaded.' });
+  }
+  const ext = path.extname(req.file.originalname).toLowerCase();
+  const allowed = ['.png', '.jpg', '.jpeg', '.webp'];
+  if (!allowed.includes(ext)) {
+    await fs.unlink(req.file.path).catch(() => {});
+    return res.status(400).json({ error: 'Invalid image format. Allowed formats: PNG, JPG, JPEG, WEBP.' });
+  }
+
+  const relativeUrl = `/uploads/avatars/${req.file.filename}`;
+  const absolutePath = req.file.path;
+
+  res.json({
+    success: true,
+    url: relativeUrl,
+    path: absolutePath
+  });
+});
+
+// 2cc. Avatar pipeline status check (GCP or local SadTalker)
+app.get('/api/youtube/sadtalker-status', (req, res) => {
+  const gcpConfigured = !!process.env.AVATAR_API_URL;
+
+  if (gcpConfigured) {
+    // GCP mode — just check the env var is set
+    return res.json({
+      installed: true,
+      hasCheckpoints: true,
+      mode: 'gcp',
+      apiUrl: process.env.AVATAR_API_URL,
+      message: `GCP Avatar Pipeline is configured and ready. (${process.env.AVATAR_API_URL})`
+    });
+  }
+
+  // Local SadTalker fallback check
+  const sadtalkerDir = path.join(__dirname, 'sadtalker');
+  const inferenceScript = path.join(sadtalkerDir, 'inference.py');
+  const checkpointsDir = path.join(sadtalkerDir, 'checkpoints');
+  const isInstalled = existsSync(sadtalkerDir) && existsSync(inferenceScript);
+  const hasCheckpoints = isInstalled && existsSync(checkpointsDir);
+  res.json({
+    installed: isInstalled,
+    hasCheckpoints,
+    mode: 'local',
+    sadtalkerDir,
+    message: isInstalled
+      ? (hasCheckpoints ? 'SadTalker is installed and ready.' : 'SadTalker cloned but missing checkpoints. Run bash scripts/download_models_mac.sh inside backend/sadtalker/.')
+      : 'No avatar pipeline configured. Set AVATAR_API_URL in backend/.env to use GCP, or install SadTalker locally.'
+  });
 });
 
 // 2b. Extract audio from Library Video Clip endpoint
@@ -1840,7 +2390,7 @@ app.post('/api/enhance-script', async (req, res) => {
 
 // 3. Script segmentation and time alignment (via Gemini)
 app.post('/api/align-script', async (req, res) => {
-  const { scriptText, audioPath, mergeShortScenes } = req.body;
+  const { scriptText, audioPath, mergeShortScenes, language } = req.body;
   if (!audioPath) {
     return res.status(400).json({ error: 'Audio file path is required.' });
   }
@@ -1860,7 +2410,7 @@ app.post('/api/align-script', async (req, res) => {
       resolved = resolvePath(audioPath);
     }
 
-    const rawSegments = await alignScriptAndAudio(scriptText || '', resolved, apiKey);
+    const rawSegments = await alignScriptAndAudio(scriptText || '', resolved, apiKey, language);
     
     // Try using Google Cloud Speech-to-Text for near-perfect 99% word timings (with automatic fallback to Gemini)
     let gcpWords = null;
@@ -1967,6 +2517,35 @@ app.post('/api/align-script', async (req, res) => {
         }
       }
       console.log(`[GCP STT Aligner] Segment boundaries successfully adjusted to fit STT word timings.`);
+    } else {
+      console.log(`[Gemini Aligner] Adjusting segment boundaries to fit Gemini word timings...`);
+      for (const seg of rawSegments) {
+        if (seg.isBeatSyncOnly) continue;
+        const wordsList = seg.words_hinglish || seg.words || [];
+        if (wordsList.length > 0) {
+          const firstWord = wordsList[0];
+          const lastWord = wordsList[wordsList.length - 1];
+          if (firstWord && lastWord) {
+            seg.start_time = firstWord.start_time;
+            seg.end_time = lastWord.end_time;
+          }
+        }
+      }
+      
+      // Ensure no gaps or negative durations on the timeline
+      for (let i = 0; i < rawSegments.length; i++) {
+        const current = rawSegments[i];
+        if (i === 0) {
+          current.start_time = 0.0;
+        } else {
+          current.start_time = rawSegments[i - 1].end_time;
+        }
+        
+        if (current.end_time <= current.start_time) {
+          current.end_time = current.start_time + 2.0; // minimum duration fallback
+        }
+      }
+      console.log(`[Gemini Aligner] Segment boundaries successfully adjusted to fit Gemini word timings.`);
     }
     
     // Check audio duration and fallback to beat sync at the end of dialogue
@@ -1983,8 +2562,8 @@ app.post('/api/align-script', async (req, res) => {
 
       if (hasScript) {
         const lastSeg = rawSegments[rawSegments.length - 1];
-        if (lastSeg && audioDuration > lastSeg.end_time) {
-          console.log(`[Aligner] Extending last scene end_time from ${lastSeg.end_time}s to ${audioDuration}s to cover audio outro.`);
+        if (lastSeg) {
+          console.log(`[Aligner] Adjusting last scene end_time from ${lastSeg.end_time}s to ${audioDuration}s to match audio duration.`);
           lastSeg.end_time = Number(audioDuration.toFixed(3));
         }
       } else if (audioDuration - lastSpeechEndTime > 2.0) {
@@ -2032,6 +2611,13 @@ app.post('/api/align-script', async (req, res) => {
           rawSegments.push(...additionalSegments);
         } catch (beatErr) {
           console.error('[Aligner] Beat detection fallback failed:', beatErr);
+        }
+      } else {
+        // Dialogue ends close to the audio end, adjust last segment to cover it exactly
+        const lastSeg = rawSegments[rawSegments.length - 1];
+        if (lastSeg) {
+          console.log(`[Aligner] Adjusting last scene end_time from ${lastSeg.end_time}s to ${audioDuration}s to cover audio outro.`);
+          lastSeg.end_time = Number(audioDuration.toFixed(3));
         }
       }
     }
@@ -2244,7 +2830,7 @@ app.post('/api/beat-sync/analyze', async (req, res) => {
     const beats = await detectBeats(resolved, thresh, 0.4);
 
     // Detect Minor sub-beats (lower threshold, e.g. thresh - 0.20, and smaller minDistance = 0.15s)
-    const minorThresh = Math.max(1.1, thresh - 0.20);
+    const minorThresh = Math.max(0.6, thresh - 0.20);
     const allPeaks = await detectBeats(resolved, minorThresh, 0.15);
 
     // Filter out minor peaks that are too close to major beats (within 0.18s) to avoid overlaps
@@ -2268,7 +2854,7 @@ app.post('/api/beat-sync/analyze', async (req, res) => {
 
 // 4. Storyboard clip matching (via Gemini)
 app.post('/api/match-clips', async (req, res) => {
-  const { scenes, talkingHead, useAiFallback } = req.body;
+  const { scenes, talkingHead, useAiFallback, excludeBroll } = req.body;
   if (!scenes || !Array.isArray(scenes)) {
     return res.status(400).json({ error: 'Storyboard scenes list is required.' });
   }
@@ -2294,16 +2880,35 @@ app.post('/api/match-clips', async (req, res) => {
     const clips = await dbService.getClips(userId);
 
     // Only match against "ready" status clips
-    const readyClips = clips
-      .filter(c => c.status === 'ready')
-      .map(c => ({
-        id: c.id,
-        name: c.name,
-        description: c.description,
-        tags: c.tags,
-        duration: c.duration,
-        segments: c.segments || []
-      }));
+    let filteredClips = clips.filter(c => c.status === 'ready');
+    if (excludeBroll) {
+      filteredClips = filteredClips.filter(clip => {
+        const nameLower = (clip.name || '').toLowerCase();
+        const pathLower = (clip.path || '').toLowerCase();
+        const tags = clip.tags || [];
+        const hasSystemTag = tags.some(t => 
+          t === 'stock_downloaded' || 
+          t === 'ai_generated' || 
+          t === 'fallback' || 
+          t === 'recreate_fallback'
+        );
+        if (hasSystemTag) return false;
+        if (nameLower.startsWith('stock') || nameLower.startsWith('ai -') || nameLower.startsWith('ai_')) return false;
+        if (clip.id && (clip.id.startsWith('pexels_') || clip.id.startsWith('pixabay_') || clip.id.startsWith('ai_clip_'))) return false;
+        const filename = pathLower.split('/').pop() || '';
+        if (filename.startsWith('stock_') || filename.startsWith('ai_clip_')) return false;
+        return true;
+      });
+    }
+
+    const readyClips = filteredClips.map(c => ({
+      id: c.id,
+      name: c.name,
+      description: c.description,
+      tags: c.tags,
+      duration: c.duration,
+      segments: c.segments || []
+    }));
 
     let matches = [];
     if (readyClips.length > 0) {
@@ -2424,6 +3029,14 @@ app.post('/api/generate-video', async (req, res) => {
     beatEffects,
     backgroundType,
     backgroundColor,
+    backgroundPattern,
+    backgroundImageUrl,
+    brandPrimaryColor,
+    brandSecondaryColor,
+    cardPositionY,
+    cardScale,
+    cardFontName,
+    showLayoutCards,
     backgroundClipId,
     talkingHeadEnabled,
     talkingHeadChromaColor,
@@ -2435,7 +3048,14 @@ app.post('/api/generate-video', async (req, res) => {
     talkingHeadPositionY,
     talkingHeadOutlineEnabled,
     talkingHeadOutlineColor,
-    talkingHeadOutlineThickness
+    talkingHeadOutlineThickness,
+    talkingHeadMode,
+    subtitlesOnly,
+    videoVolume,
+    sfxVolume,
+    entities,
+    graphEvents,
+    graphSettings
   } = req.body;
 
   if (!scenes || !voiceoverPath) {
@@ -2536,6 +3156,14 @@ app.post('/api/generate-video', async (req, res) => {
       beatEffects,
       backgroundType,
       backgroundColor,
+      backgroundPattern,
+      backgroundImageUrl,
+      brandPrimaryColor,
+      brandSecondaryColor,
+      cardPositionY,
+      cardScale,
+      cardFontName,
+      showLayoutCards,
       backgroundClipId,
       talkingHeadEnabled,
       talkingHeadChromaColor,
@@ -2548,6 +3176,13 @@ app.post('/api/generate-video', async (req, res) => {
       talkingHeadOutlineEnabled,
       talkingHeadOutlineColor,
       talkingHeadOutlineThickness,
+      talkingHeadMode,
+      subtitlesOnly,
+      videoVolume,
+      sfxVolume,
+      entities,
+      graphEvents,
+      graphSettings,
       outputDir: GENERATED_DIR
     });
 
@@ -2570,10 +3205,171 @@ async function runVideoCompilation(jobId, options) {
     job.status = 'Starting compilation...';
     job.progress = 5;
 
-    const outputPath = await assembleVideo(options, (progressPercent, statusText) => {
+    const outputFilename = `render_${jobId}.mp4`;
+    const localOutputPath = path.join(options.outputDir, outputFilename);
+
+    // Ensure all clips are 30 fps CFR H.264 before rendering
+    const processedClips = [];
+    for (const c of options.clips || []) {
+      if (!c.path || c.path.startsWith('http')) {
+        processedClips.push(c);
+        continue;
+      }
+      
+      const originalPath = c.path;
+      const isCfrAlready = originalPath.endsWith('_cfr.mp4');
+      
+      if (isCfrAlready) {
+        processedClips.push(c);
+        continue;
+      }
+      
+      const ext = path.extname(originalPath);
+      const dir = path.dirname(originalPath);
+      const baseName = path.basename(originalPath, ext);
+      const cfrPath = path.join(dir, `${baseName}_cfr.mp4`);
+      
+      if (existsSync(cfrPath)) {
+        console.log(`[Recreation Render] Using cached CFR version for clip ${c.id}: ${cfrPath}`);
+        processedClips.push({ ...c, path: cfrPath });
+      } else {
+        console.log(`[Recreation Render] Transcoding clip ${c.id} to 30 fps CFR H.264...`);
+        try {
+          await runFFmpeg([
+            '-i', originalPath,
+            '-vf', "fps=30,scale='if(gt(iw,ih),min(1920,iw),-2)':'if(gt(iw,ih),-2,min(1920,ih))',scale=trunc(iw/2)*2:trunc(ih/2)*2",
+            '-c:v', 'libx264',
+            '-pix_fmt', 'yuv420p',
+            '-c:a', 'aac',
+            '-b:a', '128k',
+            '-y',
+            cfrPath
+          ]);
+          console.log(`[Recreation Render] Transcoded successfully: ${cfrPath}`);
+          processedClips.push({ ...c, path: cfrPath });
+        } catch (err) {
+          console.error(`[Recreation Render] Failed to transcode clip ${c.id} to CFR:`, err);
+          processedClips.push(c);
+        }
+      }
+    }
+    options.clips = processedClips;
+
+    // Transcode originalVideoPath if needed
+    if (options.originalVideoPath && !options.originalVideoPath.startsWith('http')) {
+      const originalPath = options.originalVideoPath;
+      if (!originalPath.endsWith('_cfr.mp4')) {
+        const ext = path.extname(originalPath);
+        const dir = path.dirname(originalPath);
+        const baseName = path.basename(originalPath, ext);
+        const cfrPath = path.join(dir, `${baseName}_cfr.mp4`);
+        
+        if (existsSync(cfrPath)) {
+          console.log(`[Recreation Render] Using cached CFR version for original video: ${cfrPath}`);
+          options.originalVideoPath = cfrPath;
+        } else {
+          console.log(`[Recreation Render] Transcoding original video to 30 fps CFR H.264...`);
+          try {
+            await runFFmpeg([
+              '-i', originalPath,
+              '-vf', "fps=30,scale='if(gt(iw,ih),min(1920,iw),-2)':'if(gt(iw,ih),-2,min(1920,ih))',scale=trunc(iw/2)*2:trunc(ih/2)*2",
+              '-c:v', 'libx264',
+              '-pix_fmt', 'yuv420p',
+              '-c:a', 'aac',
+              '-b:a', '128k',
+              '-y',
+              cfrPath
+            ]);
+            console.log(`[Recreation Render] Transcoded original video successfully: ${cfrPath}`);
+            options.originalVideoPath = cfrPath;
+          } catch (err) {
+            console.error(`[Recreation Render] Failed to transcode original video to CFR:`, err);
+          }
+        }
+      }
+    }
+
+    // Map clips list for lookup
+    const clipsMap = new Map((options.clips || []).map(c => [c.id, c.path]));
+
+    // Construct the project state for Remotion inputProps
+    const remotionProps = {
+      scenes: options.scenes.map(s => ({
+        ...s,
+        clipUrl: s.clipId === 'original' 
+          ? options.originalVideoPath 
+          : (clipsMap.get(s.clipId) || null)
+      })),
+      voiceoverUrl: options.voiceoverPath,
+      voiceoverVolume: options.voiceoverVolume !== undefined ? options.voiceoverVolume : 1.0,
+      bgMusicUrl: options.bgMusicPath,
+      bgMusicVolume: options.bgMusicVolume !== undefined ? options.bgMusicVolume : 0.15,
+      videoVolume: options.videoVolume !== undefined ? options.videoVolume : 0.0,
+      sfxVolume: options.sfxVolume !== undefined ? options.sfxVolume : 1.0,
+      subtitleMode: options.subtitleStyle?.subtitleMode || 'classic',
+      highlightTrigger: options.subtitleStyle?.highlightTrigger || 'all',
+      textCase: options.subtitleStyle?.textCase || 'default',
+      autoEmphasis: !!options.subtitleStyle?.autoEmphasis,
+      fontName: options.subtitleStyle?.fontName || 'Montserrat ExtraBold',
+      fontSize: options.subtitleStyle?.fontSize || 26,
+      bold: options.subtitleStyle?.bold !== undefined ? options.subtitleStyle.bold : true,
+      italic: options.subtitleStyle?.italic !== undefined ? options.subtitleStyle.italic : false,
+      shadow: options.subtitleStyle?.shadow !== undefined ? options.subtitleStyle.shadow : false,
+      activeWordScale: options.subtitleStyle?.activeWordScale !== undefined ? options.subtitleStyle.activeWordScale : 1.15,
+      normalStyle: options.subtitleStyle?.normalStyle,
+      highlightStyle: options.subtitleStyle?.highlightStyle,
+      emojiStyle: options.subtitleStyle?.emojiStyle,
+      outlineColor: options.subtitleStyle?.outlineColor || '#000000',
+      outlineThickness: options.subtitleStyle?.outlineThickness !== undefined ? options.subtitleStyle.outlineThickness : 1.5,
+      shadowColor: options.subtitleStyle?.shadowColor || '#000000',
+      shadowBlur: options.subtitleStyle?.shadowBlur !== undefined ? options.subtitleStyle.shadowBlur : 4,
+      shadowDistance: options.subtitleStyle?.shadowDistance !== undefined ? options.subtitleStyle.shadowDistance : 2,
+      shadowAngle: options.subtitleStyle?.shadowAngle !== undefined ? options.subtitleStyle.shadowAngle : 45,
+      shadowOpacity: options.subtitleStyle?.shadowOpacity !== undefined ? options.subtitleStyle.shadowOpacity : 0.6,
+      neonGlow: !!options.subtitleStyle?.neonGlow,
+      glowColor: options.subtitleStyle?.glowColor || '#FFFFFF',
+      glowBlur: options.subtitleStyle?.glowBlur !== undefined ? options.subtitleStyle.glowBlur : 8,
+      glowDistance: options.subtitleStyle?.glowDistance !== undefined ? options.subtitleStyle.glowDistance : 4,
+      aspectRatio: options.aspectRatio || '9:16',
+      fillMode: options.fillMode || 'crop',
+      textPositionX: options.subtitleStyle?.textPositionX || 0,
+      textPositionY: options.subtitleStyle?.textPositionY || -70,
+      maxWordsPerLine: options.subtitleStyle?.maxWordsPerLine || 3,
+      letterSpacing: options.subtitleStyle?.letterSpacing !== undefined ? options.subtitleStyle.letterSpacing : 0,
+      wordSpacing: options.subtitleStyle?.wordSpacing !== undefined ? options.subtitleStyle.wordSpacing : 0,
+      entities: options.entities || [],
+      graphEvents: options.graphEvents || [],
+      graphSettings: options.graphSettings || null,
+      backgroundColor: options.backgroundColor || '#080c18',
+      backgroundPattern: options.backgroundPattern || 'grid',
+      backgroundImageUrl: options.backgroundImageUrl || null,
+      brandPrimaryColor: options.brandPrimaryColor || '#d4af37',
+      brandSecondaryColor: options.brandSecondaryColor || '#f5e6a3',
+      cardPositionY: options.cardPositionY !== undefined ? options.cardPositionY : 0,
+      cardScale: options.cardScale !== undefined ? options.cardScale : 1.0,
+      cardFontName: options.cardFontName || 'Montserrat',
+      showLayoutCards: options.showLayoutCards !== undefined ? options.showLayoutCards : true,
+      subtitlesOnly: !!options.subtitlesOnly,
+      isRendering: true
+    };
+
+    console.log(`[Recreation Render] Triggering Remotion render...`);
+
+    await renderRemotionVideo(remotionProps, localOutputPath, (progress) => {
+      const progressPercent = Math.round(5 + progress * 90);
       job.progress = progressPercent;
-      job.status = statusText;
+      job.status = `Rendering frames: ${progressPercent}%`;
     });
+
+    let outputPath = localOutputPath;
+    if (gcsService.isGcsEnabled()) {
+      job.status = 'Uploading to Cloud Storage...';
+      const gcsUrl = await gcsService.uploadFile(localOutputPath, `generated/render_${jobId}.mp4`);
+      outputPath = gcsUrl;
+      try {
+        await fs.unlink(localOutputPath);
+      } catch (_) {}
+    }
 
     job.progress = 100;
     job.status = 'Completed';
@@ -2774,12 +3570,31 @@ app.post('/api/recreate/analyze', async (req, res) => {
       });
     }
 
-    // 4. Retrieve Clips and Match them semantically (only matching existing clips)
+    // 4. Retrieve Clips and Match them semantically (only matching existing clips, excluding stock B-roll)
     console.log(`[Recreate] Fetching library clips...`);
     const allClips = await dbService.getClips(userId);
     const clips = allClips.filter(clip => {
       const isGcs = gcsService.isGcsEnabled();
-      return isGcs ? !!clip.path : existsSync(resolvePath(clip.path));
+      const fileExists = isGcs ? !!clip.path : existsSync(resolvePath(clip.path));
+      if (!fileExists) return false;
+
+      // Filter out stock B-roll/AI fallback clips
+      const nameLower = (clip.name || '').toLowerCase();
+      const pathLower = (clip.path || '').toLowerCase();
+      const tags = clip.tags || [];
+      const hasSystemTag = tags.some(t => 
+        t === 'stock_downloaded' || 
+        t === 'ai_generated' || 
+        t === 'fallback' || 
+        t === 'recreate_fallback'
+      );
+      if (hasSystemTag) return false;
+      if (nameLower.startsWith('stock') || nameLower.startsWith('ai -') || nameLower.startsWith('ai_')) return false;
+      if (clip.id && (clip.id.startsWith('pexels_') || clip.id.startsWith('pixabay_') || clip.id.startsWith('ai_clip_'))) return false;
+      const filename = pathLower.split('/').pop() || '';
+      if (filename.startsWith('stock_') || filename.startsWith('ai_clip_')) return false;
+
+      return true;
     });
 
     // Retrieve subject profile references if available
@@ -2912,24 +3727,68 @@ app.post('/api/recreate/analyze', async (req, res) => {
         fillMode: "crop",
         bgMusicPath: "",
         bgMusicVolume: 0.15,
-        fontName: "Arial",
-        fontSize: 24,
+        fontName: "Bangers",
+        fontSize: 48,
         fontColor: "#FFFFFF",
         outlineColor: "#000000",
-        bold: true,
+        bold: false,
         italic: false,
         shadow: true,
+        neonGlow: true,
+        glowColor: "#FFFFFF",
+        glowBlur: 1,
+        glowDistance: 20,
         textFade: true,
         textTransition: "none",
         textMotion: "none",
         activeWordScale: 1.15,
+        textPositionY: -65,
         exportResolution: "1080p",
-        exportFps: 30
+        exportFps: 30,
+        normalStyle: {
+          fontColor: "#FFFFFF",
+          activeWordScale: 1.0,
+          neonGlow: true,
+          glowColor: "#FFFFFF",
+          glowBlur: 1,
+          glowDistance: 20
+        },
+        highlightStyle: {
+          fontColor: "#FACC15",
+          activeWordScale: 1.15,
+          neonGlow: true,
+          glowColor: "#FACC15",
+          glowBlur: 1,
+          glowDistance: 20
+        },
+        emojiStyle: {
+          fontColor: "#FACC15",
+          activeWordScale: 1.15,
+          neonGlow: true,
+          glowColor: "#FACC15",
+          glowBlur: 1,
+          glowDistance: 20
+        }
       }
     };
 
     await dbService.saveProject(newProject);
     await dbService.saveSettings({ lastActiveProjectId: newProject.id });
+
+    // Associate the new projectId with the recreation history record
+    const targetRecreateId = recreateId || (typeof newRecreateId !== 'undefined' ? newRecreateId : null);
+    if (targetRecreateId) {
+      try {
+        const recreate = await dbService.getRecreate(targetRecreateId);
+        if (recreate) {
+          recreate.projectId = newProject.id;
+          await dbService.saveRecreate(recreate);
+          console.log(`[Recreate] Associated projectId ${newProject.id} with recreate item ${targetRecreateId}`);
+        }
+      } catch (err) {
+        console.error('[Recreate] Failed to associate projectId with recreate history:', err);
+      }
+    }
 
     res.json({
       success: true,
@@ -2944,6 +3803,625 @@ app.post('/api/recreate/analyze', async (req, res) => {
     logErrorToFile('recreateAnalyze', error);
     res.status(500).json({ error: error.message });
   }
+});
+
+// POST endpoint to automatically generate a viral video from library clips or from mimicking a Reel URL
+// POST endpoint to automatically generate a viral video from library clips or from mimicking a Reel URL
+app.post('/api/generate-viral-video', async (req, res) => {
+  const { 
+    url, 
+    voiceoverPath, 
+    scriptText, 
+    voiceId: voiceIdParam, 
+    bgMusicPath: bgMusicPathParam, 
+    bgMusicVolume, 
+    useAiFallback = true, 
+    brollStyle 
+  } = req.body;
+  const userId = getUserId(req);
+
+  try {
+    const settings = await dbService.getSettings();
+    const apiKey = process.env.GEMINI_API_KEY || settings.geminiApiKey;
+
+    if (url) {
+      // ==========================================
+      // Case 1: Recreate / Mimic Reel URL provided
+      // ==========================================
+      const newRecreateId = uuidv4();
+      const videoFilename = `reel_${newRecreateId}.mp4`;
+      const videoPath = path.join(RECREATE_DIR, videoFilename);
+      const audioFilename = `audio_${newRecreateId}.mp3`;
+      const audioPath = path.join(RECREATE_DIR, audioFilename);
+
+      console.log(`[Viral Generator] Starting mimic download for: ${url}`);
+      await runDownloadReel(url, RECREATE_DIR, videoFilename, ffmpegPath);
+
+      if (!existsSync(videoPath)) {
+        throw new Error('Downloaded video file not found.');
+      }
+
+      console.log(`[Viral Generator] Extracting audio from video: ${videoPath} -> ${audioPath}`);
+      await extractAudioFromVideo(videoPath, audioPath);
+
+      if (!existsSync(audioPath)) {
+        throw new Error('Extracted audio file not found.');
+      }
+
+      console.log(`[Viral Generator] Running Gemini analysis on Reel...`);
+      const analysis = await analyzeRecreatedReel(videoPath, apiKey);
+
+      console.log(`[Viral Generator] Saving mimic progress...`);
+      await dbService.saveRecreate({
+        id: newRecreateId,
+        userId,
+        url,
+        projectName: `Mimic Reel (${new Date().toLocaleDateString()})`,
+        videoUrl: `/uploads/recreate/${videoFilename}`,
+        audioUrl: `/uploads/recreate/${audioFilename}`,
+        analysis,
+        createdAt: new Date().toISOString()
+      });
+
+      console.log(`[Viral Generator] Fetching library clips...`);
+      const allClips = await dbService.getClips(userId);
+      const clips = allClips.filter(clip => {
+        const isGcs = gcsService.isGcsEnabled();
+        const fileExists = isGcs ? !!clip.path : existsSync(resolvePath(clip.path));
+        if (!fileExists) return false;
+
+        const nameLower = (clip.name || '').toLowerCase();
+        const pathLower = (clip.path || '').toLowerCase();
+        const tags = clip.tags || [];
+        const hasSystemTag = tags.some(t => 
+          t === 'stock_downloaded' || 
+          t === 'ai_generated' || 
+          t === 'fallback' || 
+          t === 'recreate_fallback'
+        );
+        if (hasSystemTag) return false;
+        if (nameLower.startsWith('stock') || nameLower.startsWith('ai -') || nameLower.startsWith('ai_')) return false;
+        if (clip.id && (clip.id.startsWith('pexels_') || clip.id.startsWith('pixabay_') || clip.id.startsWith('ai_clip_'))) return false;
+        const filename = pathLower.split('/').pop() || '';
+        if (filename.startsWith('stock_') || filename.startsWith('ai_clip_')) return false;
+
+        return true;
+      });
+
+      let subjectPhotoPath = null;
+      let profileSummary = '';
+      try {
+        const profile = await dbService.getSubjectProfile(userId);
+        if (profile && profile.photos && profile.photos.length > 0) {
+          const frontPhoto = profile.photos.find(p => p.angle.toLowerCase() === 'front') || profile.photos[0];
+          const relativePath = frontPhoto.path.replace(/^\//, '');
+          subjectPhotoPath = resolvePath(relativePath);
+          profileSummary = profile.summary || '';
+        }
+      } catch (_) {}
+
+      // Match recreated scenes strictly enforcing variety
+      let matches = [];
+      if (clips.length > 0 && analysis.scenes && analysis.scenes.length > 0) {
+        matches = await matchRecreatedScenes(analysis.scenes, clips, apiKey);
+      }
+
+      const matchedScenes = [];
+      if (analysis.scenes && analysis.scenes.length > 0) {
+        for (let idx = 0; idx < analysis.scenes.length; idx++) {
+          const scene = analysis.scenes[idx];
+          const match = matches.find(m => m.sceneIndex === idx);
+          
+          let finalClipId = match ? match.clipId : "";
+          let finalClipStart = match ? match.clipStart : 0;
+
+          if (!finalClipId && useAiFallback) {
+            try {
+              const scenePrompt = scene.visual_description || 'abstract cinematic b-roll';
+              let fullPrompt = scenePrompt;
+              if (profileSummary) {
+                fullPrompt = `High quality, 8k, photorealistic. Subject appearance: ${profileSummary}. Scene details: ${scenePrompt}`;
+              }
+              const sceneDuration = scene.end_time - scene.start_time || 5;
+              const assetType = scene.is_static ? 'image' : 'video';
+              const result = await generateAiAsset(fullPrompt, assetType, sceneDuration, apiKey, subjectPhotoPath);
+              
+              const newClip = {
+                id: result.id,
+                userId,
+                path: result.path,
+                name: `AI - ${scenePrompt.substring(0, 25)}`,
+                thumbnail: result.thumbnail,
+                duration: result.duration,
+                description: 'AI Generated replicate fallback: ' + fullPrompt,
+                tags: ['ai_generated', 'recreate_fallback', assetType],
+                status: 'analyzing'
+              };
+              await dbService.saveClip(newClip);
+              analyzeVideoInBackground(result.id, resolvePath(result.path), apiKey);
+              
+              finalClipId = result.id;
+              finalClipStart = 0;
+            } catch (err) {
+              console.error(`Failed to generate AI fallback for scene ${idx}:`, err);
+            }
+          }
+
+          const sceneOverlays = (analysis.textOverlays || []).filter(o => 
+            o.start_time >= scene.start_time && o.start_time < scene.end_time
+          );
+          
+          let sceneText = "";
+          let sceneWords = [];
+          for (const overlay of sceneOverlays) {
+            const wordsList = overlay.text.split(/\s+/).filter(Boolean);
+            if (wordsList.length > 0) {
+              if (sceneText) sceneText += " ";
+              sceneText += overlay.text;
+              
+              const overlayDuration = overlay.end_time - overlay.start_time;
+              const wordDur = overlayDuration / wordsList.length;
+              for (let i = 0; i < wordsList.length; i++) {
+                sceneWords.push({
+                  word: wordsList[i],
+                  start_time: Number((overlay.start_time + i * wordDur).toFixed(3)),
+                  end_time: Number((overlay.start_time + (i + 1) * wordDur).toFixed(3))
+                });
+              }
+            }
+          }
+
+          matchedScenes.push({
+            text: sceneText,
+            start_time: scene.start_time,
+            end_time: scene.end_time,
+            clipId: finalClipId,
+            clipStart: finalClipStart,
+            words: sceneWords
+          });
+        }
+      }
+
+      const audioDuration = await getVideoDuration(audioPath);
+      const projectId = uuidv4();
+      const newProject = {
+        id: projectId,
+        userId,
+        name: `Mimic Reel (${new Date().toLocaleDateString()})`,
+        type: 'create',
+        updatedAt: new Date().toISOString(),
+        state: {
+          scriptText: analysis.description || "",
+          selectedVoice: voiceIdParam || settings.lastSelectedVoice || "",
+          audioSource: "upload",
+          voiceoverPath: `/uploads/recreate/${audioFilename}`,
+          voiceoverUrl: `/uploads/recreate/${audioFilename}`,
+          originalVideoPath: `/uploads/recreate/${videoFilename}`,
+          originalVideoUrl: `/uploads/recreate/${videoFilename}`,
+          scenes: matchedScenes,
+          aspectRatio: "9:16",
+          fillMode: "crop",
+          bgMusicPath: bgMusicPathParam || "",
+          bgMusicVolume: bgMusicVolume !== undefined ? bgMusicVolume : 0.15,
+          fontName: "Bangers",
+          fontSize: 48,
+          fontColor: "#FFFFFF",
+          outlineColor: "#000000",
+          bold: false,
+          italic: false,
+          shadow: true,
+          neonGlow: true,
+          glowColor: "#FFFFFF",
+          glowBlur: 1,
+          glowDistance: 20,
+          textFade: true,
+          textTransition: "none",
+          textMotion: "none",
+          activeWordScale: 1.15,
+          textPositionY: -65,
+          exportResolution: "4k",
+          exportFps: 30,
+          normalStyle: { fontColor: "#FFFFFF", activeWordScale: 1.0, neonGlow: true, glowColor: "#FFFFFF", glowBlur: 1, glowDistance: 20 },
+          highlightStyle: { fontColor: "#FACC15", activeWordScale: 1.15, neonGlow: true, glowColor: "#FACC15", glowBlur: 1, glowDistance: 20 },
+          emojiStyle: { fontColor: "#FACC15", activeWordScale: 1.15, neonGlow: true, glowColor: "#FACC15", glowBlur: 1, glowDistance: 20 }
+        }
+      };
+
+      await dbService.saveProject(newProject);
+      await dbService.saveSettings({ lastActiveProjectId: newProject.id });
+
+      try {
+        const recreate = await dbService.getRecreate(newRecreateId);
+        if (recreate) {
+          recreate.projectId = newProject.id;
+          await dbService.saveRecreate(recreate);
+        }
+      } catch (err) {
+        console.error('[Recreate] Failed to associate projectId:', err);
+      }
+
+      const jobId = uuidv4();
+      const jobState = {
+        id: jobId,
+        projectId: newProject.id,
+        progress: 0,
+        status: 'Queued',
+        resultUrl: null,
+        error: null
+      };
+      activeJobs.set(jobId, jobState);
+
+      const dbClips = await dbService.getClips(userId);
+      runVideoCompilation(jobId, {
+        projectId: newProject.id,
+        userId,
+        estimatedCredits: Math.max(1, Math.ceil(audioDuration)),
+        scenes: matchedScenes,
+        clips: dbClips.map(c => ({ ...c, path: gcsService.isGcsEnabled() ? c.path : resolvePath(c.path) })),
+        voiceoverPath: newProject.state.voiceoverPath,
+        originalVideoPath: newProject.state.originalVideoPath,
+        bgMusicPath: newProject.state.bgMusicPath ? resolvePath(newProject.state.bgMusicPath) : null,
+        bgMusicVolume: newProject.state.bgMusicVolume,
+        aspectRatio: newProject.state.aspectRatio,
+        fillMode: newProject.state.fillMode,
+        subtitleStyle: {
+          fontName: newProject.state.fontName,
+          fontSize: newProject.state.fontSize,
+          fontColor: newProject.state.fontColor,
+          outlineColor: newProject.state.outlineColor,
+          bold: newProject.state.bold,
+          italic: newProject.state.italic,
+          shadow: newProject.state.shadow,
+          neonGlow: newProject.state.neonGlow,
+          glowColor: newProject.state.glowColor,
+          glowBlur: newProject.state.glowBlur,
+          glowDistance: newProject.state.glowDistance,
+          textFade: newProject.state.textFade,
+          textTransition: newProject.state.textTransition,
+          textMotion: newProject.state.textMotion,
+          activeWordScale: newProject.state.activeWordScale,
+          textPositionY: newProject.state.textPositionY,
+          normalStyle: newProject.state.normalStyle,
+          highlightStyle: newProject.state.highlightStyle,
+          emojiStyle: newProject.state.emojiStyle
+        },
+        exportResolution: "4k",
+        exportFps: 30,
+        outputDir: GENERATED_DIR
+      });
+
+      return res.json({ success: true, jobId, projectId: newProject.id });
+
+    } else if (voiceoverPath) {
+      // ==========================================
+      // Case 2: Voiceover/audio provided in call
+      // ==========================================
+      console.log(`[Viral Generator] Voiceover provided: ${voiceoverPath}`);
+      
+      const allClips = await dbService.getClips(userId);
+      const readyClips = allClips.filter(c => c.status === 'ready');
+      if (readyClips.length === 0) {
+        return res.status(400).json({ error: 'No clips are ready in your library. Please upload and analyze some video clips first.' });
+      }
+
+      let resolvedVoiceoverPath = voiceoverPath;
+      let tempLocalVoiceoverPath = null;
+      if (gcsService.isGcsEnabled() && voiceoverPath.startsWith('http')) {
+        tempLocalVoiceoverPath = path.join(GENERATED_DIR, `temp_align_${uuidv4()}.mp3`);
+        await gcsService.downloadFile(voiceoverPath, tempLocalVoiceoverPath);
+        resolvedVoiceoverPath = tempLocalVoiceoverPath;
+      } else {
+        resolvedVoiceoverPath = resolvePath(voiceoverPath);
+      }
+
+      if (!existsSync(resolvedVoiceoverPath)) {
+        return res.status(400).json({ error: `Voiceover audio file does not exist on disk: ${voiceoverPath}` });
+      }
+
+      // Time align to transcribe or align existing scriptText
+      console.log(`[Viral Generator] Aligning script and audio...`);
+      const alignedSegments = await alignScriptAndAudio(scriptText || '', resolvedVoiceoverPath, apiKey);
+
+      if (tempLocalVoiceoverPath && existsSync(tempLocalVoiceoverPath)) {
+        try {
+          await fs.unlink(tempLocalVoiceoverPath);
+        } catch (_) {}
+      }
+
+      // Match library clips semantically to these scenes using standard matchClipsToScenes (which shuffles/filters for variety)
+      console.log(`[Viral Generator] Matching library clips for ${alignedSegments.length} scenes...`);
+      const matches = await matchClipsToScenes(alignedSegments, readyClips, apiKey);
+
+      const finalScenes = alignedSegments.map((seg, idx) => {
+        const match = matches.find(m => m.sceneIndex === idx);
+        
+        return {
+          text: seg.text || '',
+          start_time: seg.start_time,
+          end_time: seg.end_time,
+          clipId: match ? match.clipId : (readyClips[idx % readyClips.length]?.id || ''),
+          clipStart: match ? match.clipStart : 0,
+          clipDuration: seg.end_time - seg.start_time,
+          visualDescription: match ? match.reason : '',
+          transition: 'none',
+          sfx: 'none',
+          shake: false,
+          layout: 'full_broll',
+          layoutProps: {},
+          ambientSoundscape: 'none',
+          postProcessingPreset: 'none',
+          words: seg.words || [],
+          words_hindi: seg.words_hindi || [],
+          words_hinglish: seg.words_hinglish || []
+        };
+      });
+
+      const projectId = uuidv4();
+      const newProject = {
+        id: projectId,
+        userId,
+        name: `Audio Voiceover Reel (${new Date().toLocaleDateString()})`,
+        type: 'create',
+        updatedAt: new Date().toISOString(),
+        state: {
+          scriptText: scriptText || alignedSegments.map(s => s.text).join(' '),
+          selectedVoice: voiceIdParam || settings.lastSelectedVoice || "",
+          audioSource: "upload",
+          voiceoverPath: voiceoverPath,
+          voiceoverUrl: voiceoverPath,
+          scenes: finalScenes,
+          aspectRatio: "9:16",
+          fillMode: "crop",
+          bgMusicPath: bgMusicPathParam || "",
+          bgMusicVolume: bgMusicVolume !== undefined ? bgMusicVolume : 0.15,
+          fontName: "Bangers",
+          fontSize: 48,
+          fontColor: "#FFFFFF",
+          outlineColor: "#000000",
+          bold: false,
+          italic: false,
+          shadow: true,
+          neonGlow: true,
+          glowColor: "#FFFFFF",
+          glowBlur: 1,
+          glowDistance: 20,
+          textFade: true,
+          textTransition: "none",
+          textMotion: "none",
+          activeWordScale: 1.15,
+          textPositionY: -65,
+          exportResolution: "4k",
+          exportFps: 30,
+          normalStyle: { fontColor: "#FFFFFF", activeWordScale: 1.0, neonGlow: true, glowColor: "#FFFFFF", glowBlur: 1, glowDistance: 20 },
+          highlightStyle: { fontColor: "#FACC15", activeWordScale: 1.15, neonGlow: true, glowColor: "#FACC15", glowBlur: 1, glowDistance: 20 },
+          emojiStyle: { fontColor: "#FACC15", activeWordScale: 1.15, neonGlow: true, glowColor: "#FACC15", glowBlur: 1, glowDistance: 20 }
+        }
+      };
+
+      await dbService.saveProject(newProject);
+      await dbService.saveSettings({ lastActiveProjectId: newProject.id });
+
+      const audioDuration = await getVideoDuration(resolvedVoiceoverPath);
+      const jobId = uuidv4();
+      const jobState = {
+        id: jobId,
+        projectId: newProject.id,
+        progress: 0,
+        status: 'Queued',
+        resultUrl: null,
+        error: null
+      };
+      activeJobs.set(jobId, jobState);
+
+      const dbClips = await dbService.getClips(userId);
+      runVideoCompilation(jobId, {
+        projectId: newProject.id,
+        userId,
+        estimatedCredits: Math.max(1, Math.ceil(audioDuration)),
+        scenes: finalScenes,
+        clips: dbClips.map(c => ({ ...c, path: gcsService.isGcsEnabled() ? c.path : resolvePath(c.path) })),
+        voiceoverPath: voiceoverPath,
+        bgMusicPath: bgMusicPathParam ? resolvePath(bgMusicPathParam) : null,
+        bgMusicVolume: newProject.state.bgMusicVolume,
+        aspectRatio: newProject.state.aspectRatio,
+        fillMode: newProject.state.fillMode,
+        subtitleStyle: {
+          fontName: newProject.state.fontName,
+          fontSize: newProject.state.fontSize,
+          fontColor: newProject.state.fontColor,
+          outlineColor: newProject.state.outlineColor,
+          bold: newProject.state.bold,
+          italic: newProject.state.italic,
+          shadow: newProject.state.shadow,
+          neonGlow: newProject.state.neonGlow,
+          glowColor: newProject.state.glowColor,
+          glowBlur: newProject.state.glowBlur,
+          glowDistance: newProject.state.glowDistance,
+          textFade: newProject.state.textFade,
+          textTransition: newProject.state.textTransition,
+          textMotion: newProject.state.textMotion,
+          activeWordScale: newProject.state.activeWordScale,
+          textPositionY: newProject.state.textPositionY,
+          normalStyle: newProject.state.normalStyle,
+          highlightStyle: newProject.state.highlightStyle,
+          emojiStyle: newProject.state.emojiStyle
+        },
+        exportResolution: "4k",
+        exportFps: 30,
+        outputDir: GENERATED_DIR
+      });
+
+      return res.json({ success: true, jobId, projectId: newProject.id });
+
+    } else {
+      // ==========================================
+      // Case 3: Fast-Paced compilation (No audio/voiceover provided)
+      // ==========================================
+      console.log(`[Viral Generator] No audio/voiceover provided. Generating fast-paced edit...`);
+      
+      const allClips = await dbService.getClips(userId);
+      const readyClips = allClips.filter(c => c.status === 'ready');
+      if (readyClips.length === 0) {
+        return res.status(400).json({ error: 'No clips are ready in your library. Please upload and analyze some video clips first.' });
+      }
+
+      // Shuffle and take up to 12 distinct library clips for variety
+      const shuffledClips = [...readyClips].sort(() => Math.random() - 0.5);
+      const selectedClips = shuffledClips.slice(0, Math.min(shuffledClips.length, 12));
+
+      // Resolve background music
+      let bgmPath = bgMusicPathParam || "";
+      if (!bgmPath) {
+        const bgms = await dbService.getBgms(userId);
+        if (bgms && bgms.length > 0) {
+          bgmPath = bgms[Math.floor(Math.random() * bgms.length)].path;
+          console.log(`[Viral Generator] Selected random background music: ${bgmPath}`);
+        }
+      }
+
+      if (!bgmPath) {
+        return res.status(400).json({ error: 'Background music is required for fast-paced compilation. Please upload a music file first.' });
+      }
+
+      const resolvedBgm = resolvePath(bgmPath);
+      const musicDuration = await getVideoDuration(resolvedBgm);
+      console.log(`[Viral Generator] Background music duration: ${musicDuration}s`);
+
+      // Construct fast-paced scenes
+      const sceneDuration = 2.0; // Fast pacing: 2.0 seconds per clip
+      const maxDuration = Math.min(musicDuration, 30.0); // limit to music length or 30s max
+      const sceneCount = Math.floor(maxDuration / sceneDuration);
+
+      const finalScenes = [];
+      let currentTime = 0.0;
+      
+      for (let i = 0; i < sceneCount; i++) {
+        const clip = selectedClips[i % selectedClips.length];
+        
+        // Random offset in clip that has enough duration
+        const maxOffset = Math.max(0, clip.duration - sceneDuration);
+        const clipStart = Number((Math.random() * maxOffset).toFixed(2));
+
+        const transitions = ['none', 'fade', 'slide-up', 'slide-down', 'zoom-in'];
+        const transition = transitions[Math.floor(Math.random() * transitions.length)];
+
+        finalScenes.push({
+          text: '', // No subtitles/narration text
+          start_time: currentTime,
+          end_time: Number((currentTime + sceneDuration).toFixed(2)),
+          clipId: clip.id,
+          clipStart: clipStart,
+          clipDuration: sceneDuration,
+          visualDescription: `Fast-paced clip match: ${clip.name}`,
+          transition: transition,
+          sfx: 'none',
+          shake: false,
+          layout: 'full_broll',
+          layoutProps: {},
+          ambientSoundscape: 'none',
+          postProcessingPreset: 'none',
+          words: []
+        });
+
+        currentTime = Number((currentTime + sceneDuration).toFixed(2));
+      }
+
+      const projectId = uuidv4();
+      const newProject = {
+        id: projectId,
+        userId,
+        name: `Fast Paced Compilation (${new Date().toLocaleDateString()})`,
+        type: 'create',
+        updatedAt: new Date().toISOString(),
+        state: {
+          scriptText: "",
+          selectedVoice: "",
+          audioSource: "upload",
+          voiceoverPath: bgmPath, // Set BGM as the voiceover path to compile correctly
+          voiceoverUrl: bgmPath,
+          scenes: finalScenes,
+          aspectRatio: "9:16",
+          fillMode: "crop",
+          bgMusicPath: "", // Set to blank since BGM acts as voiceover
+          bgMusicVolume: 0.0,
+          fontName: "Bangers",
+          fontSize: 48,
+          fontColor: "#FFFFFF",
+          outlineColor: "#000000",
+          bold: false,
+          italic: false,
+          shadow: true,
+          neonGlow: true,
+          exportResolution: "4k",
+          exportFps: 30
+        }
+      };
+
+      await dbService.saveProject(newProject);
+
+      const jobId = uuidv4();
+      const jobState = {
+        id: jobId,
+        projectId: newProject.id,
+        progress: 0,
+        status: 'Queued',
+        resultUrl: null,
+        error: null
+      };
+      activeJobs.set(jobId, jobState);
+
+      const dbClips = await dbService.getClips(userId);
+      runVideoCompilation(jobId, {
+        projectId: newProject.id,
+        userId,
+        estimatedCredits: Math.max(1, Math.ceil(currentTime)),
+        scenes: finalScenes,
+        clips: dbClips.map(c => ({ ...c, path: gcsService.isGcsEnabled() ? c.path : resolvePath(c.path) })),
+        voiceoverPath: bgmPath, // Serves as main audio track
+        bgMusicPath: null,
+        bgMusicVolume: 0.0,
+        voiceoverVolume: 1.0, // Music volume
+        aspectRatio: newProject.state.aspectRatio,
+        fillMode: newProject.state.fillMode,
+        subtitleStyle: {
+          fontName: newProject.state.fontName,
+          fontSize: newProject.state.fontSize,
+          fontColor: newProject.state.fontColor,
+          outlineColor: newProject.state.outlineColor,
+          bold: newProject.state.bold,
+          italic: newProject.state.italic,
+          shadow: newProject.state.shadow,
+          neonGlow: newProject.state.neonGlow
+        },
+        exportResolution: "4k",
+        exportFps: 30,
+        outputDir: GENERATED_DIR
+      });
+
+      return res.json({ success: true, jobId, projectId: newProject.id });
+    }
+  } catch (error) {
+    console.error('[Viral Generator Error] Failed to generate viral video:', error);
+    logErrorToFile('generateViralVideo', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET endpoint to check viral video compilation job status
+app.get('/api/viral-video/status/:jobId', (req, res) => {
+  const { jobId } = req.params;
+  const job = activeJobs.get(jobId);
+  if (!job) {
+    return res.status(404).json({ error: 'Job not found.' });
+  }
+  res.json({
+    id: job.id,
+    projectId: job.projectId,
+    status: job.status,
+    progress: job.progress,
+    resultUrl: job.resultUrl,
+    error: job.error
+  });
 });
 
 // GET endpoint to retrieve recreation history
@@ -3073,6 +4551,524 @@ async function seedDefaultUser() {
     console.error('[Database Startup Error] Seeding/Migration failed:', err.message);
   }
 }
+
+// ==========================================
+// YouTube Empire API Endpoints
+// ==========================================
+
+app.post('/api/youtube/generate-script', async (req, res) => {
+  const { projectId, topic, niche } = req.body;
+  if (!projectId || !topic || !niche) {
+    return res.status(400).json({ error: 'Project ID, topic, and niche are required.' });
+  }
+
+  try {
+    const settings = await dbService.getSettings();
+    const apiKey = process.env.GEMINI_API_KEY || settings.geminiApiKey;
+    
+    // Generate Long Script and Storyboard
+    const data = await generateYoutubeScriptAndStoryboard(topic, niche, apiKey);
+    
+    // Generate corresponding short/reel script based on long script
+    const shortData = await generateYoutubeShortScript(data.scriptText, apiKey);
+
+    // Save to project
+    const project = await dbService.getProject(projectId);
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found.' });
+    }
+
+    project.state.topic = topic;
+    project.state.niche = niche;
+    project.state.scriptText = data.scriptText;
+    project.state.shortScriptText = shortData.scriptText;
+    project.name = data.title || project.name;
+    project.state.scenes = autoEnrichSceneVerbs(data.scenes);
+    project.state.status = 'script_generated';
+    project.updatedAt = new Date().toISOString();
+
+    await dbService.saveProject(project);
+    res.json(project);
+  } catch (error) {
+    console.error('Error generating YouTube script:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/youtube/extract-graph', async (req, res) => {
+  const { projectId } = req.body;
+  if (!projectId) {
+    return res.status(400).json({ error: 'Project ID is required.' });
+  }
+
+  try {
+    const project = await dbService.getProject(projectId);
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found.' });
+    }
+
+    const scenes = project.state.scenes || [];
+    if (scenes.length === 0) {
+      return res.status(400).json({ error: 'Project does not have storyboard scenes. Please generate a script or align one first.' });
+    }
+
+    let scriptText = project.state.scriptText || '';
+    if (!scriptText) {
+      scriptText = scenes.map(s => s.text).join(' ');
+    }
+
+    if (!scriptText.trim()) {
+      return res.status(400).json({ error: 'Project script is empty. Please ensure your scenes have narration text.' });
+    }
+
+    const settings = await dbService.getSettings();
+    const apiKey = process.env.GEMINI_API_KEY || settings.geminiApiKey;
+
+     const graphData = await extractStoryGraph(scriptText, scenes, apiKey);
+ 
+     // Save to project state
+     project.state.entities = graphData.entities;
+     project.state.graphEvents = graphData.graphEvents;
+     
+     // Map contexts back to scenes
+     if (graphData.sceneContexts && Array.isArray(graphData.sceneContexts)) {
+       graphData.sceneContexts.forEach(c => {
+         const idx = c.sceneIndex;
+         if (project.state.scenes[idx]) {
+           project.state.scenes[idx].graphContext = c.context;
+         }
+       });
+     }
+     
+     project.updatedAt = new Date().toISOString();
+     await dbService.saveProject(project);
+ 
+     res.json({
+       success: true,
+       entities: graphData.entities,
+       graphEvents: graphData.graphEvents,
+       scenes: project.state.scenes
+     });
+  } catch (error) {
+    console.error('Error extracting story graph:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/projects/:id/save-graph', async (req, res) => {
+  const { id } = req.params;
+  const { entities, graphEvents, graphSettings } = req.body;
+
+  try {
+    const project = await dbService.getProject(id);
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found.' });
+    }
+
+    project.state.entities = entities;
+    project.state.graphEvents = graphEvents;
+    if (graphSettings) {
+      project.state.graphSettings = graphSettings;
+    }
+    project.updatedAt = new Date().toISOString();
+    await dbService.saveProject(project);
+
+    res.json({ success: true, project });
+  } catch (error) {
+    console.error('Error saving story graph:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/youtube/auto-match', async (req, res) => {
+  const { projectId, brollStyle } = req.body;
+  if (!projectId) {
+    return res.status(400).json({ error: 'Project ID is required.' });
+  }
+
+  try {
+    const project = await dbService.getProject(projectId);
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found.' });
+    }
+
+    const userId = getUserId(req);
+    const settings = await dbService.getSettings();
+    const pexelsKey = process.env.PEXELS_API_KEY || settings.pexelsApiKey;
+    const pixabayKey = process.env.PIXABAY_API_KEY || settings.pixabayApiKey;
+    const userClips = await dbService.getClips(userId);
+    const geminiApiKey = process.env.GEMINI_API_KEY || settings.geminiApiKey;
+
+    const scenes = project.state.scenes || [];
+    if (scenes.length === 0) {
+      return res.status(400).json({ error: 'No scenes to match. Please align the voiceover first.' });
+    }
+
+    console.log(`[YouTube Auto-Match] Starting stock B-roll matching for project ${projectId}...`);
+
+    // Bulk-enrich scenes that have generic or missing B-roll metadata before matching
+    const scenesToEnrich = [];
+    const enrichIndices = [];
+
+    for (let i = 0; i < scenes.length; i++) {
+      const scene = scenes[i];
+      const kw = (scene.sfxKeywords || '').trim().toLowerCase();
+      const desc = (scene.visualDescription || '').trim().toLowerCase();
+      
+      const isGenericKeywords = !kw || kw === 'cinematic, abstract' || kw === 'abstract, cinematic' || kw === 'cinematic' || kw === 'abstract';
+      const isGenericDesc = !desc || desc === 'abstract cinematic background' || desc === 'abstract cinematic';
+
+      if ((isGenericKeywords || isGenericDesc) && scene.text) {
+        scenesToEnrich.push(scene);
+        enrichIndices.push(i);
+      }
+    }
+
+    if (scenesToEnrich.length > 0) {
+      console.log(`[YouTube Auto-Match] Found ${scenesToEnrich.length} scenes with generic/missing B-roll metadata. Bulk enriching with Gemini...`);
+      try {
+        const enrichedResults = await enrichScenesMetadata(scenesToEnrich, geminiApiKey);
+        if (enrichedResults && enrichedResults.length > 0) {
+          for (const resItem of enrichedResults) {
+            const originalIdx = enrichIndices[resItem.index];
+            if (originalIdx !== undefined && scenes[originalIdx]) {
+              scenes[originalIdx].visualDescription = resItem.visualDescription;
+              scenes[originalIdx].sfxKeywords = resItem.sfxKeywords;
+              console.log(`[YouTube Auto-Match] Enriched Scene ${originalIdx} narration: "${scenes[originalIdx].text}" -> Visual: "${resItem.visualDescription}", Keywords: "${resItem.sfxKeywords}"`);
+            }
+          }
+          project.state.scenes = scenes;
+          project.updatedAt = new Date().toISOString();
+          await dbService.saveProject(project);
+        }
+      } catch (enrichErr) {
+        console.error('[YouTube Auto-Match] Scene metadata enrichment failed:', enrichErr.message);
+      }
+    }
+
+    // Track last used end_time for each clip ID to enforce 90s reuse gap
+    const lastUsedMap = new Map();
+
+    for (let i = 0; i < scenes.length; i++) {
+      const scene = scenes[i];
+      const sceneStart = scene.start_time || 0;
+      const sceneEnd = scene.end_time || (sceneStart + 5);
+      
+      let matchedClipId = null;
+
+      // Extract search keywords from scene
+      const keywordsString = scene.sfxKeywords || '';
+      const keywords = keywordsString.toLowerCase().split(',').map(k => k.trim()).filter(Boolean);
+
+      if (keywords.length > 0) {
+        // Find existing clip in user's library that matches keywords and respects the 90s reuse rule
+        const candidateClips = userClips.filter(c => {
+          if (c.status !== 'ready') return false;
+
+          // Check last used end_time
+          if (lastUsedMap.has(c.id)) {
+            const lastEnd = lastUsedMap.get(c.id);
+            if (sceneStart - lastEnd < 90) {
+              return false; // too close, skip to avoid quick repeats
+            }
+          }
+
+          const clipText = `${c.name} ${c.description} ${(c.tags || []).join(' ')}`.toLowerCase();
+          return keywords.some(k => clipText.includes(k));
+        });
+
+        if (candidateClips.length > 0) {
+          matchedClipId = candidateClips[0].id;
+          console.log(`[YouTube Auto-Match] Reusing existing clip ${matchedClipId} for scene ${i}`);
+        }
+      }
+
+      // If no suitable library clip, query Pexels/Pixabay
+      if (!matchedClipId) {
+        const styleModifier = brollStyle || project.state.brollStyle || 'clean minimal';
+        
+        // Clean search query to exclude generic keywords and abstract patterns
+        const banned = ['cinematic', 'abstract', 'background', 'bg', 'video', 'clip', 'footage', 'scene', 'visual', 'loop', 'pattern', 'motion', 'animation', 'effect', 'overlay', 'clean', 'minimal', 'placeholder'];
+        let cleanKeywords = keywords.filter(k => {
+          return !banned.some(b => k.includes(b));
+        });
+
+        let queryBase = cleanKeywords.slice(0, 3).join(' ');
+
+        if (!queryBase && scene.visualDescription) {
+          const descWords = scene.visualDescription.toLowerCase().split(/\s+/).map(w => w.replace(/[^\w]/g, ''));
+          const cleanDescWords = descWords.filter(w => !banned.includes(w) && w.length > 2);
+          queryBase = cleanDescWords.slice(0, 4).join(' ');
+        }
+
+        if (!queryBase && scene.text) {
+          const stopwords = ['the', 'and', 'a', 'of', 'to', 'in', 'is', 'that', 'it', 'he', 'was', 'for', 'on', 'are', 'as', 'with', 'his', 'they', 'i', 'at', 'be', 'this', 'have', 'from', 'or', 'one', 'had', 'by', 'but', 'not'];
+          const textWords = scene.text.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/);
+          const cleanTextWords = textWords.filter(w => !stopwords.includes(w) && w.length > 3);
+          queryBase = cleanTextWords.slice(0, 3).join(' ');
+        }
+
+        if (!queryBase) {
+          queryBase = 'vintage historical'; // concrete fallback
+        }
+
+        let searchQuery = queryBase;
+        if (styleModifier && styleModifier !== 'none') {
+          searchQuery = `${searchQuery} ${styleModifier}`;
+        }
+        const orientation = project.state.aspectRatio === '9:16' ? 'portrait' : 'landscape';
+
+        try {
+          const stockResults = await searchStockVideo(searchQuery, pexelsKey, pixabayKey, orientation);
+          if (stockResults.length > 0) {
+            let selectedStock = null;
+
+            // Find first result that respects the reuse rule (if it was previously downloaded)
+            for (const stock of stockResults) {
+              const existingClip = userClips.find(c => c.description.includes(stock.id) || c.name.includes(stock.id));
+              if (existingClip) {
+                if (lastUsedMap.has(existingClip.id)) {
+                  const lastEnd = lastUsedMap.get(existingClip.id);
+                  if (sceneStart - lastEnd < 90) {
+                    continue; // skip, too close
+                  }
+                }
+                selectedStock = { ...stock, existingClipId: existingClip.id };
+                break;
+              } else {
+                selectedStock = stock;
+                break;
+              }
+            }
+
+            if (!selectedStock) {
+              selectedStock = stockResults[0];
+            }
+
+            if (selectedStock.existingClipId) {
+              matchedClipId = selectedStock.existingClipId;
+              console.log(`[YouTube Auto-Match] Reusing stock clip ${matchedClipId} for scene ${i}`);
+            } else {
+              // Download stock video
+              const downloadId = uuidv4();
+              const newClip = await downloadStockVideo(
+                selectedStock.url,
+                downloadId,
+                userId,
+                `Stock ${selectedStock.source} ID ${selectedStock.id}: ${scene.visualDescription}`
+              );
+
+              // Analyze video in background so it gets tagged/described
+              analyzeVideoInBackground(newClip.id, resolvePath(newClip.path), geminiApiKey);
+
+              matchedClipId = newClip.id;
+              userClips.push(newClip);
+            }
+          }
+        } catch (searchErr) {
+          console.error(`[YouTube Auto-Match] Search/download failed for scene ${i}:`, searchErr.message);
+        }
+      }
+
+      if (matchedClipId) {
+        scene.clipId = matchedClipId;
+        scene.clipStart = 0;
+        lastUsedMap.set(matchedClipId, sceneEnd);
+      } else {
+        scene.clipId = '';
+        scene.clipStart = 0;
+      }
+    }
+
+    project.state.scenes = autoEnrichSceneVerbs(scenes);
+    project.state.status = 'matched';
+    project.updatedAt = new Date().toISOString();
+
+    await dbService.saveProject(project);
+    res.json(project);
+  } catch (error) {
+    console.error('Error in YouTube auto-match:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/youtube/auto-suggest-assets', async (req, res) => {
+  const { projectId } = req.body;
+  if (!projectId) {
+    return res.status(400).json({ error: 'Project ID is required.' });
+  }
+
+  try {
+    const project = await dbService.getProject(projectId);
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found.' });
+    }
+
+    const scenes = project.state.scenes || [];
+    if (scenes.length === 0) {
+      return res.status(400).json({ error: 'No scenes in project to suggest assets.' });
+    }
+
+    console.log(`[YouTube Auto-Suggest] Automatically suggesting layouts, transitions, and SFX for ${scenes.length} scenes using Gemini...`);
+
+    const settings = await dbService.getSettings();
+    const geminiApiKey = process.env.GEMINI_API_KEY || settings.geminiApiKey;
+    
+    // Call Gemini to get suggested properties
+    const suggestions = await suggestStorytellerAndAssetsForScenes(scenes, project.state.scriptText || '', geminiApiKey);
+
+    // Map suggestions back to scenes
+    for (const sug of suggestions) {
+      const idx = sug.index;
+      if (idx !== undefined && idx >= 0 && idx < scenes.length) {
+        const scene = scenes[idx];
+        scene.layout = sug.layout || scene.layout || 'graph';
+        scene.layoutProps = sug.layoutProps || scene.layoutProps || {};
+        scene.ambientSoundscape = sug.ambientSoundscape || scene.ambientSoundscape || 'none';
+        scene.postProcessingPreset = sug.postProcessingPreset || scene.postProcessingPreset || 'none';
+        scene.transition = sug.transition || scene.transition || 'fade';
+        scene.sfx = sug.sfx || scene.sfx || 'none';
+        scene.shake = sug.shake !== undefined ? sug.shake : scene.shake;
+        if (sug.shakeIntensity !== undefined) scene.shakeIntensity = sug.shakeIntensity;
+        if (sug.shakeSpeed !== undefined) scene.shakeSpeed = sug.shakeSpeed;
+      }
+    }
+
+    project.state.scenes = autoEnrichSceneVerbs(scenes);
+    project.updatedAt = new Date().toISOString();
+    await dbService.saveProject(project);
+
+    res.json(project);
+  } catch (error) {
+    console.error('Error suggesting transitions/SFX:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/youtube/regenerate-hud', async (req, res) => {
+  const { projectId, sceneIndex } = req.body;
+  if (!projectId) {
+    return res.status(400).json({ error: 'Project ID is required.' });
+  }
+
+  try {
+    const project = await dbService.getProject(projectId);
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found.' });
+    }
+
+    const scenes = project.state.scenes || [];
+    if (scenes.length === 0) {
+      return res.status(400).json({ error: 'No scenes in project to regenerate HUD.' });
+    }
+
+    const settings = await dbService.getSettings();
+    const geminiApiKey = process.env.GEMINI_API_KEY || settings.geminiApiKey;
+
+    if (sceneIndex !== undefined && sceneIndex !== null) {
+      const idx = parseInt(sceneIndex);
+      if (idx < 0 || idx >= scenes.length) {
+        return res.status(400).json({ error: 'Invalid scene index.' });
+      }
+
+      console.log(`[YouTube HUD Redo] Regenerating HUD for single scene ${idx} in project ${projectId}...`);
+      const singleScene = { ...scenes[idx] };
+      // Assign custom index so suggestions match correctly
+      singleScene.index = idx;
+      const suggestion = await suggestStorytellerAndAssetsForScenes([singleScene], project.state.scriptText || '', geminiApiKey);
+      if (suggestion && suggestion.length > 0) {
+        const sug = suggestion[0];
+        scenes[idx].layout = sug.layout || scenes[idx].layout || 'graph';
+        scenes[idx].layoutProps = sug.layoutProps || {};
+      }
+    } else {
+      console.log(`[YouTube HUD Redo] Regenerating full HUD layouts for all ${scenes.length} scenes in project ${projectId}...`);
+      const suggestions = await suggestStorytellerAndAssetsForScenes(scenes, project.state.scriptText || '', geminiApiKey);
+      for (const sug of suggestions) {
+        const idx = sug.index;
+        if (idx !== undefined && idx >= 0 && idx < scenes.length) {
+          scenes[idx].layout = sug.layout || scenes[idx].layout || 'graph';
+          scenes[idx].layoutProps = sug.layoutProps || {};
+        }
+      }
+    }
+
+    project.state.scenes = scenes;
+    project.updatedAt = new Date().toISOString();
+    await dbService.saveProject(project);
+
+    res.json(project);
+  } catch (error) {
+    console.error('Error regenerating HUD layouts:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/youtube/create-short-reel', async (req, res) => {
+  const { projectId } = req.body;
+  if (!projectId) {
+    return res.status(400).json({ error: 'Project ID is required.' });
+  }
+
+  try {
+    const longProject = await dbService.getProject(projectId);
+    if (!longProject) {
+      return res.status(404).json({ error: 'Long-form project not found.' });
+    }
+
+    const userId = getUserId(req);
+    const settings = await dbService.getSettings();
+
+    // Create a new separate project for the vertical Short
+    const shortProjectId = uuidv4();
+    const shortProject = {
+      id: shortProjectId,
+      userId,
+      name: `${longProject.name} (Suspense Short)`,
+      type: 'create', // Standard voiceover type so we can render it
+      updatedAt: new Date().toISOString(),
+      state: {
+        topic: longProject.state.topic,
+        niche: longProject.state.niche,
+        scriptText: longProject.state.shortScriptText || "A suspense short based on the long video.",
+        selectedVoice: longProject.state.selectedVoice || settings.lastSelectedVoice || "",
+        audioSource: "generate",
+        voiceoverPath: "",
+        voiceoverUrl: "",
+        scenes: [], // Will be aligned and matched inside this project
+        aspectRatio: "9:16", // Vertical reels
+        fillMode: "crop",
+        bgMusicPath: longProject.state.bgMusicPath || "",
+        bgMusicVolume: longProject.state.bgMusicVolume || 0.15,
+        fontName: longProject.state.fontName || "Arial",
+        fontSize: longProject.state.fontSize || 24,
+        fontColor: longProject.state.fontColor || "#FFFFFF",
+        outlineColor: longProject.state.outlineColor || "#000000",
+        bold: true,
+        italic: false,
+        shadow: true,
+        textFade: true,
+        textTransition: "none",
+        textMotion: "none",
+        activeWordScale: 1.15,
+        exportResolution: "1080p",
+        exportFps: 30
+      }
+    };
+
+    // Save short project
+    await dbService.saveProject(shortProject);
+
+    // Link short project ID to long project
+    longProject.state.shortProjectId = shortProjectId;
+    await dbService.saveProject(longProject);
+
+    res.json({ shortProjectId });
+  } catch (error) {
+    console.error('Error creating short reel project:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
 
 // Start Server
 app.listen(PORT, () => {

@@ -336,13 +336,23 @@ export default function RecreateReel({ onOpenProject }: RecreateReelProps) {
                     </div>
 
                     <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+                      {item.projectId && (
+                        <button
+                          onClick={() => onOpenProject(item.projectId, 'create')}
+                          className="btn-primary"
+                          style={{ fontSize: '11px', padding: '4px 10px', height: '28px' }}
+                          title="Open the saved recreation project directly"
+                        >
+                          Open Project
+                        </button>
+                      )}
                       <button
                         onClick={() => handleStartRecreation(undefined, item.id)}
                         className="btn-secondary"
                         style={{ fontSize: '11px', padding: '4px 10px', height: '28px', background: 'var(--bg-medium)' }}
                         title="Use cached download and analysis to recreate project"
                       >
-                        Select
+                        {item.projectId ? 'Re-match Clips' : 'Select'}
                       </button>
                       <button
                         onClick={(e) => handleDeleteRecreate(item.id, e)}

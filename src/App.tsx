@@ -9,8 +9,10 @@ import BeatSync from './components/BeatSync';
 import ProjectsList from './components/ProjectsList';
 import RecreateReel from './components/RecreateReel';
 import SubjectProfile from './components/SubjectProfile';
+import YoutubeCreator from './components/YoutubeCreator';
+import QuickBeatSync from './components/QuickBeatSync';
 
-type Tab = 'projects' | 'library' | 'music' | 'create' | 'render' | 'settings' | 'editor' | 'beatsync' | 'recreate' | 'subject';
+type Tab = 'projects' | 'library' | 'music' | 'create' | 'render' | 'settings' | 'editor' | 'beatsync' | 'recreate' | 'subject' | 'youtube' | 'quick-beatsync';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('projects');
@@ -206,12 +208,12 @@ export default function App() {
     setActiveJobId(null);
   };
 
-  const [activeProjectType, setActiveProjectType] = useState<'create' | 'beatsync' | 'talkinghead' | null>(null);
+  const [activeProjectType, setActiveProjectType] = useState<'create' | 'beatsync' | 'talkinghead' | 'subtitles' | 'youtube' | null>(null);
 
-  const openProject = (projectId: string, type: 'create' | 'beatsync' | 'talkinghead') => {
+  const openProject = (projectId: string, type: 'create' | 'beatsync' | 'talkinghead' | 'subtitles' | 'youtube') => {
     setActiveProjectId(projectId);
     setActiveProjectType(type);
-    setActiveTab(type === 'beatsync' ? 'beatsync' : 'create');
+    setActiveTab(type === 'beatsync' ? 'beatsync' : type === 'youtube' ? 'youtube' : 'create');
   };
 
   const handleTabClick = async (tab: Tab) => {
@@ -221,7 +223,7 @@ export default function App() {
           const res = await fetch(`/api/projects/${activeProjectId}`);
           if (res.ok) {
             const proj = await res.json();
-            if (proj.type === 'create' || proj.type === 'talkinghead') {
+            if (proj.type === 'create' || proj.type === 'talkinghead' || proj.type === 'subtitles') {
               setActiveProjectType(proj.type);
               setActiveTab('create');
               return;
@@ -234,7 +236,7 @@ export default function App() {
         const res = await fetch('/api/projects');
         if (res.ok) {
           const projects = await res.json();
-          const lastVO = projects.find((p: any) => p.type === 'create' || p.type === 'talkinghead');
+          const lastVO = projects.find((p: any) => p.type === 'create' || p.type === 'talkinghead' || p.type === 'subtitles');
           if (lastVO) {
             openProject(lastVO.id, lastVO.type);
             return;
@@ -296,6 +298,46 @@ export default function App() {
       } catch (_) {}
 
       setActiveTab('beatsync');
+    } else if (tab === 'youtube') {
+      if (activeProjectId) {
+        try {
+          const res = await fetch(`/api/projects/${activeProjectId}`);
+          if (res.ok) {
+            const proj = await res.json();
+            if (proj.type === 'youtube') {
+              setActiveTab('youtube');
+              return;
+            }
+          }
+        } catch (_) {}
+      }
+
+      try {
+        const res = await fetch('/api/projects');
+        if (res.ok) {
+          const projects = await res.json();
+          const lastYT = projects.find((p: any) => p.type === 'youtube');
+          if (lastYT) {
+            openProject(lastYT.id, 'youtube');
+            return;
+          }
+        }
+      } catch (_) {}
+
+      try {
+        const res = await fetch('/api/projects', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'youtube' })
+        });
+        if (res.ok) {
+          const newProj = await res.json();
+          openProject(newProj.id, 'youtube');
+          return;
+        }
+      } catch (_) {}
+
+      setActiveTab('youtube');
     } else {
       setActiveTab(tab);
     }
@@ -305,7 +347,7 @@ export default function App() {
   const getTopNavLabel = () => {
     if (activeTab === 'projects') return 'My Projects';
     if (activeTab === 'create') {
-      return activeProjectType === 'talkinghead' ? 'Talking Head Editor' : 'Video Creator Editor';
+      return activeProjectType === 'talkinghead' ? 'Talking Head Editor' : activeProjectType === 'subtitles' ? 'Add Subtitles Editor' : 'Video Creator Editor';
     }
     if (activeTab === 'beatsync') return 'Beat Sync Editor';
     if (activeTab === 'library') return 'Video Library';
@@ -314,6 +356,7 @@ export default function App() {
     if (activeTab === 'settings') return 'Settings';
     if (activeTab === 'recreate') return 'Replicate Reel';
     if (activeTab === 'subject') return 'Subject Profile';
+    if (activeTab === 'youtube') return 'YouTube Empire';
     return '';
   };
 
@@ -381,11 +424,27 @@ export default function App() {
             </div>
 
             <div
+              className={`nav-link ${activeTab === 'quick-beatsync' ? 'active' : ''}`}
+              onClick={() => handleTabClick('quick-beatsync')}
+            >
+              <Sparkles size={18} />
+              Quick Beat Sync
+            </div>
+
+            <div
               className={`nav-link ${activeTab === 'recreate' ? 'active' : ''}`}
               onClick={() => handleTabClick('recreate')}
             >
               <Sparkles size={18} />
               Replicate Reel
+            </div>
+
+            <div
+              className={`nav-link ${activeTab === 'youtube' ? 'active' : ''}`}
+              onClick={() => handleTabClick('youtube')}
+            >
+              <Play size={18} />
+              YouTube Empire
             </div>
 
             <div
@@ -597,6 +656,10 @@ export default function App() {
           <BeatSync projectId={activeProjectId} onStartRender={startRenderJob} />
         )}
 
+        {activeTab === 'quick-beatsync' && (
+          <QuickBeatSync />
+        )}
+
         {activeTab === 'recreate' && (
           <RecreateReel onOpenProject={openProject} />
         )}
@@ -619,6 +682,10 @@ export default function App() {
 
         {activeTab === 'settings' && (
           <Settings />
+        )}
+
+        {activeTab === 'youtube' && (
+          <YoutubeCreator projectId={activeProjectId} onStartRender={startRenderJob} onOpenProject={openProject} />
         )}
       </main>
 

@@ -1,6 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
-import { Sparkles, RefreshCw, AlertTriangle, CheckCircle, Upload, Zap, Search, Play, Pause, Video, Layers, Sparkle } from 'lucide-react';
+import { SubtitleStyleEditor } from './SubtitleStyleEditor';
+import { Sparkles, RefreshCw, AlertTriangle, CheckCircle, Upload, Zap, Play, Pause, Video, Layers, Sparkle, Trash } from 'lucide-react';
 import RichClipSelector from './RichClipSelector';
+import { Player } from '@remotion/player';
+import { VideoReel } from '../remotion/VideoReel';
+import { PlayerErrorBoundary } from './PlayerErrorBoundary';
 
 interface Voice {
   id: string;
@@ -16,6 +20,8 @@ interface Clip {
   description: string;
   duration: number;
   thumbnail: string;
+  exists?: boolean;
+  tags?: string[];
 }
 
 interface WordTiming {
@@ -27,6 +33,8 @@ interface WordTiming {
 
 interface Scene {
   text: string;
+  text_hindi?: string;
+  text_hinglish?: string;
   start_time: number;
   end_time: number;
   clipId?: string;
@@ -52,6 +60,9 @@ interface Scene {
     radius: number;
     opacity: number;
   };
+  shake?: boolean;
+  shakeIntensity?: number;
+  shakeSpeed?: number;
 }
 
 interface WordStyle {
@@ -63,6 +74,7 @@ interface WordStyle {
   glowDistance: number;
 }
 
+/*
 const emojiMap: Record<string, string> = {
   // Fitness
   'gym': '🏋️‍♂️', 'workout': '🏋️‍♂️', 'fitness': '💪', 'strong': '💪', 'training': '🏋️‍♂️', 'athlete': '🏃‍♂️', 'exercise': '🏋️‍♂️',
@@ -95,6 +107,7 @@ function getWordEmoji(word: string) {
   const clean = word.toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g, "");
   return emojiMap[clean] || '';
 }
+*/
 
 interface VideoPreviewProps {
   clipId: string;
@@ -177,192 +190,125 @@ const CURATED_FONTS = [
   'Righteous', 'Lobster', 'Cinzel', 'Titan One', 'Shadows Into Light',
   'Satisfy', 'Comfortaa', 'Bree Serif', 'Exo 2', 'Creepster', 'Impact',
   'Courier New', 'Times New Roman', 'Orbitron',
-  'Rajdhani', 'Teko', 'Yatra One', 'Rozha One', 'Mukta', 'Martel'
+  'Rajdhani', 'Teko', 'Yatra One', 'Rozha One', 'Mukta', 'Martel',
+  'Advercase', 'Strong', 'Deco', 'Bowlby', 'Tracklist', 'Sweetheart', 'Athiti Bold'
 ];
 
-interface SubtitlePreset {
-  id: string;
-  name: string;
-  description: string;
-  subtitleMode: 'classic' | 'pop' | 'smart-highlight' | 'centered-word';
-  fontName: string;
-  fontSize: number;
-  fontColor: string;
-  outlineColor: string;
-  bold: boolean;
-  italic: boolean;
-  shadow: boolean;
-  highlightColor: string;
-  showHighlightBox: boolean;
-  boxColor: string;
-  boxRounding: number;
-  activeWordScale: number;
-  showEmojis: boolean;
-  autoEmphasis: boolean;
-  emphasisColor: string;
-  neonGlow: boolean;
-  glowColor: string;
-  pop3d: boolean;
-  pop3dColor: string;
-  brandingTheme?: 'none' | 'fitness-in-chunks';
-}
-
-const SUBTITLE_PRESETS: SubtitlePreset[] = [
+/*
+const CAPTION_PRESETS = [
   {
-    id: 'tiktok-hormozi',
-    name: 'TikTok Hormozi',
-    description: '🔥 Viral style with heavy outline, yellow highlights & auto emojis',
-    subtitleMode: 'centered-word',
-    fontName: 'Bangers',
-    fontSize: 36,
-    fontColor: '#FFCC00',
-    outlineColor: '#000000',
-    bold: true,
-    italic: false,
-    shadow: true,
-    highlightColor: '#00FF00',
-    showHighlightBox: false,
-    boxColor: '#8A4BF3',
-    boxRounding: 8,
-    activeWordScale: 1.25,
-    showEmojis: true,
-    autoEmphasis: true,
-    emphasisColor: '#FF3333',
-    neonGlow: false,
-    glowColor: '#00FFFF',
-    pop3d: false,
-    pop3dColor: '#000000'
+    id: 'tiktok',
+    name: 'TikTok Pop',
+    icon: '🔥',
+    style: {
+      fontName: 'Impact',
+      textCase: 'upper',
+      activeWordScale: 1.25,
+      highlightTrigger: 'all',
+      bold: true,
+      italic: false,
+      shadow: true,
+      showHighlightBox: false,
+      neonGlow: false,
+      textTransition: 'none',
+      showEmojis: true,
+      autoEmphasis: false,
+      pop3d: false,
+      fontColor: '#FFFF00',
+      highlightColor: '#FFFFFF',
+      outlineColor: '#000000',
+      normalStyle: { fontColor: '#FFFFFF', activeWordScale: 1.0, neonGlow: false, glowColor: '#00FFFF', glowBlur: 6, glowDistance: 3 },
+      highlightStyle: { fontColor: '#FFFF00', activeWordScale: 1.25, neonGlow: false, glowColor: '#00FFFF', glowBlur: 6, glowDistance: 3 },
+      emojiStyle: { fontColor: '#FFFF00', activeWordScale: 1.25, neonGlow: false, glowColor: '#00FFFF', glowBlur: 6, glowDistance: 3 }
+    }
   },
   {
-    id: 'minimal-vercel',
-    name: 'Minimal Vercel',
-    description: '⚡ Clean, modern aesthetic with sharp white lettering',
-    subtitleMode: 'classic',
-    fontName: 'Inter',
-    fontSize: 24,
-    fontColor: '#FFFFFF',
-    outlineColor: '#000000',
-    bold: false,
-    italic: false,
-    shadow: false,
-    highlightColor: '#FFFFFF',
-    showHighlightBox: false,
-    boxColor: '#8A4BF3',
-    boxRounding: 8,
-    activeWordScale: 1.0,
-    showEmojis: false,
-    autoEmphasis: false,
-    emphasisColor: '#FFFF00',
-    neonGlow: false,
-    glowColor: '#00FFFF',
-    pop3d: false,
-    pop3dColor: '#000000'
+    id: 'neon',
+    name: 'Neon Glow',
+    icon: '💡',
+    style: {
+      fontName: 'Bebas Neue',
+      textCase: 'upper',
+      activeWordScale: 1.2,
+      highlightTrigger: 'all',
+      bold: true,
+      italic: false,
+      shadow: true,
+      showHighlightBox: false,
+      neonGlow: true,
+      glowColor: '#FF00FF',
+      glowBlur: 10,
+      glowDistance: 4,
+      textTransition: 'none',
+      showEmojis: true,
+      autoEmphasis: false,
+      pop3d: false,
+      fontColor: '#FFFFFF',
+      highlightColor: '#FF00FF',
+      outlineColor: '#000000',
+      normalStyle: { fontColor: '#FFFFFF', activeWordScale: 1.0, neonGlow: false, glowColor: '#FF00FF', glowBlur: 10, glowDistance: 4 },
+      highlightStyle: { fontColor: '#FFFFFF', activeWordScale: 1.2, neonGlow: true, glowColor: '#FF00FF', glowBlur: 10, glowDistance: 4 },
+      emojiStyle: { fontColor: '#FFFFFF', activeWordScale: 1.2, neonGlow: true, glowColor: '#FF00FF', glowBlur: 10, glowDistance: 4 }
+    }
   },
   {
-    id: 'cyberpunk-neon',
-    name: 'Cyberpunk Neon',
-    description: '🌌 High tech glow, futuristic font & cyan/magenta highlight',
-    subtitleMode: 'smart-highlight',
-    fontName: 'Orbitron',
-    fontSize: 28,
-    fontColor: '#FFFFFF',
-    outlineColor: '#050505',
-    bold: true,
-    italic: false,
-    shadow: false,
-    highlightColor: '#FF00FF',
-    showHighlightBox: false,
-    boxColor: '#8A4BF3',
-    boxRounding: 8,
-    activeWordScale: 1.15,
-    showEmojis: false,
-    autoEmphasis: false,
-    emphasisColor: '#FFFF00',
-    neonGlow: true,
-    glowColor: '#00FFFF',
-    pop3d: false,
-    pop3dColor: '#000000'
+    id: 'karaoke',
+    name: 'Karaoke Style',
+    icon: '🎤',
+    style: {
+      fontName: 'Inter',
+      textCase: 'default',
+      activeWordScale: 1.1,
+      highlightTrigger: 'all',
+      bold: true,
+      italic: false,
+      shadow: true,
+      showHighlightBox: false,
+      neonGlow: false,
+      textTransition: 'none',
+      showEmojis: true,
+      autoEmphasis: false,
+      pop3d: false,
+      fontColor: '#A0AEC0',
+      highlightColor: '#3182CE',
+      outlineColor: '#000000',
+      normalStyle: { fontColor: '#A0AEC0', activeWordScale: 1.0, neonGlow: false, glowColor: '#00FFFF', glowBlur: 6, glowDistance: 3 },
+      highlightStyle: { fontColor: '#3182CE', activeWordScale: 1.1, neonGlow: false, glowColor: '#00FFFF', glowBlur: 6, glowDistance: 3 },
+      emojiStyle: { fontColor: '#3182CE', activeWordScale: 1.1, neonGlow: false, glowColor: '#00FFFF', glowBlur: 6, glowDistance: 3 }
+    }
   },
   {
-    id: 'retro-pop',
-    name: 'Retro Pop',
-    description: '🎮 Bold 3D pop extrusion with black box highlight',
-    subtitleMode: 'centered-word',
-    fontName: 'Titan One',
-    fontSize: 30,
-    fontColor: '#FFFFFF',
-    outlineColor: '#000000',
-    bold: true,
-    italic: false,
-    shadow: false,
-    highlightColor: '#00FFFF',
-    showHighlightBox: true,
-    boxColor: '#000000',
-    boxRounding: 6,
-    activeWordScale: 1.15,
-    showEmojis: false,
-    autoEmphasis: false,
-    emphasisColor: '#FFFF00',
-    neonGlow: false,
-    glowColor: '#00FFFF',
-    pop3d: true,
-    pop3dColor: '#FF3366'
-  },
-  {
-    id: 'clean-slate',
-    name: 'Clean Slate',
-    description: '✨ Classic Montserrat clean look with soft text shadow',
-    subtitleMode: 'classic',
-    fontName: 'Montserrat',
-    fontSize: 26,
-    fontColor: '#FFFFFF',
-    outlineColor: '#000000',
-    bold: true,
-    italic: false,
-    shadow: true,
-    highlightColor: '#FFFF00',
-    showHighlightBox: false,
-    boxColor: '#8A4BF3',
-    boxRounding: 8,
-    activeWordScale: 1.15,
-    showEmojis: false,
-    autoEmphasis: false,
-    emphasisColor: '#FFFF00',
-    neonGlow: false,
-    glowColor: '#00FFFF',
-    pop3d: false,
-    pop3dColor: '#000000'
-  },
-  {
-    id: 'fitness-in-chunks',
-    name: 'Fitness In Chunks',
-    description: '🎬 Clean monochrome documentary captions matching the branding system',
-    subtitleMode: 'classic',
-    fontName: 'Montserrat',
-    fontSize: 22,
-    fontColor: '#FFFFFF',
-    outlineColor: '#000000',
-    bold: true,
-    italic: false,
-    shadow: false,
-    highlightColor: '#FFFFFF',
-    showHighlightBox: false,
-    boxColor: '#1A1A1A',
-    boxRounding: 8,
-    activeWordScale: 1.0,
-    showEmojis: false,
-    autoEmphasis: false,
-    emphasisColor: '#FFFFFF',
-    neonGlow: false,
-    glowColor: '#00FFFF',
-    pop3d: false,
-    pop3dColor: '#000000',
-    brandingTheme: 'fitness-in-chunks'
+    id: 'glitch',
+    name: 'RGB Glitch',
+    icon: '👾',
+    style: {
+      fontName: 'Bangers',
+      textCase: 'upper',
+      activeWordScale: 1.2,
+      highlightTrigger: 'all',
+      bold: true,
+      italic: false,
+      shadow: true,
+      showHighlightBox: false,
+      neonGlow: false,
+      textTransition: 'none',
+      showEmojis: true,
+      autoEmphasis: false,
+      pop3d: true,
+      pop3dColor: '#FF00FF',
+      fontColor: '#FFFFFF',
+      highlightColor: '#00FFFF',
+      outlineColor: '#000000',
+      normalStyle: { fontColor: '#FFFFFF', activeWordScale: 1.0, neonGlow: false, glowColor: '#00FFFF', glowBlur: 6, glowDistance: 3 },
+      highlightStyle: { fontColor: '#FFFFFF', activeWordScale: 1.0, neonGlow: false, glowColor: '#00FFFF', glowBlur: 6, glowDistance: 3 },
+      emojiStyle: { fontColor: '#FFFFFF', activeWordScale: 1.0, neonGlow: false, glowColor: '#00FFFF', glowBlur: 6, glowDistance: 3 }
+    }
   }
 ];
+*/
 
 export default function CreateProject({ projectId, onStartRender }: CreateProjectProps) {
-  const [projectType, setProjectType] = useState<'create' | 'talkinghead'>('create');
+  const [projectType, setProjectType] = useState<'create' | 'talkinghead' | 'subtitles'>('create');
   const [originalVideoPath, setOriginalVideoPath] = useState('');
   const [originalVideoUrl, setOriginalVideoUrl] = useState('');
   const [uploadingVideo, setUploadingVideo] = useState(false);
@@ -399,6 +345,7 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
   const [voiceoverUrl, setVoiceoverUrl] = useState('');
   const [aligning, setAligning] = useState(false);
   const [scenes, setScenes] = useState<Scene[]>([]);
+  const [activeLang, setActiveLang] = useState<'hinglish' | 'hindi'>('hinglish');
   const [hoveredSceneIdx, setHoveredSceneIdx] = useState<number | null>(null);
   const [activeSliderIdx, setActiveSliderIdx] = useState<number | null>(null);
   const [matching, setMatching] = useState(false);
@@ -406,8 +353,14 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
   const [fillMode, setFillMode] = useState<'crop' | 'fit'>('crop');
   const [bgMusicPath, setBgMusicPath] = useState('');
   const [bgMusicVolume, setBgMusicVolume] = useState(0.07);
+  const [muteBgMusic, setMuteBgMusic] = useState(false);
   const [bgMusicStartOffset, setBgMusicStartOffset] = useState(0);
   const [voiceoverVolume, setVoiceoverVolume] = useState(1.0);
+  const [muteVoiceover, setMuteVoiceover] = useState(false);
+  const [videoVolume, setVideoVolume] = useState(0.0);
+  const [muteVideoAudio, setMuteVideoAudio] = useState(true);
+  const [sfxVolume, setSfxVolume] = useState(1.0);
+  const [muteSfx, setMuteSfx] = useState(false);
   const [clipTransition, setClipTransition] = useState<string>('none');
   const [transitionDuration, setTransitionDuration] = useState(0.3);
   const [zoomAnimation, setZoomAnimation] = useState(true);
@@ -416,10 +369,11 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
   const [bgms, setBgms] = useState<any[]>([]);
   const [bgmSource, setBgmSource] = useState<'library' | 'custom'>('library');
   const [subtitleMode, setSubtitleMode] = useState<'classic' | 'pop' | 'smart-highlight' | 'centered-word'>('classic');
-  const [fontName, setFontName] = useState('Arial');
+  // const [activeAccordion, setActiveAccordion] = useState<'layout' | 'typography' | 'words' | 'branding'>('layout');
+  const [fontName, setFontName] = useState('Bangers');
   const [fontSelectorOpen, setFontSelectorOpen] = useState(false);
-  const [fontSearchQuery, setFontSearchQuery] = useState('');
-  const [fontLoading, setFontLoading] = useState(false);
+  // const [fontSearchQuery, setFontSearchQuery] = useState('');
+  // const [fontLoading, setFontLoading] = useState(false);
   const [useAiFallback, setUseAiFallback] = useState(false);
   // AI generation modal states
   const [showAiGenModal, setShowAiGenModal] = useState(false);
@@ -429,15 +383,16 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
   const [aiGenDuration, setAiGenDuration] = useState(5);
   const [aiGenLoading, setAiGenLoading] = useState(false);
   const [aiGenError, setAiGenError] = useState('');
-  const [fontDownloadError, setFontDownloadError] = useState('');
-  const [fontSize, setFontSize] = useState(24);
+  // const [fontDownloadError, setFontDownloadError] = useState('');
+  const [fontSize, setFontSize] = useState(48);
   const [fontColor, setFontColor] = useState('#FFFFFF');
   const [outlineColor, setOutlineColor] = useState('#000000');
-  const [bold, setBold] = useState(true);
+  const [outlineThickness, setOutlineThickness] = useState(1.5);
+  const [bold, setBold] = useState(false);
   const [italic, setItalic] = useState(false);
   const [shadow, setShadow] = useState(true);
-  const [highlightColor, setHighlightColor] = useState('#FFFF00');
-  const [showHighlightBox, setShowHighlightBox] = useState(true);
+  const [highlightColor, setHighlightColor] = useState('#FACC15');
+  const [showHighlightBox, setShowHighlightBox] = useState(false);
   const [boxColor, setBoxColor] = useState('#8A4BF3');
   const [boxRounding, setBoxRounding] = useState(8);
   const [textFade, setTextFade] = useState(true);
@@ -447,23 +402,68 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
   const [wordDisplayTime, setWordDisplayTime] = useState(1.0);
   const [maxWordsPerLine, setMaxWordsPerLine] = useState(3);
   const [textPositionX, setTextPositionX] = useState(0);
-  const [textPositionY, setTextPositionY] = useState(-70);
+  const [textPositionY, setTextPositionY] = useState(-65);
   const [showEmojis, setShowEmojis] = useState(false);
   const [autoEmphasis, setAutoEmphasis] = useState(false);
-  const [emphasisColor, setEmphasisColor] = useState('#FFFF00');
-  const [neonGlow, setNeonGlow] = useState(false);
-  const [glowColor, setGlowColor] = useState('#00FFFF');
-  const [glowBlur, setGlowBlur] = useState(6);
-  const [glowDistance, setGlowDistance] = useState(3);
+  const [emphasisColor, setEmphasisColor] = useState('#FFFFFF');
+  const [neonGlow, setNeonGlow] = useState(true);
+  const [glowColor, setGlowColor] = useState('#FFFFFF');
+  const [glowBlur, setGlowBlur] = useState(1);
+  const [glowDistance, setGlowDistance] = useState(20);
   const [showBulkTransitions, setShowBulkTransitions] = useState(false);
   const [bulkTransition, setBulkTransition] = useState('none');
   const [bulkSfx, setBulkSfx] = useState('none');
 
-  const [highlightTrigger, setHighlightTrigger] = useState<'all' | 'emphasis' | 'emoji'>('all');
+  const [highlightTrigger, setHighlightTrigger] = useState<'all' | 'emphasis' | 'emoji' | 'none'>('all');
+  const [textCase, setTextCase] = useState<'default' | 'upper' | 'first-word-larger'>('default');
   const [pop3d, setPop3d] = useState(false);
   const [pop3dColor, setPop3dColor] = useState('#000000');
+  const [pop3dDepth, setPop3dDepth] = useState(6);
+  const [letterSpacing, setLetterSpacing] = useState(3);
+  const [wordSpacing, setWordSpacing] = useState(5);
+  const [shadowColor, setShadowColor] = useState('#000000');
+  const [shadowBlur, setShadowBlur] = useState(4);
+  const [shadowDistance, setShadowDistance] = useState(2);
+  const [shadowAngle, setShadowAngle] = useState(45);
+  const [shadowOpacity, setShadowOpacity] = useState(0.6);
+  const [textAnimation, setTextAnimation] = useState('none');
 
   // Heading / Hook state variables
+/*
+  const applyCaptionPreset = (preset: typeof CAPTION_PRESETS[0]) => {
+    const s = preset.style;
+    if (s.fontName !== undefined) setFontName(s.fontName);
+    if (s.textCase !== undefined) setTextCase(s.textCase as any);
+    if (s.activeWordScale !== undefined) setActiveWordScale(s.activeWordScale);
+    if (s.highlightTrigger !== undefined) setHighlightTrigger(s.highlightTrigger as any);
+    if (s.bold !== undefined) setBold(s.bold);
+    if (s.italic !== undefined) setItalic(s.italic);
+    if (s.shadow !== undefined) setShadow(s.shadow);
+    if (s.showHighlightBox !== undefined) setShowHighlightBox(s.showHighlightBox);
+    if (s.neonGlow !== undefined) setNeonGlow(s.neonGlow);
+    if (s.textTransition !== undefined) setTextTransition(s.textTransition);
+    if (s.showEmojis !== undefined) setShowEmojis(s.showEmojis);
+    if (s.autoEmphasis !== undefined) setAutoEmphasis(s.autoEmphasis);
+    if (s.pop3d !== undefined) setPop3d(s.pop3d);
+    if (s.pop3dColor !== undefined) setPop3dColor(s.pop3dColor);
+    if (s.fontColor !== undefined) setFontColor(s.fontColor);
+    if (s.highlightColor !== undefined) setHighlightColor(s.highlightColor);
+    if (s.outlineColor !== undefined) setOutlineColor(s.outlineColor);
+    if (s.normalStyle !== undefined) setNormalStyle(s.normalStyle);
+    if (s.highlightStyle !== undefined) setHighlightStyle(s.highlightStyle);
+    if (s.emojiStyle !== undefined) setEmojiStyle(s.emojiStyle);
+    const sAny = s as any;
+    setLetterSpacing(sAny.letterSpacing !== undefined ? sAny.letterSpacing : 0);
+    setWordSpacing(sAny.wordSpacing !== undefined ? sAny.wordSpacing : 0);
+    setShadowColor(sAny.shadowColor !== undefined ? sAny.shadowColor : '#000000');
+    setShadowBlur(sAny.shadowBlur !== undefined ? sAny.shadowBlur : 4);
+    setShadowDistance(sAny.shadowDistance !== undefined ? sAny.shadowDistance : 2);
+    setShadowAngle(sAny.shadowAngle !== undefined ? sAny.shadowAngle : 45);
+    setShadowOpacity(sAny.shadowOpacity !== undefined ? sAny.shadowOpacity : 0.6);
+    setPop3dDepth(sAny.pop3dDepth !== undefined ? sAny.pop3dDepth : 6);
+    setTextAnimation(sAny.textAnimation !== undefined ? sAny.textAnimation : 'none');
+  };
+*/
   const [headingTitle, setHeadingTitle] = useState('');
   const [headingFontName, setHeadingFontName] = useState('Montserrat');
   const [headingFontSize, setHeadingFontSize] = useState(18);
@@ -479,32 +479,42 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
   const [seriesName, setSeriesName] = useState('FITNESSINCHUNKS');
   const [episodeNumber, setEpisodeNumber] = useState('EP 01');
   const [nextEpisode, setNextEpisode] = useState('EP 02');
+
+  // Card & Brand Customization
+  const [brandPrimaryColor, setBrandPrimaryColor] = useState('#d4af37');
+  const [brandSecondaryColor, setBrandSecondaryColor] = useState('#f5e6a3');
+  const [cardPositionY, setCardPositionY] = useState(0);
+  const [cardScale, setCardScale] = useState(1.0);
+  const [cardFontName, setCardFontName] = useState('Montserrat');
+  const [showLayoutCards, setShowLayoutCards] = useState(true);
+  const [applyHUDToAll, setApplyHUDToAll] = useState(true);
+  const [activeSceneIdx, setActiveSceneIdx] = useState<number>(0);
   
   const [normalStyle, setNormalStyle] = useState<WordStyle>({
     fontColor: '#FFFFFF',
     activeWordScale: 1.0,
-    neonGlow: false,
-    glowColor: '#00FFFF',
-    glowBlur: 6,
-    glowDistance: 3
+    neonGlow: true,
+    glowColor: '#FFFFFF',
+    glowBlur: 1,
+    glowDistance: 20
   });
   const [highlightStyle, setHighlightStyle] = useState<WordStyle>({
-    fontColor: '#FFFF00',
+    fontColor: '#FACC15',
     activeWordScale: 1.15,
-    neonGlow: false,
-    glowColor: '#00FFFF',
-    glowBlur: 6,
-    glowDistance: 3
+    neonGlow: true,
+    glowColor: '#FACC15',
+    glowBlur: 1,
+    glowDistance: 20
   });
   const [emojiStyle, setEmojiStyle] = useState<WordStyle>({
-    fontColor: '#FFFF00',
+    fontColor: '#FACC15',
     activeWordScale: 1.15,
-    neonGlow: false,
-    glowColor: '#00FFFF',
-    glowBlur: 6,
-    glowDistance: 3
+    neonGlow: true,
+    glowColor: '#FACC15',
+    glowBlur: 1,
+    glowDistance: 20
   });
-  const [styleTab, setStyleTab] = useState<'normal' | 'highlight' | 'emoji'>('normal');
+  // const [styleTab, setStyleTab] = useState<'normal' | 'highlight' | 'emoji'>('normal');
   const [sfxList, setSfxList] = useState<{ id: string; name: string }[]>([]);
   const [previewingSfx, setPreviewingSfx] = useState<string | null>(null);
   const sfxAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -639,6 +649,10 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
     let targetFont = font;
     if (font.startsWith('Kalam')) {
       targetFont = 'Kalam';
+    } else if (font === 'Athiti Bold') {
+      targetFont = 'Athiti';
+    } else if (font === 'Bowlby') {
+      targetFont = 'Bowlby One';
     }
 
     const id = `google-font-${targetFont.toLowerCase().replace(/\s+/g, '-')}`;
@@ -679,6 +693,7 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
     return () => window.removeEventListener('click', handleClose);
   }, [fontSelectorOpen]);
 
+/*
   const handleAddCustomFont = async (customFont: string) => {
     setFontLoading(true);
     setFontDownloadError('');
@@ -705,46 +720,15 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
       setFontLoading(false);
     }
   };
+*/
 
-  const handleApplyPreset = (preset: SubtitlePreset) => {
-    setSubtitleMode(preset.subtitleMode);
-    setFontName(preset.fontName);
-    setFontSize(preset.fontSize);
-    setFontColor(preset.fontColor);
-    setOutlineColor(preset.outlineColor);
-    setBold(preset.bold);
-    setItalic(preset.italic);
-    setShadow(preset.shadow);
-    setHighlightColor(preset.highlightColor);
-    setShowHighlightBox(preset.showHighlightBox);
-    setBoxColor(preset.boxColor);
-    setBoxRounding(preset.boxRounding);
-    setActiveWordScale(preset.activeWordScale);
-    setShowEmojis(preset.showEmojis);
-    setAutoEmphasis(preset.autoEmphasis);
-    setEmphasisColor(preset.emphasisColor);
-    setNeonGlow(preset.neonGlow);
-    setGlowColor(preset.glowColor);
-    setPop3d(preset.pop3d);
-    setPop3dColor(preset.pop3dColor);
-    setBrandingTheme(preset.brandingTheme || 'none');
 
-    try {
-      fetch('/api/fonts/ensure', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fontName: preset.fontName })
-      }).catch(err => console.warn('Backend font ensure failed:', err));
-      
-      loadGoogleFont(preset.fontName);
-    } catch (err) {
-      console.warn('Font preload failed:', err);
-    }
-  };
 
+/*
   const filteredFonts = CURATED_FONTS.filter(font =>
     font.toLowerCase().includes(fontSearchQuery.toLowerCase())
   );
+*/
 
   useEffect(() => {
     const init = async () => {
@@ -766,14 +750,16 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
         const method = projectId ? 'PUT' : 'POST';
         const payload = projectId ? {
           state: {
-            scriptText, selectedVoice, audioSource, voiceoverPath, voiceoverUrl, scenes,
+            scriptText, selectedVoice, audioSource, voiceoverPath, voiceoverUrl, scenes, activeLang,
             originalVideoPath, originalVideoUrl,
-            aspectRatio, fillMode, bgMusicPath, bgMusicVolume, bgMusicStartOffset,
-            voiceoverVolume, clipTransition, transitionDuration, zoomAnimation, subtitleMode,
-            fontName, fontSize, fontColor, outlineColor, bold, italic, shadow, highlightColor,
+            aspectRatio, fillMode, bgMusicPath, bgMusicVolume, muteBgMusic, bgMusicStartOffset,
+            voiceoverVolume, muteVoiceover, videoVolume, muteVideoAudio, sfxVolume, muteSfx,
+            clipTransition, transitionDuration, zoomAnimation, subtitleMode,
+            fontName, fontSize, fontColor, outlineColor, outlineThickness, bold, italic, shadow, highlightColor,
             showHighlightBox, boxColor, boxRounding, textFade, textTransition, textMotion,
             activeWordScale, wordDisplayTime, maxWordsPerLine, textPositionX, textPositionY, exportResolution,
-            exportFps, showEmojis, autoEmphasis, emphasisColor, neonGlow, glowColor, glowBlur, glowDistance, highlightTrigger, pop3d, pop3dColor,
+            exportFps, showEmojis, autoEmphasis, emphasisColor, neonGlow, glowColor, glowBlur, glowDistance, highlightTrigger, textCase, pop3d, pop3dColor,
+            pop3dDepth, letterSpacing, wordSpacing, shadowColor, shadowBlur, shadowDistance, shadowAngle, shadowOpacity, textAnimation,
             normalStyle, highlightStyle, emojiStyle, elevenLabsModel, enhanceWithThoughtfulTags, originalScriptText,
             headingTitle, headingFontName, headingFontSize, headingFontColor, headingBoxColor, headingPadding, showTimer, headingTopOffset, headingLeftOffset,
             headingBoxOpacity, headingTextOpacity,
@@ -781,17 +767,20 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
             backgroundType, backgroundColor, backgroundClipId,
             talkingHeadEnabled, talkingHeadChromaColor, talkingHeadChromaSimilarity, talkingHeadChromaBlend,
             talkingHeadSize, talkingHeadPosition, talkingHeadPositionX, talkingHeadPositionY,
-            talkingHeadOutlineEnabled, talkingHeadOutlineColor, talkingHeadOutlineThickness
+            talkingHeadOutlineEnabled, talkingHeadOutlineColor, talkingHeadOutlineThickness,
+            brandPrimaryColor, brandSecondaryColor, cardPositionY, cardScale, cardFontName, showLayoutCards, applyHUDToAll
           }
         } : {
-          scriptText, selectedVoice, audioSource, voiceoverPath, voiceoverUrl, scenes,
+          scriptText, selectedVoice, audioSource, voiceoverPath, voiceoverUrl, scenes, activeLang,
           originalVideoPath, originalVideoUrl,
-          aspectRatio, fillMode, bgMusicPath, bgMusicVolume, bgMusicStartOffset,
-          voiceoverVolume, clipTransition, transitionDuration, zoomAnimation, subtitleMode,
-          fontName, fontSize, fontColor, outlineColor, bold, italic, shadow, highlightColor,
+          aspectRatio, fillMode, bgMusicPath, bgMusicVolume, muteBgMusic, bgMusicStartOffset,
+          voiceoverVolume, muteVoiceover, videoVolume, muteVideoAudio, sfxVolume, muteSfx,
+          clipTransition, transitionDuration, zoomAnimation, subtitleMode,
+          fontName, fontSize, fontColor, outlineColor, outlineThickness, bold, italic, shadow, highlightColor,
           showHighlightBox, boxColor, boxRounding, textFade, textTransition, textMotion,
           activeWordScale, wordDisplayTime, maxWordsPerLine, textPositionX, textPositionY, exportResolution,
-          exportFps, showEmojis, autoEmphasis, emphasisColor, neonGlow, glowColor, glowBlur, glowDistance, highlightTrigger, pop3d, pop3dColor,
+          exportFps, showEmojis, autoEmphasis, emphasisColor, neonGlow, glowColor, glowBlur, glowDistance, highlightTrigger, textCase, pop3d, pop3dColor,
+          pop3dDepth, letterSpacing, wordSpacing, shadowColor, shadowBlur, shadowDistance, shadowAngle, shadowOpacity, textAnimation,
           normalStyle, highlightStyle, emojiStyle, elevenLabsModel, enhanceWithThoughtfulTags, originalScriptText,
           headingTitle, headingFontName, headingFontSize, headingFontColor, headingBoxColor, headingPadding, showTimer, headingTopOffset, headingLeftOffset,
           headingBoxOpacity, headingTextOpacity,
@@ -799,7 +788,8 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
           backgroundType, backgroundColor, backgroundClipId,
           talkingHeadEnabled, talkingHeadChromaColor, talkingHeadChromaSimilarity, talkingHeadChromaBlend,
           talkingHeadSize, talkingHeadPosition, talkingHeadPositionX, talkingHeadPositionY,
-          talkingHeadOutlineEnabled, talkingHeadOutlineColor, talkingHeadOutlineThickness
+          talkingHeadOutlineEnabled, talkingHeadOutlineColor, talkingHeadOutlineThickness,
+          brandPrimaryColor, brandSecondaryColor, cardPositionY, cardScale, cardFontName, showLayoutCards, applyHUDToAll
         };
 
         await fetch(endpoint, {
@@ -818,14 +808,17 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
 
     return () => clearTimeout(delayDebounce);
   }, [
-    scriptText, selectedVoice, audioSource, voiceoverPath, voiceoverUrl, scenes, aspectRatio,
+    scriptText, selectedVoice, audioSource, voiceoverPath, voiceoverUrl, scenes, activeLang, aspectRatio,
     originalVideoPath, originalVideoUrl,
-    fillMode, bgMusicPath, bgMusicVolume, bgMusicStartOffset, voiceoverVolume, clipTransition,
-    transitionDuration, zoomAnimation, subtitleMode, fontName, fontSize, fontColor, outlineColor,
+    fillMode, bgMusicPath, bgMusicVolume, muteBgMusic, bgMusicStartOffset, voiceoverVolume, muteVoiceover,
+    videoVolume, muteVideoAudio, sfxVolume, muteSfx, clipTransition,
+    transitionDuration, zoomAnimation, subtitleMode, fontName, fontSize, fontColor, outlineColor, outlineThickness,
     bold, italic, shadow, highlightColor, showHighlightBox, boxColor, boxRounding, textFade,
     textTransition, textMotion, activeWordScale, wordDisplayTime, maxWordsPerLine, textPositionX, textPositionY,
     exportResolution, exportFps, showEmojis, autoEmphasis, emphasisColor, neonGlow, glowColor,
-    glowBlur, glowDistance, highlightTrigger, pop3d, pop3dColor, normalStyle, highlightStyle, emojiStyle,
+    glowBlur, glowDistance, highlightTrigger, textCase, pop3d, pop3dColor, pop3dDepth, letterSpacing, wordSpacing,
+    shadowColor, shadowBlur, shadowDistance, shadowAngle, shadowOpacity, textAnimation,
+    normalStyle, highlightStyle, emojiStyle,
     elevenLabsModel, enhanceWithThoughtfulTags, originalScriptText, hasLoadedProject, projectId,
     headingTitle, headingFontName, headingFontSize, headingFontColor, headingBoxColor, headingPadding, showTimer, headingTopOffset, headingLeftOffset,
     headingBoxOpacity, headingTextOpacity,
@@ -833,7 +826,8 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
     backgroundType, backgroundColor, backgroundClipId,
     talkingHeadEnabled, talkingHeadChromaColor, talkingHeadChromaSimilarity, talkingHeadChromaBlend,
     talkingHeadSize, talkingHeadPosition, talkingHeadPositionX, talkingHeadPositionY,
-    talkingHeadOutlineEnabled, talkingHeadOutlineColor, talkingHeadOutlineThickness
+    talkingHeadOutlineEnabled, talkingHeadOutlineColor, talkingHeadOutlineThickness,
+    brandPrimaryColor, brandSecondaryColor, cardPositionY, cardScale, cardFontName, showLayoutCards
   ]);
 
   const fetchProjectState = async () => {
@@ -861,12 +855,19 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
         }
         if (project.voiceoverUrl !== undefined) setVoiceoverUrl(project.voiceoverUrl);
         if (project.scenes !== undefined) setScenes(project.scenes);
+        if (project.activeLang !== undefined) setActiveLang(project.activeLang);
         if (project.aspectRatio !== undefined) setAspectRatio(project.aspectRatio);
         if (project.fillMode !== undefined) setFillMode(project.fillMode);
         if (project.bgMusicPath !== undefined) setBgMusicPath(project.bgMusicPath);
         if (project.bgMusicVolume !== undefined) setBgMusicVolume(project.bgMusicVolume);
+        if (project.muteBgMusic !== undefined) setMuteBgMusic(project.muteBgMusic);
         if (project.bgMusicStartOffset !== undefined) setBgMusicStartOffset(project.bgMusicStartOffset);
         if (project.voiceoverVolume !== undefined) setVoiceoverVolume(project.voiceoverVolume);
+        if (project.muteVoiceover !== undefined) setMuteVoiceover(project.muteVoiceover);
+        if (project.videoVolume !== undefined) setVideoVolume(project.videoVolume);
+        if (project.muteVideoAudio !== undefined) setMuteVideoAudio(project.muteVideoAudio);
+        if (project.sfxVolume !== undefined) setSfxVolume(project.sfxVolume);
+        if (project.muteSfx !== undefined) setMuteSfx(project.muteSfx);
         if (project.clipTransition !== undefined) setClipTransition(project.clipTransition);
         if (project.transitionDuration !== undefined) setTransitionDuration(project.transitionDuration);
         if (project.zoomAnimation !== undefined) setZoomAnimation(project.zoomAnimation);
@@ -875,6 +876,7 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
         if (project.fontSize !== undefined) setFontSize(project.fontSize);
         if (project.fontColor !== undefined) setFontColor(project.fontColor);
         if (project.outlineColor !== undefined) setOutlineColor(project.outlineColor);
+        if (project.outlineThickness !== undefined) setOutlineThickness(project.outlineThickness);
         if (project.bold !== undefined) setBold(project.bold);
         if (project.italic !== undefined) setItalic(project.italic);
         if (project.shadow !== undefined) setShadow(project.shadow);
@@ -900,32 +902,42 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
         if (project.glowBlur !== undefined) setGlowBlur(project.glowBlur);
         if (project.glowDistance !== undefined) setGlowDistance(project.glowDistance);
         if (project.highlightTrigger !== undefined) setHighlightTrigger(project.highlightTrigger);
+        if (project.textCase !== undefined) setTextCase(project.textCase);
         if (project.pop3d !== undefined) setPop3d(project.pop3d);
         if (project.pop3dColor !== undefined) setPop3dColor(project.pop3dColor);
+        if (project.pop3dDepth !== undefined) setPop3dDepth(project.pop3dDepth);
+        if (project.letterSpacing !== undefined) setLetterSpacing(project.letterSpacing);
+        if (project.wordSpacing !== undefined) setWordSpacing(project.wordSpacing);
+        if (project.shadowColor !== undefined) setShadowColor(project.shadowColor);
+        if (project.shadowBlur !== undefined) setShadowBlur(project.shadowBlur);
+        if (project.shadowDistance !== undefined) setShadowDistance(project.shadowDistance);
+        if (project.shadowAngle !== undefined) setShadowAngle(project.shadowAngle);
+        if (project.shadowOpacity !== undefined) setShadowOpacity(project.shadowOpacity);
+        if (project.textAnimation !== undefined) setTextAnimation(project.textAnimation);
 
-        const norm = project.normalStyle || {
+         const norm = project.normalStyle || {
           fontColor: project.fontColor || '#FFFFFF',
           activeWordScale: 1.0,
-          neonGlow: !!project.neonGlow,
-          glowColor: project.glowColor || '#00FFFF',
-          glowBlur: project.glowBlur !== undefined ? project.glowBlur : 6,
-          glowDistance: project.glowDistance !== undefined ? project.glowDistance : 3
+          neonGlow: project.neonGlow !== undefined ? !!project.neonGlow : true,
+          glowColor: project.glowColor || '#FFFFFF',
+          glowBlur: project.glowBlur !== undefined ? project.glowBlur : 1,
+          glowDistance: project.glowDistance !== undefined ? project.glowDistance : 20
         };
         const high = project.highlightStyle || {
-          fontColor: project.highlightColor || '#FFFF00',
+          fontColor: project.highlightColor || '#FACC15',
           activeWordScale: project.activeWordScale !== undefined ? project.activeWordScale : 1.15,
-          neonGlow: !!project.neonGlow,
-          glowColor: project.glowColor || '#00FFFF',
-          glowBlur: project.glowBlur !== undefined ? project.glowBlur : 6,
-          glowDistance: project.glowDistance !== undefined ? project.glowDistance : 3
+          neonGlow: project.neonGlow !== undefined ? !!project.neonGlow : true,
+          glowColor: project.glowColor || '#FACC15',
+          glowBlur: project.glowBlur !== undefined ? project.glowBlur : 1,
+          glowDistance: project.glowDistance !== undefined ? project.glowDistance : 20
         };
         const emoj = project.emojiStyle || {
-          fontColor: project.highlightColor || '#FFFF00',
+          fontColor: project.highlightColor || '#FACC15',
           activeWordScale: project.activeWordScale !== undefined ? project.activeWordScale : 1.15,
-          neonGlow: !!project.neonGlow,
-          glowColor: project.glowColor || '#00FFFF',
-          glowBlur: project.glowBlur !== undefined ? project.glowBlur : 6,
-          glowDistance: project.glowDistance !== undefined ? project.glowDistance : 3
+          neonGlow: project.neonGlow !== undefined ? !!project.neonGlow : true,
+          glowColor: project.glowColor || '#FACC15',
+          glowBlur: project.glowBlur !== undefined ? project.glowBlur : 1,
+          glowDistance: project.glowDistance !== undefined ? project.glowDistance : 20
         };
         setNormalStyle(norm);
         setHighlightStyle(high);
@@ -963,6 +975,13 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
         if (project.talkingHeadOutlineEnabled !== undefined) setTalkingHeadOutlineEnabled(project.talkingHeadOutlineEnabled);
         if (project.talkingHeadOutlineColor !== undefined) setTalkingHeadOutlineColor(project.talkingHeadOutlineColor);
         if (project.talkingHeadOutlineThickness !== undefined) setTalkingHeadOutlineThickness(project.talkingHeadOutlineThickness);
+        if (project.brandPrimaryColor !== undefined) setBrandPrimaryColor(project.brandPrimaryColor);
+        if (project.brandSecondaryColor !== undefined) setBrandSecondaryColor(project.brandSecondaryColor);
+        if (project.cardPositionY !== undefined) setCardPositionY(project.cardPositionY);
+        if (project.cardScale !== undefined) setCardScale(project.cardScale);
+        if (project.cardFontName !== undefined) setCardFontName(project.cardFontName);
+        if (project.showLayoutCards !== undefined) setShowLayoutCards(project.showLayoutCards);
+        if (project.applyHUDToAll !== undefined) setApplyHUDToAll(project.applyHUDToAll);
       }
     } catch (err) {
       console.error('Failed to load project state:', err);
@@ -1171,15 +1190,15 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
 
   const handleAlignScript = async () => {
     if (!voiceoverPath) {
-      setError(projectType === 'talkinghead' ? 'Original video is required. Please upload a video first.' : 'Voiceover audio is required. Please generate or upload audio first.');
+      setError(projectType === 'talkinghead' || projectType === 'subtitles' ? 'Original video is required. Please upload a video first.' : 'Voiceover audio is required. Please generate or upload audio first.');
       return;
     }
-    if (projectType !== 'talkinghead' && audioSource === 'generate' && !scriptText) {
+    if (projectType !== 'talkinghead' && projectType !== 'subtitles' && audioSource === 'generate' && !scriptText) {
       setError('Script text is required to generate and align a voiceover.');
       return;
     }
 
-    if (projectType === 'talkinghead') {
+    if (projectType === 'talkinghead' || projectType === 'subtitles') {
       setTranscribing(true);
     } else {
       setAligning(true);
@@ -1190,7 +1209,11 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
       const res = await fetch('/api/align-script', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scriptText: projectType === 'talkinghead' ? '' : scriptText, audioPath: voiceoverPath })
+        body: JSON.stringify({ 
+          scriptText: projectType === 'talkinghead' ? '' : scriptText, 
+          audioPath: voiceoverPath,
+          language: 'hinglish'
+        })
       });
 
       if (!res.ok) {
@@ -1199,25 +1222,32 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
 
       const data = await res.json();
       const segments = data.segments || [];
-      if (projectType === 'talkinghead') {
+      if (projectType === 'talkinghead' || projectType === 'subtitles') {
         const text = segments.map((s: any) => s.text).join(' ');
         setScriptText(text);
         
         const mapped = segments.map((seg: any) => ({
           ...seg,
           clipId: 'original',
-          clipStart: seg.start_time
+          clipStart: seg.start_time,
+          text: activeLang === 'hindi' ? (seg.text_hindi || seg.text || '') : (seg.text_hinglish || seg.text || ''),
+          words: activeLang === 'hindi' ? (seg.words_hindi || seg.words || []) : (seg.words_hinglish || seg.words || [])
         }));
         setScenes(mapped);
-        setSuccess('Video transcribed and segmented successfully!');
+        setSuccess(projectType === 'subtitles' ? 'Video transcribed successfully!' : 'Video transcribed and segmented successfully!');
       } else {
-        setScenes(segments);
+        const mapped = segments.map((seg: any) => ({
+          ...seg,
+          text: activeLang === 'hindi' ? (seg.text_hindi || seg.text || '') : (seg.text_hinglish || seg.text || ''),
+          words: activeLang === 'hindi' ? (seg.words_hindi || seg.words || []) : (seg.words_hinglish || seg.words || [])
+        }));
+        setScenes(mapped);
         setSuccess('Script timeline aligned successfully!');
       }
     } catch (err: any) {
       setError(err.message);
     } finally {
-      if (projectType === 'talkinghead') {
+      if (projectType === 'talkinghead' || projectType === 'subtitles') {
         setTranscribing(false);
       } else {
         setAligning(false);
@@ -1242,7 +1272,7 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
       const res = await fetch('/api/match-clips', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scenes, talkingHead: projectType === 'talkinghead', useAiFallback })
+        body: JSON.stringify({ scenes, talkingHead: projectType === 'talkinghead', useAiFallback, excludeBroll: projectType !== 'youtube' })
       });
 
       if (!res.ok) {
@@ -1272,7 +1302,7 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
   const updateSceneClip = (idx: number, clipId: string) => {
     const updated = [...scenes];
     updated[idx].clipId = clipId;
-    updated[idx].clipStart = 0;
+    updated[idx].clipStart = clipId === 'original' ? (updated[idx].start_time || 0) : 0;
     setScenes(updated);
   };
 
@@ -1331,26 +1361,74 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
     }
   };
 
+  const removeScene = (idx: number) => {
+    setScenes(scenes.filter((_, i) => i !== idx));
+  };
+
   const updateSceneText = (idx: number, text: string) => {
     const updated = [...scenes];
     updated[idx].text = text;
+    
+    // Maintain language-specific texts
+    if (activeLang === 'hindi') {
+      updated[idx].text_hindi = text;
+    } else {
+      updated[idx].text_hinglish = text;
+    }
     
     const wordsList = text.split(/\s+/).filter(Boolean);
     const start = updated[idx].start_time;
     const end = updated[idx].end_time;
     const duration = end - start;
-    if (wordsList.length > 0 && duration > 0) {
+    
+    let updatedWords = [];
+    const existingWords = updated[idx].words || [];
+    if (wordsList.length === existingWords.length) {
+      updatedWords = existingWords.map((w, i) => ({
+        ...w,
+        word: wordsList[i]
+      }));
+    } else if (wordsList.length > 0 && duration > 0) {
       const wordDur = duration / wordsList.length;
-      updated[idx].words = wordsList.map((word, i) => ({
+      updatedWords = wordsList.map((word, i) => ({
         word,
         start_time: Number((start + i * wordDur).toFixed(3)),
         end_time: Number((start + (i + 1) * wordDur).toFixed(3))
       }));
     } else {
-      updated[idx].words = [];
+      updatedWords = [];
+    }
+    
+    updated[idx].words = updatedWords;
+    if (activeLang === 'hindi') {
+      updated[idx].words_hindi = updatedWords;
+    } else {
+      updated[idx].words_hinglish = updatedWords;
     }
     
     setScenes(updated);
+  };
+
+  const handleToggleAllLanguage = (lang: 'hinglish' | 'hindi') => {
+    setActiveLang(lang);
+    const updated = scenes.map(scene => {
+      if (lang === 'hindi') {
+        return {
+          ...scene,
+          text: scene.text_hindi || scene.text || '',
+          words: scene.words_hindi || scene.words || []
+        };
+      } else {
+        return {
+          ...scene,
+          text: scene.text_hinglish || scene.text || '',
+          words: scene.words_hinglish || scene.words || []
+        };
+      }
+    });
+    setScenes(updated);
+    setSuccess(`Switched all subtitles to ${lang === 'hindi' ? 'Hindi' : 'Hinglish'}.`);
+    setTimeout(() => setSuccess(''), 3000);
   };
 
   const updateSceneClipStart = (idx: number, val: number) => {
@@ -1375,6 +1453,38 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
     const updated = [...scenes];
     updated[idx].sfx = sfx;
     setScenes(updated);
+  };
+
+  const handleUpdateScene = (idx: number, key: string, value: any) => {
+    const updated = [...scenes];
+    updated[idx] = {
+      ...updated[idx],
+      [key]: value
+    };
+    setScenes(updated);
+    saveProjectState();
+  };
+
+  const handleRegenerateHUD = async (sceneIndex?: number) => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/youtube/regenerate-hud', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId, sceneIndex })
+      });
+
+      if (!res.ok) {
+        throw new Error('Failed to regenerate HUD layouts.');
+      }
+
+      const data = await res.json();
+      setScenes(data.state.scenes);
+    } catch (err: any) {
+      console.error(err.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleApplyTransitionsToAll = () => {
@@ -1491,6 +1601,34 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
       [key]: val
     };
     setScenes(updated);
+  };
+
+  const toggleSceneShake = (idx: number, checked: boolean) => {
+    const updated = [...scenes];
+    updated[idx].shake = checked;
+    if (checked) {
+      updated[idx].shakeIntensity = updated[idx].shakeIntensity ?? 15;
+      updated[idx].shakeSpeed = updated[idx].shakeSpeed ?? 20;
+    }
+    setScenes(updated);
+  };
+
+  const updateSceneShakeParam = (idx: number, key: 'shakeIntensity' | 'shakeSpeed', val: number) => {
+    const updated = [...scenes];
+    updated[idx][key] = val;
+    setScenes(updated);
+  };
+
+  const applyShakeToAllScenes = (sourceIdx: number) => {
+    const source = scenes[sourceIdx];
+    const updated = scenes.map(scene => ({
+      ...scene,
+      shake: source.shake,
+      shakeIntensity: source.shakeIntensity ?? 15,
+      shakeSpeed: source.shakeSpeed ?? 20
+    }));
+    setScenes(updated);
+    alert('Applied camera shake settings to all scenes!');
   };
 
   const updateSpeedRampPreset = (idx: number, preset: string) => {
@@ -1611,7 +1749,7 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
   };
 
   const handleCompileVideo = async () => {
-    if (scenes.some(s => !s.clipId)) {
+    if (projectType !== 'subtitles' && scenes.some(s => !s.clipId)) {
       setError('All storyboard scenes must have an assigned video clip.');
       return;
     }
@@ -1624,18 +1762,27 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          projectId, scenes, voiceoverPath, bgMusicPath, bgMusicVolume, bgMusicStartOffset,
-          voiceoverVolume, aspectRatio, fillMode, clipTransition, transitionDuration, zoomAnimation,
+          projectId, scenes, voiceoverPath, bgMusicPath,
+          bgMusicVolume: muteBgMusic ? 0.0 : bgMusicVolume,
+          bgMusicStartOffset,
+          voiceoverVolume: muteVoiceover ? 0.0 : voiceoverVolume,
+          videoVolume: muteVideoAudio ? 0.0 : videoVolume,
+          sfxVolume: muteSfx ? 0.0 : sfxVolume,
+          aspectRatio, fillMode, clipTransition, transitionDuration, zoomAnimation,
           exportResolution, exportFps, originalVideoPath,
           backgroundType, backgroundColor, backgroundClipId,
           talkingHeadEnabled, talkingHeadChromaColor, talkingHeadChromaSimilarity, talkingHeadChromaBlend,
           talkingHeadSize, talkingHeadPosition, talkingHeadPositionX, talkingHeadPositionY,
           talkingHeadOutlineEnabled, talkingHeadOutlineColor, talkingHeadOutlineThickness,
+          subtitlesOnly: projectType === 'subtitles',
+          brandPrimaryColor, brandSecondaryColor,
+          cardPositionY, cardScale, cardFontName, showLayoutCards,
           subtitleStyle: {
             subtitleMode, fontName, fontSize, fontColor, outlineColor, bold, italic, shadow,
             highlightColor, showHighlightBox, boxColor, boxRounding, textFade, textTransition,
             textMotion, activeWordScale, wordDisplayTime, maxWordsPerLine, textPositionX, textPositionY, showEmojis,
-            autoEmphasis, emphasisColor, neonGlow, glowColor, glowBlur, glowDistance, highlightTrigger, pop3d, pop3dColor,
+            autoEmphasis, emphasisColor, neonGlow, glowColor, glowBlur, glowDistance, highlightTrigger, textCase, pop3d, pop3dColor,
+            pop3dDepth, letterSpacing, wordSpacing, shadowColor, shadowBlur, shadowDistance, shadowAngle, shadowOpacity, textAnimation,
             normalStyle, highlightStyle, emojiStyle,
             headingTitle, headingFontName, headingFontSize, headingFontColor, headingBoxColor, headingPadding,
             showTimer, headingTopOffset, headingLeftOffset,
@@ -1667,7 +1814,7 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
   });
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: '32px' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 360px max-content', gap: '24px' }}>
       {/* LEFT: Project Pipeline */}
       <div>
         <div style={{ marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1730,10 +1877,10 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
               display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold',
               fontSize: '11px', fontFamily: 'var(--font-sans)', flexShrink: 0
             }}>1</span>
-            {projectType === 'talkinghead' ? 'Upload Talking Head Video' : 'Script & Voiceover'}
+            {projectType === 'talkinghead' ? 'Upload Talking Head Video' : projectType === 'subtitles' ? 'Upload Video for Subtitles' : 'Script & Voiceover'}
           </h3>
 
-          {projectType === 'talkinghead' ? (
+          {projectType === 'talkinghead' || projectType === 'subtitles' ? (
             <div>
               <input
                 id="talkinghead-video-upload-input"
@@ -1776,7 +1923,7 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                 >
                   <Video size={32} style={{ color: 'var(--text-muted)' }} />
                   <div style={{ fontSize: '14px', fontWeight: 500, color: 'white' }}>
-                    {uploadingVideo ? 'Uploading video & extracting audio...' : 'Select or drag Talking Head Video'}
+                    {uploadingVideo ? 'Uploading video & extracting audio...' : projectType === 'talkinghead' ? 'Select or drag Talking Head Video' : 'Select or drag Video'}
                   </div>
                   <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
                     Supports .mp4, .mov, and other common formats.
@@ -2052,7 +2199,7 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
             <button
               type="button"
               onClick={handleAlignScript}
-              disabled={projectType === 'talkinghead' ? transcribing : aligning}
+              disabled={projectType === 'talkinghead' || projectType === 'subtitles' ? transcribing : aligning}
               className="btn-secondary active-glow"
               style={{
                 display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 24px',
@@ -2061,9 +2208,9 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                 color: 'var(--text-white)', transition: 'all 0.2s ease', height: '40px'
               }}
             >
-              <RefreshCw size={14} className={(projectType === 'talkinghead' ? transcribing : aligning) ? 'spin' : ''} style={{ animation: (projectType === 'talkinghead' ? transcribing : aligning) ? 'spin-slow 2s linear infinite' : 'none' }} />
-              {projectType === 'talkinghead' 
-                ? (transcribing ? 'Transcribing & Segmenting Video...' : 'Transcribe & Segment Video')
+              <RefreshCw size={14} className={(projectType === 'talkinghead' || projectType === 'subtitles' ? transcribing : aligning) ? 'spin' : ''} style={{ animation: (projectType === 'talkinghead' || projectType === 'subtitles' ? transcribing : aligning) ? 'spin-slow 2s linear infinite' : 'none' }} />
+              {projectType === 'talkinghead' || projectType === 'subtitles'
+                ? (transcribing ? 'Transcribing Video...' : 'Transcribe Video')
                 : (aligning ? 'Aligning script with Gemini...' : 'Analyze Timestamps & Align')}
             </button>
             
@@ -2084,6 +2231,46 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                 Storyboard
               </h3>
               <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(255, 255, 255, 0.03)', padding: '3px', borderRadius: '6px', border: '1px solid var(--border-light)' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', padding: '0 6px' }}>Lang:</span>
+                  <button
+                    type="button"
+                    onClick={() => handleToggleAllLanguage('hinglish')}
+                    style={{
+                      fontSize: '11px',
+                      height: '24px',
+                      padding: '0 8px',
+                      borderRadius: '4px',
+                      border: 'none',
+                      background: activeLang === 'hinglish' ? 'var(--accent-purple)' : 'transparent',
+                      color: activeLang === 'hinglish' ? '#FFFFFF' : 'var(--text-muted)',
+                      fontWeight: activeLang === 'hinglish' ? 700 : 400,
+                      cursor: 'pointer',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    Hinglish
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleToggleAllLanguage('hindi')}
+                    style={{
+                      fontSize: '11px',
+                      height: '24px',
+                      padding: '0 8px',
+                      borderRadius: '4px',
+                      border: 'none',
+                      background: activeLang === 'hindi' ? 'var(--accent-purple)' : 'transparent',
+                      color: activeLang === 'hindi' ? '#FFFFFF' : 'var(--text-muted)',
+                      fontWeight: activeLang === 'hindi' ? 700 : 400,
+                      cursor: 'pointer',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    Hindi
+                  </button>
+                </div>
+
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <input
                     type="checkbox"
@@ -2200,7 +2387,7 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
             )}
 
 
-            {clips.length === 0 ? (
+            {projectType !== 'subtitles' && clips.length === 0 ? (
               <div style={{ padding: '16px', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.2)', color: '#f87171', borderRadius: '8px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <AlertTriangle size={16} /> No clips in library. Import clips to start storyboarding.
               </div>
@@ -2216,10 +2403,18 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                       key={idx}
                       onMouseEnter={() => setHoveredSceneIdx(idx)}
                       onMouseLeave={() => setHoveredSceneIdx(null)}
+                      onClick={() => setActiveSceneIdx(idx)}
                       className="tonal-border"
                       style={{
-                        background: 'var(--bg-darker)', borderRadius: 'var(--radius-lg)',
-                        overflow: 'hidden', display: 'flex', flexDirection: 'column', transition: 'all 0.2s ease',
+                        background: 'var(--bg-darker)', 
+                        borderRadius: 'var(--radius-lg)',
+                        overflow: 'hidden', 
+                        display: 'flex', 
+                        flexDirection: 'column', 
+                        transition: 'all 0.2s ease',
+                        border: activeSceneIdx === idx ? '2px solid #d4af37' : '2px solid transparent',
+                        boxShadow: activeSceneIdx === idx ? '0 0 12px rgba(212, 175, 55, 0.25)' : 'none',
+                        cursor: 'pointer'
                       }}
                     >
                       <div style={{
@@ -2227,7 +2422,7 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                         borderBottom: '1px solid var(--border-medium)', overflow: 'hidden'
                       }}>
-                        {scene.clipId === 'original' ? (
+                        {scene.clipId === 'original' || projectType === 'subtitles' ? (
                           <VideoPreview
                             clipId="original"
                             thumbnail="https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?w=500&auto=format&fit=crop&q=60"
@@ -2256,6 +2451,42 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                         }}>
                           {scene.start_time.toFixed(1)}s - {scene.end_time.toFixed(1)}s ({duration.toFixed(1)}s)
                         </div>
+
+                        {projectType === 'subtitles' && (
+                          <button
+                            type="button"
+                            onClick={() => removeScene(idx)}
+                            style={{
+                              position: 'absolute',
+                              top: '8px',
+                              right: '8px',
+                              background: 'rgba(239, 68, 68, 0.25)',
+                              backdropFilter: 'blur(8px)',
+                              border: '1px solid rgba(239, 68, 68, 0.4)',
+                              color: '#ff8a8a',
+                              borderRadius: '50%',
+                              width: '24px',
+                              height: '24px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              cursor: 'pointer',
+                              zIndex: 11,
+                              transition: 'all 0.2s'
+                            }}
+                            title="Remove Subtitle"
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.background = 'rgba(239, 68, 68, 0.5)';
+                              e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.7)';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.background = 'rgba(239, 68, 68, 0.25)';
+                              e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.4)';
+                            }}
+                          >
+                            <Trash size={12} />
+                          </button>
+                        )}
                       </div>
 
                       <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px', flex: 1 }}>
@@ -2283,8 +2514,425 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                           />
                         </div>
 
-                        <div>
-                          <label className="label" style={{ fontSize: '10px', marginBottom: '4px' }}>Assigned Video Clip</label>
+                        {/* HUD layout Selector */}
+                        <div style={{ marginTop: '4px' }}>
+                          <label className="label" style={{ fontSize: '10px', marginBottom: '4px' }}>HUD Layout Card</label>
+                          <select
+                            className="input-field"
+                            style={{ margin: 0, fontSize: '12px', height: '32px', width: '100%', background: 'var(--bg-medium)', border: '1px solid var(--border-light)', color: 'var(--text-white)' }}
+                            value={scene.layout || 'full_broll'}
+                            onChange={(e) => handleUpdateScene(idx, 'layout', e.target.value)}
+                          >
+                            <option value="full_broll">🎬 None / Full B-Roll</option>
+                            <option value="versus">⚔️ Versus Battle</option>
+                            <option value="quote">💬 Quote Card</option>
+                            <option value="stat_callout">📊 Stat Counter</option>
+                            <option value="timeline_checkpoint">📅 Timeline Node</option>
+                            <option value="danger_callout">⚠️ Danger Callout</option>
+                            <option value="progress_ratio">📈 Progress Ratio</option>
+                            <option value="pro_tip">💡 Pro Tip</option>
+                            <option value="versus_meter">⚖️ Versus Slider</option>
+                            <option value="tier_list_ranker">🏆 Tier Ranker</option>
+                          </select>
+                        </div>
+
+                        {/* Layout Props Form */}
+                        {scene.layout && scene.layout !== 'graph' && scene.layout !== 'full_broll' && (
+                          <div style={{ padding: '8px', background: 'rgba(255,255,255,0.02)', border: '1px dashed var(--border-light)', borderRadius: '6px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--primary)', textTransform: 'uppercase' }}>Layout Parameters:</span>
+                            
+                            {scene.layout === 'quote' && (
+                              <div style={{ display: 'flex', gap: '8px', flexDirection: 'column' }}>
+                                <input
+                                  type="text"
+                                  className="input-field"
+                                  placeholder="Quote Text"
+                                  style={{ padding: '4px 8px', fontSize: '11px', width: '100%' }}
+                                  value={scene.layoutProps?.quoteText || ''}
+                                  onChange={(e) => {
+                                    const updatedProps = { ...scene.layoutProps, quoteText: e.target.value };
+                                    handleUpdateScene(idx, 'layoutProps', updatedProps);
+                                  }}
+                                />
+                                <input
+                                  type="text"
+                                  className="input-field"
+                                  placeholder="Author"
+                                  style={{ padding: '4px 8px', fontSize: '11px', width: '100%' }}
+                                  value={scene.layoutProps?.quoteAuthor || ''}
+                                  onChange={(e) => {
+                                    const updatedProps = { ...scene.layoutProps, quoteAuthor: e.target.value };
+                                    handleUpdateScene(idx, 'layoutProps', updatedProps);
+                                  }}
+                                />
+                              </div>
+                            )}
+
+                            {scene.layout === 'versus' && (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%' }}>
+                                <div style={{ display: 'flex', gap: '6px' }}>
+                                  <input
+                                    type="text"
+                                    className="input-field"
+                                    placeholder="Left Competitor"
+                                    style={{ padding: '4px 8px', fontSize: '11px', flex: 1 }}
+                                    value={scene.layoutProps?.versusLeft || ''}
+                                    onChange={(e) => {
+                                      const updatedProps = { ...scene.layoutProps, versusLeft: e.target.value };
+                                      handleUpdateScene(idx, 'layoutProps', updatedProps);
+                                    }}
+                                  />
+                                  <input
+                                    type="text"
+                                    className="input-field"
+                                    placeholder="Right Competitor"
+                                    style={{ padding: '4px 8px', fontSize: '11px', flex: 1 }}
+                                    value={scene.layoutProps?.versusRight || ''}
+                                    onChange={(e) => {
+                                      const updatedProps = { ...scene.layoutProps, versusRight: e.target.value };
+                                      handleUpdateScene(idx, 'layoutProps', updatedProps);
+                                    }}
+                                  />
+                                </div>
+                                <input
+                                  type="text"
+                                  className="input-field"
+                                  placeholder="Battle Label"
+                                  style={{ padding: '4px 8px', fontSize: '11px', width: '100%' }}
+                                  value={scene.layoutProps?.versusLabel || ''}
+                                  onChange={(e) => {
+                                    const updatedProps = { ...scene.layoutProps, versusLabel: e.target.value };
+                                    handleUpdateScene(idx, 'layoutProps', updatedProps);
+                                  }}
+                                />
+                                <input
+                                  type="text"
+                                  className="input-field"
+                                  placeholder="Left Features (comma separated)"
+                                  style={{ padding: '4px 8px', fontSize: '11px', width: '100%' }}
+                                  value={Array.isArray(scene.layoutProps?.versusLeftFeatures) ? scene.layoutProps.versusLeftFeatures.join(', ') : ''}
+                                  onChange={(e) => {
+                                    const updatedProps = {
+                                      ...scene.layoutProps,
+                                      versusLeftFeatures: e.target.value.split(',').map(item => item.trim()).filter(Boolean)
+                                    };
+                                    handleUpdateScene(idx, 'layoutProps', updatedProps);
+                                  }}
+                                />
+                                <input
+                                  type="text"
+                                  className="input-field"
+                                  placeholder="Right Features (comma separated)"
+                                  style={{ padding: '4px 8px', fontSize: '11px', width: '100%' }}
+                                  value={Array.isArray(scene.layoutProps?.versusRightFeatures) ? scene.layoutProps.versusRightFeatures.join(', ') : ''}
+                                  onChange={(e) => {
+                                    const updatedProps = {
+                                      ...scene.layoutProps,
+                                      versusRightFeatures: e.target.value.split(',').map(item => item.trim()).filter(Boolean)
+                                    };
+                                    handleUpdateScene(idx, 'layoutProps', updatedProps);
+                                  }}
+                                />
+                              </div>
+                            )}
+
+                            {scene.layout === 'stat_callout' && (
+                              <div style={{ display: 'flex', gap: '8px', flexDirection: 'column' }}>
+                                <input
+                                  type="text"
+                                  className="input-field"
+                                  placeholder="Stat Value (e.g. 97%)"
+                                  style={{ padding: '4px 8px', fontSize: '11px', width: '100%' }}
+                                  value={scene.layoutProps?.statValue || ''}
+                                  onChange={(e) => {
+                                    const updatedProps = { ...scene.layoutProps, statValue: e.target.value };
+                                    handleUpdateScene(idx, 'layoutProps', updatedProps);
+                                  }}
+                                />
+                                <input
+                                  type="text"
+                                  className="input-field"
+                                  placeholder="Label (e.g. Accuracy)"
+                                  style={{ padding: '4px 8px', fontSize: '11px', width: '100%' }}
+                                  value={scene.layoutProps?.statLabel || ''}
+                                  onChange={(e) => {
+                                    const updatedProps = { ...scene.layoutProps, statLabel: e.target.value };
+                                    handleUpdateScene(idx, 'layoutProps', updatedProps);
+                                  }}
+                                />
+                              </div>
+                            )}
+
+                            {scene.layout === 'timeline_checkpoint' && (
+                              <div style={{ display: 'flex', gap: '8px', flexDirection: 'column' }}>
+                                <input
+                                  type="text"
+                                  className="input-field"
+                                  placeholder="Checkpoint Date/Step (e.g. Phase 1)"
+                                  style={{ padding: '4px 8px', fontSize: '11px', width: '100%' }}
+                                  value={scene.layoutProps?.timelineDate || ''}
+                                  onChange={(e) => {
+                                    const updatedProps = { ...scene.layoutProps, timelineDate: e.target.value };
+                                    handleUpdateScene(idx, 'layoutProps', updatedProps);
+                                  }}
+                                />
+                                <input
+                                  type="text"
+                                  className="input-field"
+                                  placeholder="Description (e.g. Market research)"
+                                  style={{ padding: '4px 8px', fontSize: '11px', width: '100%' }}
+                                  value={scene.layoutProps?.timelineLabel || ''}
+                                  onChange={(e) => {
+                                    const updatedProps = { ...scene.layoutProps, timelineLabel: e.target.value };
+                                    handleUpdateScene(idx, 'layoutProps', updatedProps);
+                                  }}
+                                />
+                              </div>
+                            )}
+
+                            {scene.layout === 'danger_callout' && (
+                              <div style={{ display: 'flex', gap: '8px', flexDirection: 'column' }}>
+                                <input
+                                  type="text"
+                                  className="input-field"
+                                  placeholder="Caution Header (e.g. WARNING)"
+                                  style={{ padding: '4px 8px', fontSize: '11px', width: '100%' }}
+                                  value={scene.layoutProps?.dangerTitle || ''}
+                                  onChange={(e) => {
+                                    const updatedProps = { ...scene.layoutProps, dangerTitle: e.target.value };
+                                    handleUpdateScene(idx, 'layoutProps', updatedProps);
+                                  }}
+                                />
+                                <input
+                                  type="text"
+                                  className="input-field"
+                                  placeholder="Danger alert message"
+                                  style={{ padding: '4px 8px', fontSize: '11px', width: '100%' }}
+                                  value={scene.layoutProps?.dangerText || ''}
+                                  onChange={(e) => {
+                                    const updatedProps = { ...scene.layoutProps, dangerText: e.target.value };
+                                    handleUpdateScene(idx, 'layoutProps', updatedProps);
+                                  }}
+                                />
+                              </div>
+                            )}
+
+                            {scene.layout === 'progress_ratio' && (
+                              <div style={{ display: 'flex', gap: '8px', flexDirection: 'column' }}>
+                                <input
+                                  type="number"
+                                  min={0} max={100}
+                                  className="input-field"
+                                  placeholder="Completion % (e.g. 75)"
+                                  style={{ padding: '4px 8px', fontSize: '11px', width: '100%' }}
+                                  value={scene.layoutProps?.progressValue || ''}
+                                  onChange={(e) => {
+                                    const updatedProps = { ...scene.layoutProps, progressValue: Number(e.target.value) };
+                                    handleUpdateScene(idx, 'layoutProps', updatedProps);
+                                  }}
+                                />
+                                <input
+                                  type="text"
+                                  className="input-field"
+                                  placeholder="Task Label (e.g. Rendering)"
+                                  style={{ padding: '4px 8px', fontSize: '11px', width: '100%' }}
+                                  value={scene.layoutProps?.progressLabel || ''}
+                                  onChange={(e) => {
+                                    const updatedProps = { ...scene.layoutProps, progressLabel: e.target.value };
+                                    handleUpdateScene(idx, 'layoutProps', updatedProps);
+                                  }}
+                                />
+                              </div>
+                            )}
+
+                            {scene.layout === 'pro_tip' && (
+                              <div style={{ display: 'flex', gap: '8px', flexDirection: 'column' }}>
+                                <input
+                                  type="text"
+                                  className="input-field"
+                                  placeholder="Tip Title (e.g. PRO TIP)"
+                                  style={{ padding: '4px 8px', fontSize: '11px', width: '100%' }}
+                                  value={scene.layoutProps?.tipTitle || ''}
+                                  onChange={(e) => {
+                                    const updatedProps = { ...scene.layoutProps, tipTitle: e.target.value };
+                                    handleUpdateScene(idx, 'layoutProps', updatedProps);
+                                  }}
+                                />
+                                <input
+                                  type="text"
+                                  className="input-field"
+                                  placeholder="Actionable Tip Text"
+                                  style={{ padding: '4px 8px', fontSize: '11px', width: '100%' }}
+                                  value={scene.layoutProps?.tipText || ''}
+                                  onChange={(e) => {
+                                    const updatedProps = { ...scene.layoutProps, tipText: e.target.value };
+                                    handleUpdateScene(idx, 'layoutProps', updatedProps);
+                                  }}
+                                />
+                              </div>
+                            )}
+
+                            {scene.layout === 'versus_meter' && (
+                              <div style={{ display: 'flex', gap: '8px', flexDirection: 'column' }}>
+                                <div style={{ display: 'flex', gap: '6px' }}>
+                                  <input
+                                    type="text"
+                                    className="input-field"
+                                    placeholder="Left Label (iOS)"
+                                    style={{ padding: '4px 8px', fontSize: '11px', flex: 1 }}
+                                    value={scene.layoutProps?.meterLeft || ''}
+                                    onChange={(e) => {
+                                      const updatedProps = { ...scene.layoutProps, meterLeft: e.target.value };
+                                      handleUpdateScene(idx, 'layoutProps', updatedProps);
+                                    }}
+                                  />
+                                  <input
+                                    type="text"
+                                    className="input-field"
+                                    placeholder="Right Label (Android)"
+                                    style={{ padding: '4px 8px', fontSize: '11px', flex: 1 }}
+                                    value={scene.layoutProps?.meterRight || ''}
+                                    onChange={(e) => {
+                                      const updatedProps = { ...scene.layoutProps, meterRight: e.target.value };
+                                      handleUpdateScene(idx, 'layoutProps', updatedProps);
+                                    }}
+                                  />
+                                </div>
+                                <input
+                                  type="number"
+                                  min={0} max={100}
+                                  className="input-field"
+                                  placeholder="Needle Position % (0-100)"
+                                  style={{ padding: '4px 8px', fontSize: '11px', width: '100%' }}
+                                  value={scene.layoutProps?.meterValue || ''}
+                                  onChange={(e) => {
+                                    const updatedProps = { ...scene.layoutProps, meterValue: Number(e.target.value) };
+                                    handleUpdateScene(idx, 'layoutProps', updatedProps);
+                                  }}
+                                />
+                                <input
+                                  type="text"
+                                  className="input-field"
+                                  placeholder="Bottom Label (e.g. Market Share)"
+                                  style={{ padding: '4px 8px', fontSize: '11px', width: '100%' }}
+                                  value={scene.layoutProps?.meterLabel || ''}
+                                  onChange={(e) => {
+                                    const updatedProps = { ...scene.layoutProps, meterLabel: e.target.value };
+                                    handleUpdateScene(idx, 'layoutProps', updatedProps);
+                                  }}
+                                />
+                              </div>
+                            )}
+
+                            {scene.layout === 'tier_list_ranker' && (
+                              <div style={{ display: 'flex', gap: '8px', flexDirection: 'column' }}>
+                                <input
+                                  type="text"
+                                  className="input-field"
+                                  placeholder="Rank (S/A/B/C/F)"
+                                  style={{ padding: '4px 8px', fontSize: '11px', width: '100%' }}
+                                  value={scene.layoutProps?.tierRank || ''}
+                                  onChange={(e) => {
+                                    const updatedProps = { ...scene.layoutProps, tierRank: e.target.value };
+                                    handleUpdateScene(idx, 'layoutProps', updatedProps);
+                                  }}
+                                />
+                                <input
+                                  type="text"
+                                  className="input-field"
+                                  placeholder="Item Ranked (e.g. React)"
+                                  style={{ padding: '4px 8px', fontSize: '11px', width: '100%' }}
+                                  value={scene.layoutProps?.tierItem || ''}
+                                  onChange={(e) => {
+                                    const updatedProps = { ...scene.layoutProps, tierItem: e.target.value };
+                                    handleUpdateScene(idx, 'layoutProps', updatedProps);
+                                  }}
+                                />
+                                <input
+                                  type="text"
+                                  className="input-field"
+                                  placeholder="Bottom Label (e.g. Framework Grade)"
+                                  style={{ padding: '4px 8px', fontSize: '11px', width: '100%' }}
+                                  value={scene.layoutProps?.tierLabel || ''}
+                                  onChange={(e) => {
+                                    const updatedProps = { ...scene.layoutProps, tierLabel: e.target.value };
+                                    handleUpdateScene(idx, 'layoutProps', updatedProps);
+                                  }}
+                                />
+                              </div>
+                            )}
+
+                            {/* Scene-specific Y-position and Scale adjusters */}
+                            <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '8px', marginTop: '4px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                <span style={{ fontSize: '9.5px', color: 'var(--text-gray)' }}>Y Offset:</span>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                  <input
+                                    type="range"
+                                    min={0} max={60}
+                                    disabled={applyHUDToAll}
+                                    value={scene.layoutProps?.cardPositionY !== undefined ? Number(scene.layoutProps.cardPositionY) : cardPositionY}
+                                    onChange={(e) => {
+                                      const val = Number(e.target.value);
+                                      if (applyHUDToAll) {
+                                        setCardPositionY(val);
+                                        saveProjectState();
+                                      } else {
+                                        const updatedProps = { ...scene.layoutProps, cardPositionY: val };
+                                        handleUpdateScene(idx, 'layoutProps', updatedProps);
+                                      }
+                                    }}
+                                    style={{ width: '90px', height: '10px', accentColor: applyHUDToAll ? 'var(--text-muted)' : 'var(--primary)', cursor: applyHUDToAll ? 'not-allowed' : 'pointer' }}
+                                  />
+                                  <span style={{ fontSize: '9.5px', color: applyHUDToAll ? 'var(--text-muted)' : '#FFF', minWidth: '22px', textAlign: 'right' }}>
+                                    {scene.layoutProps?.cardPositionY !== undefined ? scene.layoutProps.cardPositionY : cardPositionY}%
+                                  </span>
+                                </div>
+                              </div>
+
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                <span style={{ fontSize: '9.5px', color: 'var(--text-gray)' }}>Scale:</span>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                  <input
+                                    type="range"
+                                    min={0.5} max={1.8} step={0.05}
+                                    disabled={applyHUDToAll}
+                                    value={scene.layoutProps?.cardScale !== undefined ? Number(scene.layoutProps.cardScale) : cardScale}
+                                    onChange={(e) => {
+                                      const val = Number(e.target.value);
+                                      if (applyHUDToAll) {
+                                        setCardScale(val);
+                                        saveProjectState();
+                                      } else {
+                                        const updatedProps = { ...scene.layoutProps, cardScale: val };
+                                        handleUpdateScene(idx, 'layoutProps', updatedProps);
+                                      }
+                                    }}
+                                    style={{ width: '90px', height: '10px', accentColor: applyHUDToAll ? 'var(--text-muted)' : 'var(--primary)', cursor: applyHUDToAll ? 'not-allowed' : 'pointer' }}
+                                  />
+                                  <span style={{ fontSize: '9.5px', color: applyHUDToAll ? 'var(--text-muted)' : '#FFF', minWidth: '22px', textAlign: 'right' }}>
+                                    {(scene.layoutProps?.cardScale !== undefined ? Number(scene.layoutProps.cardScale) : cardScale).toFixed(2)}x
+                                  </span>
+                                </div>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => handleRegenerateHUD(idx)}
+                                disabled={loading}
+                                className="btn-secondary"
+                                style={{ padding: '2px 8px', fontSize: '10px', height: '22px', borderRadius: '4px', background: 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', gap: '4px', width: '100%', justifyContent: 'center', marginTop: '4px' }}
+                              >
+                                <span>⚡ Redo HUD</span>
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        {projectType !== 'subtitles' && (
+                          <>
+                            <div>
+                              <label className="label" style={{ fontSize: '10px', marginBottom: '4px' }}>Assigned Video Clip</label>
                           <RichClipSelector
                             value={scene.clipId || ''}
                             onChange={(clipId) => updateSceneClip(idx, clipId)}
@@ -2292,6 +2940,7 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                             onGenerateAi={() => openAiGenModal(idx)}
                             showOriginal={projectType === 'talkinghead' || !!originalVideoPath}
                             originalLabel={projectType === 'talkinghead' ? 'Original Video (Talking Head)' : 'Original Reel Clip'}
+                            excludeBroll={true}
                           />
                         </div>
 
@@ -2453,6 +3102,59 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                                 )}
                               </div>
 
+                              {/* Camera Shake */}
+                              <div style={{ marginTop: '8px', borderTop: '1px solid var(--border-light)', paddingTop: '8px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  <input
+                                    type="checkbox" id={`shake-enable-${idx}`}
+                                    checked={!!scene.shake}
+                                    onChange={(e) => toggleSceneShake(idx, e.target.checked)}
+                                    style={{ cursor: 'pointer' }}
+                                  />
+                                  <label htmlFor={`shake-enable-${idx}`} style={{ fontSize: '11px', fontWeight: '500', cursor: 'pointer', color: 'var(--text-white)' }}>
+                                    Enable Camera Shake 📳
+                                  </label>
+                                </div>
+
+                                {scene.shake && (
+                                  <div style={{ padding: '6px', background: 'var(--bg-surface)', borderRadius: '4px', border: '1px solid var(--border-light)', display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '4px' }}>
+                                    <div>
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: 'var(--text-gray)' }}>
+                                        <span>Intensity (amplitude)</span>
+                                        <span>{scene.shakeIntensity !== undefined ? scene.shakeIntensity : 15}px</span>
+                                      </div>
+                                      <input
+                                        type="range" min={2} max={60} step={1} value={scene.shakeIntensity !== undefined ? scene.shakeIntensity : 15}
+                                        onChange={(e) => updateSceneShakeParam(idx, 'shakeIntensity', parseInt(e.target.value))}
+                                        style={{ width: '100%' }}
+                                      />
+                                    </div>
+                                    <div>
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: 'var(--text-gray)' }}>
+                                        <span>Speed (frequency)</span>
+                                        <span>{scene.shakeSpeed !== undefined ? scene.shakeSpeed : 20} Hz</span>
+                                      </div>
+                                      <input
+                                        type="range" min={5} max={50} step={1} value={scene.shakeSpeed !== undefined ? scene.shakeSpeed : 20}
+                                        onChange={(e) => updateSceneShakeParam(idx, 'shakeSpeed', parseInt(e.target.value))}
+                                        style={{ width: '100%' }}
+                                      />
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => applyShakeToAllScenes(idx)}
+                                      style={{
+                                        fontSize: '9px', padding: '2px 6px', height: '20px', background: 'transparent',
+                                        border: '1px solid var(--border-medium)', color: 'var(--text-gray)',
+                                        cursor: 'pointer', borderRadius: '4px', textAlign: 'center', transition: 'all 0.15s ease'
+                                      }}
+                                    >
+                                      Apply shake to all scenes
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+
                               {isInsufficient && (
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 8px', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.2)', color: '#f87171', borderRadius: '4px', fontSize: '10px', marginTop: '6px' }}>
                                   <AlertTriangle size={12} style={{ flexShrink: 0 }} />
@@ -2550,6 +3252,8 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                             </div>
                           </div>
                         )}
+                      </>
+                    )}
 
                         {scene.reason && (
                           <div style={{ fontSize: '10px', color: 'var(--text-muted)', borderLeft: '2px solid var(--primary)', paddingLeft: '8px', marginTop: '4px' }}>
@@ -2566,8 +3270,8 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
         )}
       </div>
         
-      {/* RIGHT: Aesthetics & Render Controls */}
-      <div style={{ borderLeft: '1px solid var(--border-light)', paddingLeft: '32px' }}>
+      {/* MIDDLE: Aesthetics & Settings */}
+      <div style={{ borderLeft: '1px solid var(--border-light)', paddingLeft: '20px' }}>
         <div style={{ position: 'sticky', top: '0px', maxHeight: 'calc(100vh - 80px)', overflowY: 'auto', paddingRight: '12px' }}>
           
           <div style={{ display: 'flex', borderBottom: '1px solid rgba(255, 255, 255, 0.1)', marginBottom: '20px' }}>
@@ -2596,1087 +3300,148 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
 
           {/* TAB 1: SUBTITLES */}
           {sidebarTab === 'subtitles' && (
-            <div style={{ animation: 'fadeIn 0.2s ease-out' }}>
-              <div className="inspector-card">
-                <div className="inspector-sub-title">Quick Presets</div>
-                <div style={{ fontSize: '11px', color: 'var(--text-gray)', marginBottom: '8px' }}>
-                  Choose a high-performing subtitle preset styling.
-                </div>
-                
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginTop: '4px' }}>
-                  {SUBTITLE_PRESETS.map((p) => {
-                    const isSelected = fontName === p.fontName && subtitleMode === p.subtitleMode && fontColor === p.fontColor;
-                    
-                    return (
-                      <button
-                        key={p.id} type="button" onClick={() => handleApplyPreset(p)}
-                        style={{
-                          display: 'flex', flexDirection: 'column', alignItems: 'stretch', padding: '8px',
-                          borderRadius: '8px', background: isSelected ? 'rgba(var(--scrollbar-thumb), 0.1)' : 'rgba(var(--scrollbar-thumb), 0.02)',
-                          border: isSelected ? '1px solid var(--primary)' : '1px solid var(--border-light)',
-                          textAlign: 'left', cursor: 'pointer', transition: 'all 0.2s ease', minHeight: '115px'
-                        }}
-                      >
-                        <div style={{
-                          height: '48px', background: 'var(--bg-darker)', borderRadius: '6px',
-                          border: '1px solid var(--border-medium)', display: 'flex',
-                          alignItems: 'center', justifyContent: 'center', marginBottom: '8px'
-                        }}>
-                          {p.id === 'tiktok-hormozi' && (
-                            <span style={{ fontFamily: 'Outfit', fontWeight: 900, fontSize: '11px', fontStyle: 'italic', background: '#eab308', color: '#000000', padding: '2px 4px' }}>HORMOZI</span>
-                          )}
-                          {p.id === 'minimal-vercel' && (
-                            <span style={{ fontFamily: 'Inter', fontSize: '11px', color: 'var(--text-gray)' }}>Minimal Vercel</span>
-                          )}
-                          {p.id === 'cyberpunk-neon' && (
-                            <span style={{ fontFamily: 'Outfit', fontWeight: 900, fontSize: '11px', color: '#22d3ee', textShadow: '0 0 5px rgba(34,211,238,0.8)' }}>CYBER</span>
-                          )}
-                          {p.id === 'retro-pop' && (
-                            <span style={{ fontFamily: 'Outfit', fontWeight: 600, fontSize: '13px', color: '#ec4899' }}>RETRO</span>
-                          )}
-                        </div>
-                        
-                        <span style={{ fontSize: '12px', fontWeight: 600, color: isSelected ? 'var(--text-white)' : 'var(--text-gray)', lineHeight: 1.2 }}>{p.name}</span>
-                        <span style={{
-                          fontSize: '10px', color: 'var(--text-gray)', lineHeight: 1.3, marginTop: '4px',
-                          display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden'
-                        }}>{p.description}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-              
-              <div className="inspector-card">
-                <div className="inspector-sub-title">Caption Style & Layout</div>
-                
-                <div style={{ marginBottom: '16px' }}>
-                  <label className="label">Caption Mode</label>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                    {[
-                      { id: 'classic', label: 'Classic Lines', desc: 'Standard lines at bottom' },
-                      { id: 'smart-highlight', label: 'Smart Highlight', desc: 'Active word highlighted' },
-                      { id: 'centered-word', label: 'Snappy Word', desc: 'One word at a time' },
-                      { id: 'pop', label: 'Floating Pop', desc: 'Scattered popping words' }
-                    ].map(mode => (
-                      <button
-                        key={mode.id} type="button" onClick={() => setSubtitleMode(mode.id as any)}
-                        style={{
-                          display: 'flex', flexDirection: 'column', alignItems: 'flex-start', padding: '12px',
-                          borderRadius: '8px', background: subtitleMode === mode.id ? 'rgba(var(--scrollbar-thumb), 0.1)' : 'transparent',
-                          border: subtitleMode === mode.id ? '1px solid var(--primary)' : '1px solid var(--border-light)',
-                          color: subtitleMode === mode.id ? 'var(--text-white)' : 'var(--text-gray)', textAlign: 'left', cursor: 'pointer', transition: 'all 0.2s ease'
-                        }}
-                      >
-                        <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-white)' }}>{mode.label}</span>
-                        <span style={{ fontSize: '9px', color: 'var(--text-muted)', marginTop: '2px', lineHeight: '1.2' }}>{mode.desc}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {subtitleMode !== 'pop' && (
-                  <div>
-                    <label className="label">Anchor Alignment</label>
-                    <div style={{ display: 'flex', gap: '16px', alignItems: 'center', marginBottom: '16px' }}>
-                      <div style={{
-                        width: '96px', height: '96px', border: '1px solid var(--border-medium)',
-                        borderRadius: '6px', background: 'var(--bg-darker)', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)',
-                        padding: '6px', gap: '4px', flexShrink: 0
-                      }}>
-                        {[
-                          { label: 'TL', x: -70, y: 75 }, { label: 'T', x: 0, y: 75 }, { label: 'TR', x: 70, y: 75 },
-                          { label: 'L', x: -70, y: 0 }, { label: 'C', x: 0, y: 0 }, { label: 'R', x: 70, y: 0 },
-                          { label: 'BL', x: -70, y: -70 }, { label: 'B', x: 0, y: -70 }, { label: 'BR', x: 70, y: -70 }
-                        ].map((pos, idx) => {
-                          const isSelected = textPositionX === pos.x && textPositionY === pos.y;
-                          return (
-                            <button
-                              key={idx} type="button"
-                              onClick={() => {
-                                setTextPositionX(pos.x);
-                                setTextPositionY(pos.y);
-                              }}
-                              title={pos.label}
-                              className={`matrix-btn ${isSelected ? 'active' : ''}`}
-                              style={{ border: 'none', padding: 0 }}
-                            >
-                              {isSelected && <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--primary-foreground)' }} />}
-                            </button>
-                          );
-                        })}
-                      </div>
-                      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                        <span style={{ fontSize: '10px', color: 'var(--text-muted)', lineHeight: '1.4', fontFamily: 'Inter' }}>
-                          Select cell to snap subtitles, or drag the sliders below.
-                        </span>
-                        <button
-                          type="button" className="btn-secondary"
-                          style={{ alignSelf: 'flex-start', padding: '2px 8px', height: '24px', fontSize: '10px', borderColor: 'rgba(255, 255, 255, 0.08)', fontFamily: 'Inter', fontWeight: 600 }}
-                          onClick={() => {
-                            setTextPositionX(0);
-                            setTextPositionY(-70);
-                          }}
-                        >
-                          Reset to Bottom
-                        </button>
-                      </div>
-                    </div>
-
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '16px' }}>
-                      <div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
-                          <span style={{ fontSize: '11px', color: 'var(--text-gray)', fontFamily: 'Inter' }}>Horizontal Offset (X)</span>
-                          <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{textPositionX > 0 ? `+${textPositionX}` : textPositionX}px</span>
-                        </div>
-                        <input
-                          type="range" min={-100} max={100} step={5} value={textPositionX}
-                          onChange={(e) => setTextPositionX(parseInt(e.target.value, 10))}
-                          style={{ width: '100%' }}
-                        />
-                      </div>
-                      <div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
-                          <span style={{ fontSize: '11px', color: 'var(--text-gray)', fontFamily: 'Inter' }}>Vertical Offset (Y)</span>
-                          <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{textPositionY > 0 ? `+${textPositionY}` : textPositionY}px</span>
-                        </div>
-                        <input
-                          type="range" min={-100} max={100} step={5} value={textPositionY}
-                          onChange={(e) => setTextPositionY(parseInt(e.target.value, 10))}
-                          style={{ width: '100%' }}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Typography Card */}
-              <div className="inspector-card">
-                <div className="inspector-sub-title">Typography</div>
-                
-                <div style={{ position: 'relative', marginBottom: '12px' }}>
-                  <label className="label">Font Family</label>
-                  <div
-                    className="input-field"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setFontSelectorOpen(!fontSelectorOpen);
-                    }}
-                    style={{
-                      cursor: 'pointer', display: 'flex', alignItems: 'center', height: '38px',
-                      background: 'var(--bg-darker)', border: '1px solid var(--border-medium)',
-                      borderRadius: '4px', padding: '0 12px'
-                    }}
-                  >
-                    <Search size={14} style={{ marginRight: '8px', opacity: 0.4 }} />
-                    <span style={{ fontFamily: fontName, fontSize: '13px', fontWeight: 600 }}>{fontName}</span>
-                    <span style={{ fontSize: '8px', color: 'var(--text-gray)', marginLeft: 'auto' }}>▼</span>
-                  </div>
-
-                  {fontSelectorOpen && (
-                    <div
-                      className="premium-card"
-                      style={{
-                        position: 'absolute', top: '64px', left: 0, right: 0, zIndex: 100, padding: '12px',
-                        display: 'flex', flexDirection: 'column', gap: '8px', boxShadow: '0 10px 30px rgba(0,0,0,0.5)',
-                        background: 'var(--bg-card)', border: '1px solid var(--border-light)'
-                      }}
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <input
-                        type="text" className="input-field" placeholder="Search Google Fonts..." value={fontSearchQuery}
-                        onChange={(e) => {
-                          setFontSearchQuery(e.target.value);
-                          setFontDownloadError('');
-                        }}
-                        style={{ height: '32px', fontSize: '12px' }}
-                        autoFocus
-                      />
-
-                      {fontLoading && (
-                        <div style={{ fontSize: '11px', color: 'var(--accent-purple)', padding: '4px' }}>
-                          Downloading from Google Fonts...
-                        </div>
-                      )}
-                      {fontDownloadError && (
-                        <div style={{ fontSize: '11px', color: '#f87171', padding: '4px' }}>
-                          {fontDownloadError}
-                        </div>
-                      )}
-
-                      <div
-                        className="custom-scrollbar"
-                        style={{ maxHeight: '160px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '2px', paddingRight: '4px' }}
-                      >
-                        {filteredFonts.map((font) => (
-                           <div
-                            key={font}
-                            onClick={async () => {
-                              try {
-                                await fetch('/api/fonts/ensure', {
-                                  method: 'POST',
-                                  headers: { 'Content-Type': 'application/json' },
-                                  body: JSON.stringify({ fontName: font })
-                                });
-                              } catch (_) {}
-                              loadGoogleFont(font);
-                              setFontName(font);
-                              setFontSelectorOpen(false);
-                              setFontSearchQuery('');
-                            }}
-                            style={{
-                              padding: '6px 10px', borderRadius: '4px', cursor: 'pointer', fontFamily: font, fontSize: '13px',
-                              background: fontName === font ? 'rgba(var(--scrollbar-thumb), 0.15)' : 'transparent',
-                              color: fontName === font ? 'var(--text-white)' : 'var(--text-gray)', transition: 'background 0.2s',
-                              display: 'flex', justifyContent: 'space-between', alignItems: 'center'
-                            }}
-                          >
-                            <span>{font}</span>
-                            <span style={{ fontSize: '9px', opacity: 0.5, fontStyle: 'italic', fontFamily: 'var(--font-sans)' }}>Preview</span>
-                          </div>
-                        ))}
-
-                        {filteredFonts.length === 0 && fontSearchQuery.trim().length > 0 && (
-                          <div style={{ padding: '8px', textAlign: 'center' }}>
-                            <button
-                              type="button" className="btn-primary" disabled={fontLoading}
-                              onClick={() => handleAddCustomFont(fontSearchQuery.trim())}
-                              style={{ width: '100%', height: '28px', fontSize: '10px', justifyContent: 'center' }}
-                            >
-                              Get "{fontSearchQuery.trim()}"
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '12px' }}>
-                  <div style={{ 
-                    flex: 1, background: 'var(--bg-darker)', border: '1px solid var(--border-medium)', 
-                    borderRadius: '4px', padding: '8px 12px', display: 'flex', alignItems: 'center', 
-                    justifyContent: 'space-between', height: '38px' 
-                  }}>
-                    <span style={{ fontSize: '13px', fontFamily: 'Inter' }}>{fontSize}px</span>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1px', marginLeft: 'auto' }}>
-                      <button 
-                        type="button" onClick={() => setFontSize(Math.min(48, fontSize + 2))}
-                        style={{ background: 'none', border: 'none', color: 'var(--text-white)', cursor: 'pointer', padding: 0, height: '10px', fontSize: '8px' }}
-                      >▲</button>
-                      <button 
-                        type="button" onClick={() => setFontSize(Math.max(12, fontSize - 2))}
-                        style={{ background: 'none', border: 'none', color: 'var(--text-white)', cursor: 'pointer', padding: 0, height: '10px', fontSize: '8px' }}
-                      >▼</button>
-                    </div>
-                  </div>
-
-                  <div style={{ 
-                    display: 'flex', gap: '6px', background: 'var(--bg-darker)', border: '1px solid var(--border-medium)', 
-                    borderRadius: '4px', padding: '8px', height: '38px', alignItems: 'center' 
-                  }}>
-                    {['#FFFFFF', '#FFCC00', '#00FFFF', '#FF3333'].map(color => (
-                      <button
-                        key={color} type="button" onClick={() => setFontColor(color)}
-                        style={{
-                          width: '16px', height: '16px', borderRadius: '50%', background: color,
-                          border: fontColor === color ? '1.5px solid var(--text-white)' : 'none', cursor: 'pointer',
-                          boxShadow: fontColor === color ? '0 0 4px var(--border-glow)' : 'none', padding: 0
-                        }}
-                      />
-                    ))}
-                    <div style={{
-                      position: 'relative', width: '16px', height: '16px', borderRadius: '50%',
-                      background: 'conic-gradient(red, yellow, lime, aqua, blue, magenta, red)',
-                      border: !['#FFFFFF', '#FFCC00', '#00FFFF', '#FF3333'].includes(fontColor) ? '1.5px solid var(--text-white)' : 'none',
-                      boxShadow: !['#FFFFFF', '#FFCC00', '#00FFFF', '#FF3333'].includes(fontColor) ? '0 0 4px var(--border-glow)' : 'none',
-                      cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      overflow: 'hidden'
-                    }} title="Choose custom color">
-                      <input
-                        type="color"
-                        value={fontColor}
-                        onChange={(e) => setFontColor(e.target.value)}
-                        style={{
-                          opacity: 0,
-                          position: 'absolute',
-                          width: '32px',
-                          height: '32px',
-                          cursor: 'pointer',
-                          border: 'none',
-                          padding: 0
-                        }}
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                <div style={{ display: 'flex', gap: '20px', marginTop: '4px' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', cursor: 'pointer', userSelect: 'none', fontFamily: 'Inter' }}>
-                    <input type="checkbox" checked={bold} onChange={(e) => setBold(e.target.checked)} />
-                    Bold
-                  </label>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', cursor: 'pointer', userSelect: 'none', fontFamily: 'Inter' }}>
-                    <input type="checkbox" checked={italic} onChange={(e) => setItalic(e.target.checked)} />
-                    Italic
-                  </label>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', cursor: 'pointer', userSelect: 'none', fontFamily: 'Inter' }}>
-                    <input type="checkbox" checked={shadow} onChange={(e) => setShadow(e.target.checked)} />
-                    Shadow
-                  </label>
-                </div>
-              </div>
-
-              {/* Hook Badge / Video Title Card */}
-              <div className="inspector-card">
-                <div className="inspector-sub-title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <span style={{ fontSize: '12px' }}>🎯 Hook Badge / Video Title</span>
-                </div>
-                <div style={{ fontSize: '11px', color: 'var(--text-gray)', marginBottom: '12px', lineHeight: '1.4' }}>
-                  Add an animated hook heading in the top-left corner for the first 3.0 seconds to boost social media retention.
-                </div>
-
-                <div style={{ marginBottom: '12px' }}>
-                  <label className="label">Hook Title Text</label>
-                  <input
-                    type="text"
-                    className="input-field"
-                    placeholder="e.g. 3 SECRETS TO GROW FAST 🚀"
-                    value={headingTitle}
-                    onChange={(e) => setHeadingTitle(e.target.value)}
-                    style={{ height: '38px', fontSize: '13px' }}
-                  />
-                </div>
-
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-                  <input 
-                    type="checkbox" 
-                    id="show-timer" 
-                    checked={showTimer} 
-                    onChange={(e) => setShowTimer(e.target.checked)} 
-                    style={{ cursor: 'pointer' }}
-                  />
-                  <label htmlFor="show-timer" style={{ fontSize: '12.5px', cursor: 'pointer', userSelect: 'none', fontWeight: 500, color: 'var(--text-white)' }}>
-                    Show Countdown Timer
-                  </label>
-                </div>
-
-                {(headingTitle.trim().length > 0 || showTimer) && (
-                  <div style={{ animation: 'fadeIn 0.2s ease-out' }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '12px' }}>
-                      <div>
-                        <label className="label">Font Family</label>
-                        <select
-                          value={headingFontName}
-                          onChange={(e) => setHeadingFontName(e.target.value)}
-                          className="input-field"
-                          style={{ height: '34px', fontSize: '12px', background: 'var(--bg-darker)' }}
-                        >
-                          <option value="Montserrat">Montserrat</option>
-                          <option value="Oswald">Oswald</option>
-                          <option value="Arial">Arial</option>
-                          <option value="Kalam Bold">Kalam Bold</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="label">Padding (px)</label>
-                        <input
-                          type="number"
-                          className="input-field"
-                          min={2}
-                          max={20}
-                          value={headingPadding}
-                          onChange={(e) => setHeadingPadding(Math.max(2, parseInt(e.target.value, 10) || 6))}
-                          style={{ height: '34px', fontSize: '12px' }}
-                        />
-                      </div>
-                    </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '12px' }}>
-                      <div>
-                        <label className="label">Font Size</label>
-                        <input
-                          type="number"
-                          className="input-field"
-                          min={10}
-                          max={48}
-                          value={headingFontSize}
-                          onChange={(e) => setHeadingFontSize(Math.max(10, parseInt(e.target.value, 10) || 18))}
-                          style={{ height: '34px', fontSize: '12px' }}
-                        />
-                      </div>
-                      <div>
-                        <label className="label">Text Color</label>
-                        <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-                          <input
-                            type="color"
-                            value={headingFontColor}
-                            onChange={(e) => setHeadingFontColor(e.target.value)}
-                            style={{ width: '28px', height: '28px', border: 'none', borderRadius: '4px', background: 'transparent', cursor: 'pointer', padding: 0 }}
-                          />
-                          <span style={{ fontSize: '11px', fontFamily: 'monospace', opacity: 0.7 }}>{headingFontColor}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div style={{ marginBottom: '12px' }}>
-                      <label className="label">Badge Background Color</label>
-                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                        <input
-                          type="color"
-                          value={headingBoxColor}
-                          onChange={(e) => setHeadingBoxColor(e.target.value)}
-                          style={{ width: '28px', height: '28px', border: 'none', borderRadius: '4px', background: 'transparent', cursor: 'pointer', padding: 0 }}
-                        />
-                        <span style={{ fontSize: '11px', fontFamily: 'monospace', opacity: 0.7 }}>{headingBoxColor}</span>
-                        <div style={{ display: 'flex', gap: '4px', marginLeft: 'auto' }}>
-                          {['#1A1A1A', '#8A4BF3', '#FFCC00', '#FF3333'].map(color => (
-                            <button
-                              key={color}
-                              type="button"
-                              onClick={() => setHeadingBoxColor(color)}
-                              style={{
-                                width: '16px', height: '16px', borderRadius: '50%', background: color,
-                                border: headingBoxColor === color ? '1.5px solid var(--text-white)' : 'none', cursor: 'pointer',
-                                padding: 0
-                              }}
-                            />
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
-                      <div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
-                          <span style={{ fontSize: '11px', color: 'var(--text-gray)', fontFamily: 'Inter' }}>Bg Opacity</span>
-                          <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{headingBoxOpacity}%</span>
-                        </div>
-                        <input
-                          type="range"
-                          min={0}
-                          max={100}
-                          step={1}
-                          value={headingBoxOpacity}
-                          onChange={(e) => setHeadingBoxOpacity(parseInt(e.target.value, 10))}
-                          style={{ width: '100%', accentColor: 'var(--accent-purple)' }}
-                        />
-                      </div>
-                      <div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
-                          <span style={{ fontSize: '11px', color: 'var(--text-gray)', fontFamily: 'Inter' }}>Text Opacity</span>
-                          <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{headingTextOpacity}%</span>
-                        </div>
-                        <input
-                          type="range"
-                          min={0}
-                          max={100}
-                          step={1}
-                          value={headingTextOpacity}
-                          onChange={(e) => setHeadingTextOpacity(parseInt(e.target.value, 10))}
-                          style={{ width: '100%', accentColor: 'var(--accent-purple)' }}
-                        />
-                      </div>
-                    </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', borderTop: '1px solid var(--border-light)', paddingTop: '12px', marginTop: '12px' }}>
-                      <div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
-                          <span style={{ fontSize: '11px', color: 'var(--text-gray)', fontFamily: 'Inter' }}>Top Margin (Y)</span>
-                          <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{headingTopOffset}%</span>
-                        </div>
-                        <input
-                          type="range" 
-                          min={2} 
-                          max={30} 
-                          step={1} 
-                          value={headingTopOffset}
-                          onChange={(e) => setHeadingTopOffset(parseInt(e.target.value, 10))}
-                          style={{ width: '100%', accentColor: 'var(--accent-color)' }}
-                        />
-                      </div>
-                      <div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
-                          <span style={{ fontSize: '11px', color: 'var(--text-gray)', fontFamily: 'Inter' }}>Side Margin (X)</span>
-                          <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{headingLeftOffset}%</span>
-                        </div>
-                        <input
-                          type="range" 
-                          min={2} 
-                          max={20} 
-                          step={1} 
-                          value={headingLeftOffset}
-                          onChange={(e) => setHeadingLeftOffset(parseInt(e.target.value, 10))}
-                          style={{ width: '100%', accentColor: 'var(--accent-color)' }}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Reel Branding System Card */}
-              <div className="inspector-card" style={{ background: 'var(--bg-darker)', border: '1px solid var(--border-medium)', borderRadius: '8px', padding: '12px', marginBottom: '14px' }}>
-                <div className="inspector-sub-title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <span style={{ fontSize: '12px' }}>🎬 Reel Branding System</span>
-                </div>
-                <div style={{ fontSize: '11px', color: 'var(--text-gray)', marginBottom: '12px', lineHeight: '1.4' }}>
-                  Overlays premium monochrome branding signatures matching Instagram Reels UI safe zones.
-                </div>
-
-                <div style={{ marginBottom: '12px' }}>
-                  <label className="label">Branding Theme</label>
-                  <select
-                    value={brandingTheme}
-                    onChange={(e) => setBrandingTheme(e.target.value as 'none' | 'fitness-in-chunks')}
-                    className="input-field"
-                    style={{ height: '34px', fontSize: '12.5px', background: 'var(--bg-darker)' }}
-                  >
-                    <option value="none">None (Disabled)</option>
-                    <option value="fitness-in-chunks">FitnessInChunks (v1.0)</option>
-                  </select>
-                </div>
-
-                {brandingTheme === 'fitness-in-chunks' && (
-                  <div style={{ animation: 'fadeIn 0.2s ease-out', display: 'flex', flexDirection: 'column', gap: '12px', borderTop: '1px solid var(--border-light)', paddingTop: '12px' }}>
-                    <div>
-                      <label className="label">Series Name Signature</label>
-                      <input
-                        type="text"
-                        className="input-field"
-                        placeholder="e.g. FITNESSINCHUNKS"
-                        value={seriesName}
-                        onChange={(e) => setSeriesName(e.target.value)}
-                        style={{ height: '34px', fontSize: '12.5px' }}
-                      />
-                    </div>
-                    
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                      <div>
-                        <label className="label">Episode Number</label>
-                        <input
-                          type="text"
-                          className="input-field"
-                          placeholder="e.g. EP 02"
-                          value={episodeNumber}
-                          onChange={(e) => setEpisodeNumber(e.target.value)}
-                          style={{ height: '34px', fontSize: '12.5px' }}
-                        />
-                      </div>
-                      <div>
-                        <label className="label">Next Episode CTA</label>
-                        <input
-                          type="text"
-                          className="input-field"
-                          placeholder="e.g. EP 03"
-                          value={nextEpisode}
-                          onChange={(e) => setNextEpisode(e.target.value)}
-                          style={{ height: '34px', fontSize: '12.5px' }}
-                        />
-                      </div>
-                    </div>
-
-                    <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-light)', borderRadius: '6px', padding: '10px', fontSize: '10.5px', color: 'var(--text-gray)', lineHeight: '1.4' }}>
-                      <strong style={{ color: 'var(--text-white)', display: 'block', marginBottom: '4px' }}>Theme Specifications Enforced:</strong>
-                      • Typography: Montserrat (ExtraBold topic, Bold episode, Medium series)<br />
-                      • Opacity: Topic 100%, Episode 100%, Series 60%, vertical line 80%<br />
-                      • Layout: Topic card (top-left, 0s-2s), Episode block (bottom-left, persistent), Progress bar (extreme right, vertical line shrinks over time)<br />
-                      • End Screen: Signature visibility increases; introduces centered follow CTA.
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Word-Specific Styles Section */}
-              <div className="inspector-card" style={{ background: 'var(--bg-darker)', border: '1px solid var(--border-medium)', borderRadius: '8px', padding: '12px', marginBottom: '14px' }}>
-                <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-white)', marginBottom: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span>Word Styling (Normal, Highlight, Emoji)</span>
-                </div>
-                
-                {/* Tab Headers */}
-                <div style={{ display: 'flex', gap: '4px', background: 'rgba(0,0,0,0.2)', padding: '4px', borderRadius: '6px', marginBottom: '12px' }}>
-                  {(['normal', 'highlight', 'emoji'] as const).map(tab => (
-                    <button
-                      key={tab}
-                      type="button"
-                      onClick={() => setStyleTab(tab)}
-                      style={{
-                        flex: 1, padding: '6px 0', borderRadius: '4px', border: 'none',
-                        fontSize: '11px', fontWeight: 600, textTransform: 'capitalize', cursor: 'pointer',
-                        background: styleTab === tab ? 'var(--primary)' : 'transparent',
-                        color: styleTab === tab ? 'var(--text-white)' : 'var(--text-gray)',
-                        transition: 'all 0.2s'
-                      }}
-                    >
-                      {tab}
-                    </button>
-                  ))}
-                </div>
-
-                {/* Copy-sync buttons */}
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '12px', borderBottom: '1px solid var(--border-light)', paddingBottom: '10px' }}>
-                  <button type="button" className="btn-secondary"
-                    onClick={() => { setHighlightStyle({ ...normalStyle }); setEmojiStyle({ ...normalStyle }); }}
-                    style={{ fontSize: '10px', padding: '4px 8px', height: 'auto' }}
-                  >Copy Normal to All</button>
-                  <button type="button" className="btn-secondary"
-                    onClick={() => { setEmojiStyle({ ...highlightStyle }); }}
-                    style={{ fontSize: '10px', padding: '4px 8px', height: 'auto' }}
-                  >Copy Highlight to Emoji</button>
-                </div>
-
-                {/* Tab Contents */}
-                <div>
-                  {/* 1. Text Color */}
-                  <div style={{ marginBottom: '12px' }}>
-                    <label className="label" style={{ marginBottom: '4px', fontSize: '11px' }}>Text Color</label>
-                    <div style={{ background: 'rgba(0,0,0,0.15)', border: '1px solid var(--border-medium)', borderRadius: '4px', padding: '4px 8px', display: 'flex', alignItems: 'center', gap: '6px', height: '34px' }}>
-                      <div style={{ position: 'relative', width: '20px', height: '20px', borderRadius: '4px', overflow: 'hidden', border: '1px solid var(--border-medium)', cursor: 'pointer' }}>
-                        <input 
-                          type="color" 
-                          value={styleTab === 'normal' ? normalStyle.fontColor : styleTab === 'highlight' ? highlightStyle.fontColor : emojiStyle.fontColor} 
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            if (styleTab === 'normal') { setNormalStyle({ ...normalStyle, fontColor: val }); setFontColor(val); }
-                            else if (styleTab === 'highlight') { setHighlightStyle({ ...highlightStyle, fontColor: val }); setHighlightColor(val); }
-                            else { setEmojiStyle({ ...emojiStyle, fontColor: val }); }
-                          }} 
-                          style={{ position: 'absolute', top: '-4px', left: '-4px', width: '28px', height: '28px', padding: 0, border: 'none', background: 'none', cursor: 'pointer' }} 
-                        />
-                      </div>
-                      <input 
-                        type="text" 
-                        value={(styleTab === 'normal' ? normalStyle.fontColor : styleTab === 'highlight' ? highlightStyle.fontColor : emojiStyle.fontColor).toUpperCase()} 
-                        onChange={(e) => {
-                          let val = e.target.value;
-                          if (!val.startsWith('#') && val.length > 0) val = '#' + val;
-                          if (styleTab === 'normal') { setNormalStyle({ ...normalStyle, fontColor: val }); setFontColor(val); }
-                          else if (styleTab === 'highlight') { setHighlightStyle({ ...highlightStyle, fontColor: val }); setHighlightColor(val); }
-                          else { setEmojiStyle({ ...emojiStyle, fontColor: val }); }
-                        }} 
-                        style={{ background: 'none', border: 'none', color: 'var(--text-white)', fontFamily: 'monospace', fontSize: '11px', width: '100%', outline: 'none', padding: 0 }} 
-                        placeholder="#FFFFFF"
-                      />
-                    </div>
-                  </div>
-
-                  {/* 2. Active Word Scale */}
-                  <div style={{ marginBottom: '12px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
-                      <label className="label" style={{ margin: 0, fontSize: '11px' }}>Active Scale Zoom</label>
-                      <span style={{ fontSize: '10px', fontFamily: 'monospace' }}>
-                        {(styleTab === 'normal' ? normalStyle.activeWordScale : styleTab === 'highlight' ? highlightStyle.activeWordScale : emojiStyle.activeWordScale).toFixed(2)}x
-                      </span>
-                    </div>
-                    <input 
-                      type="range" min={1.00} max={1.60} step={0.05} 
-                      value={styleTab === 'normal' ? normalStyle.activeWordScale : styleTab === 'highlight' ? highlightStyle.activeWordScale : emojiStyle.activeWordScale}
-                      onChange={(e) => {
-                        const val = parseFloat(e.target.value);
-                        if (styleTab === 'normal') { setNormalStyle({ ...normalStyle, activeWordScale: val }); }
-                        else if (styleTab === 'highlight') { setHighlightStyle({ ...highlightStyle, activeWordScale: val }); setActiveWordScale(val); }
-                        else { setEmojiStyle({ ...emojiStyle, activeWordScale: val }); }
-                      }}
-                      style={{ width: '100%', accentColor: 'var(--primary)', cursor: 'pointer' }}
-                    />
-                  </div>
-
-                  {/* 3. Neon Glow */}
-                  <div style={{ borderTop: '1px solid var(--border-light)', paddingTop: '10px', marginTop: '10px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <span>💡</span>
-                        <span style={{ fontSize: '11px', fontWeight: 500 }}>Glow Enabled</span>
-                      </div>
-                      <div 
-                        className={`stitch-switch ${(styleTab === 'normal' ? normalStyle.neonGlow : styleTab === 'highlight' ? highlightStyle.neonGlow : emojiStyle.neonGlow) ? 'active' : ''}`} 
-                        onClick={() => {
-                          if (styleTab === 'normal') { const t = !normalStyle.neonGlow; setNormalStyle({ ...normalStyle, neonGlow: t }); setNeonGlow(t); }
-                          else if (styleTab === 'highlight') { const t = !highlightStyle.neonGlow; setHighlightStyle({ ...highlightStyle, neonGlow: t }); }
-                          else { const t = !emojiStyle.neonGlow; setEmojiStyle({ ...emojiStyle, neonGlow: t }); }
-                        }}
-                      >
-                        <div className="stitch-switch-handle" />
-                      </div>
-                    </div>
-
-                    {(styleTab === 'normal' ? normalStyle.neonGlow : styleTab === 'highlight' ? highlightStyle.neonGlow : emojiStyle.neonGlow) && (
-                      <div style={{ padding: '8px', background: 'rgba(0,0,0,0.2)', borderRadius: '6px', border: '1px solid var(--border-medium)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                        {/* Glow Color */}
-                        <div>
-                          <label className="label" style={{ marginBottom: '2px', fontSize: '10px' }}>Glow Color</label>
-                          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                            <div style={{ position: 'relative', width: '18px', height: '18px', borderRadius: '4px', overflow: 'hidden', border: '1px solid var(--border-medium)', cursor: 'pointer' }}>
-                              <input 
-                                type="color" 
-                                value={styleTab === 'normal' ? normalStyle.glowColor : styleTab === 'highlight' ? highlightStyle.glowColor : emojiStyle.glowColor} 
-                                onChange={(e) => {
-                                  const val = e.target.value;
-                                  if (styleTab === 'normal') { setNormalStyle({ ...normalStyle, glowColor: val }); setGlowColor(val); }
-                                  else if (styleTab === 'highlight') { setHighlightStyle({ ...highlightStyle, glowColor: val }); }
-                                  else { setEmojiStyle({ ...emojiStyle, glowColor: val }); }
-                                }} 
-                                style={{ position: 'absolute', top: '-4px', left: '-4px', width: '26px', height: '26px', padding: 0, border: 'none', background: 'none', cursor: 'pointer' }} 
-                              />
-                            </div>
-                            <input 
-                              type="text" 
-                              value={(styleTab === 'normal' ? normalStyle.glowColor : styleTab === 'highlight' ? highlightStyle.glowColor : emojiStyle.glowColor).toUpperCase()} 
-                              onChange={(e) => {
-                                let hex = e.target.value;
-                                if (!hex.startsWith('#') && hex.length > 0) hex = '#' + hex;
-                                if (styleTab === 'normal') { setNormalStyle({ ...normalStyle, glowColor: hex }); setGlowColor(hex); }
-                                else if (styleTab === 'highlight') { setHighlightStyle({ ...highlightStyle, glowColor: hex }); }
-                                else { setEmojiStyle({ ...emojiStyle, glowColor: hex }); }
-                              }}
-                              className="input-field"
-                              style={{ flex: 1, height: '24px', padding: '2px 6px', fontSize: '10px', fontFamily: 'monospace' }}
-                            />
-                          </div>
-                        </div>
-
-                        {/* Glow Blur */}
-                        <div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1px' }}>
-                            <label className="label" style={{ fontSize: '10px', margin: 0 }}>Glow Strength (Blur)</label>
-                            <span style={{ fontSize: '9px', color: 'var(--text-muted)' }}>
-                              {styleTab === 'normal' ? normalStyle.glowBlur : styleTab === 'highlight' ? highlightStyle.glowBlur : emojiStyle.glowBlur}px
-                            </span>
-                          </div>
-                          <input 
-                            type="range" min={1} max={15} step={1} 
-                            value={styleTab === 'normal' ? normalStyle.glowBlur : styleTab === 'highlight' ? highlightStyle.glowBlur : emojiStyle.glowBlur} 
-                            onChange={(e) => {
-                              const val = parseInt(e.target.value, 10);
-                              if (styleTab === 'normal') { setNormalStyle({ ...normalStyle, glowBlur: val }); setGlowBlur(val); }
-                              else if (styleTab === 'highlight') { setHighlightStyle({ ...highlightStyle, glowBlur: val }); }
-                              else { setEmojiStyle({ ...emojiStyle, glowBlur: val }); }
-                            }}
-                            style={{ width: '100%', accentColor: 'var(--primary)', cursor: 'pointer' }}
-                          />
-                        </div>
-
-                        {/* Glow Distance */}
-                        <div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1px' }}>
-                            <label className="label" style={{ fontSize: '10px', margin: 0 }}>Glow Distance</label>
-                            <span style={{ fontSize: '9px', color: 'var(--text-muted)' }}>
-                              {styleTab === 'normal' ? normalStyle.glowDistance : styleTab === 'highlight' ? highlightStyle.glowDistance : emojiStyle.glowDistance}px
-                            </span>
-                          </div>
-                          <input 
-                            type="range" min={1} max={20} step={1} 
-                            value={styleTab === 'normal' ? normalStyle.glowDistance : styleTab === 'highlight' ? highlightStyle.glowDistance : emojiStyle.glowDistance} 
-                            onChange={(e) => {
-                              const val = parseInt(e.target.value, 10);
-                              if (styleTab === 'normal') { setNormalStyle({ ...normalStyle, glowDistance: val }); setGlowDistance(val); }
-                              else if (styleTab === 'highlight') { setHighlightStyle({ ...highlightStyle, glowDistance: val }); }
-                              else { setEmojiStyle({ ...emojiStyle, glowDistance: val }); }
-                            }}
-                            style={{ width: '100%', accentColor: 'var(--primary)', cursor: 'pointer' }}
-                          />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* Highlight Style Card (Conditional) */}
-              {(subtitleMode === 'pop' || subtitleMode === 'centered-word' || subtitleMode === 'smart-highlight') && (
-                <div className="inspector-card">
-                  <div className="inspector-sub-title">Highlight Word Style</div>
-
-                  <div style={{ marginBottom: '10px' }}>
-                    <label className="label">Highlight Trigger Mode</label>
-                    <select
-                      value={highlightTrigger}
-                      onChange={(e) => setHighlightTrigger(e.target.value as any)}
-                      className="input-field"
-                      style={{ width: '100%', height: '34px', fontSize: '12px', background: 'var(--bg-surface)' }}
-                    >
-                      <option value="all">Highlight Every Word (Standard)</option>
-                      <option value="emphasis">Highlight Emphasis/Highlight Words Only</option>
-                      <option value="emoji">Highlight Emoji Words Only</option>
-                    </select>
-                  </div>
-                  
-                  <div style={{ marginBottom: '12px' }}>
-                    <label className="label">Highlight Word Color</label>
-                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                      <input type="color" value={highlightColor} onChange={(e) => setHighlightColor(e.target.value)} />
-                      <input 
-                        type="text" value={highlightColor.toUpperCase()} 
-                        onChange={(e) => {
-                          let val = e.target.value;
-                          if (val.startsWith('#') && val.length <= 7) setHighlightColor(val);
-                          else if (val.length <= 6 && !val.startsWith('#')) setHighlightColor('#' + val);
-                        }}
-                        className="input-field"
-                        style={{ width: '90px', height: '28px', padding: '2px 6px', fontSize: '11px', fontFamily: 'monospace', textAlign: 'center' }}
-                      />
-                    </div>
-                  </div>
-
-                  {(subtitleMode === 'pop' || subtitleMode === 'centered-word') && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
-                      <input 
-                        type="checkbox" id="show-bg-box" checked={showHighlightBox} 
-                        onChange={(e) => setShowHighlightBox(e.target.checked)} 
-                      />
-                      <label htmlFor="show-bg-box" style={{ fontSize: '12px', cursor: 'pointer', userSelect: 'none' }}>
-                        Show Word Background Box
-                      </label>
-                    </div>
-                  )}
-
-                  {(subtitleMode === 'pop' || subtitleMode === 'centered-word') && showHighlightBox && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', borderTop: '1px solid var(--border-light)', paddingTop: '16px', marginTop: '8px' }}>
-                      <div>
-                        <label className="label">Background Box Color</label>
-                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                          <input type="color" value={boxColor} onChange={(e) => setBoxColor(e.target.value)} />
-                          <input 
-                            type="text" value={boxColor.toUpperCase()} 
-                            onChange={(e) => {
-                              let val = e.target.value;
-                              if (val.startsWith('#') && val.length <= 7) setBoxColor(val);
-                              else if (val.length <= 6 && !val.startsWith('#')) setBoxColor('#' + val);
-                            }}
-                            className="input-field"
-                            style={{ width: '90px', height: '28px', padding: '2px 6px', fontSize: '11px', fontFamily: 'monospace', textAlign: 'center' }}
-                          />
-                        </div>
-                      </div>
-
-                      <div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
-                          <label className="label" style={{ margin: 0 }}>Box Corner Rounding</label>
-                          <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{boxRounding}px</span>
-                        </div>
-                        <input
-                          type="range" min={0} max={24} value={boxRounding}
-                          onChange={(e) => setBoxRounding(parseInt(e.target.value, 10))}
-                          style={{ width: '100%' }}
-                        />
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Text Animations Card */}
-              <div className="inspector-card">
-                <div className="inspector-sub-title">Text Animations & Effects</div>
-                
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-                  <input 
-                    type="checkbox" id="fade-transition" checked={textFade} 
-                    onChange={(e) => setTextFade(e.target.checked)} 
-                  />
-                  <label htmlFor="fade-transition" style={{ fontSize: '12px', cursor: 'pointer', userSelect: 'none' }}>
-                    In/Out Fade (150ms)
-                  </label>
-                </div>
-
-                <div style={{ marginBottom: '12px' }}>
-                  <label className="label">In/Out Transition</label>
-                  <select className="input-field" value={textTransition} onChange={(e) => setTextTransition(e.target.value)}>
-                    <option value="none">None (Stationary Entrance/Exit)</option>
-                    <option value="slide-up">Slide Up (No Fade)</option>
-                    <option value="slide-up-fade">Slide Up & Fade</option>
-                    <option value="slide-down">Slide Down (No Fade)</option>
-                    <option value="slide-down-fade">Slide Down & Fade</option>
-                    <option value="slide-left">Slide Left (No Fade)</option>
-                    <option value="slide-left-fade">Slide Left & Fade</option>
-                    <option value="slide-right">Slide Right (No Fade)</option>
-                    <option value="slide-right-fade">Slide Right & Fade</option>
-                    <option value="slide-up-blur">Slide Up with Blur (No Fade)</option>
-                    <option value="slide-up-blur-fade">Slide Up with Blur & Fade</option>
-                    <option value="slide-down-blur">Slide Down with Blur (No Fade)</option>
-                    <option value="slide-down-blur-fade">Slide Down with Blur & Fade</option>
-                    <option value="slide-left-blur">Slide Left with Blur (No Fade)</option>
-                    <option value="slide-left-blur-fade">Slide Left with Blur & Fade</option>
-                    <option value="slide-right-blur">Slide Right with Blur (No Fade)</option>
-                    <option value="slide-right-blur-fade">Slide Right with Blur & Fade</option>
-                    <option value="zoom-in-out">Snappy Zoom In / Zoom Out (No Fade)</option>
-                    <option value="zoom-in-out-fade">Snappy Zoom In / Zoom Out & Fade</option>
-                    <option value="zoom-in-out-blur">Zoom In / Zoom Out with Blur (No Fade)</option>
-                    <option value="zoom-in-out-blur-fade">Zoom In / Zoom Out with Blur & Fade</option>
-                  </select>
-                </div>
-
-                <div style={{ marginBottom: '12px' }}>
-                  <label className="label">Stay Animation (Motion)</label>
-                  <select className="input-field" value={textMotion} onChange={(e) => setTextMotion(e.target.value)}>
-                    <option value="none">None (Stationary)</option>
-                    <option value="float">Floating Text (Slow Rise)</option>
-                  </select>
-                </div>
-
-                {(subtitleMode === 'pop' || subtitleMode === 'centered-word' || subtitleMode === 'smart-highlight') && (
-                  <div style={{ marginBottom: '12px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
-                      <label className="label" style={{ margin: 0 }}>Active Word Zoom Bump</label>
-                      <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{activeWordScale.toFixed(2)}x</span>
-                    </div>
-                    <input
-                      type="range" min={1.00} max={1.40} step={0.05} value={activeWordScale}
-                      onChange={(e) => setActiveWordScale(parseFloat(e.target.value))}
-                      style={{ width: '100%' }}
-                    />
-                  </div>
-                )}
-
-                {subtitleMode === 'smart-highlight' && (
-                  <div style={{ marginBottom: '12px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
-                      <label className="label" style={{ margin: 0 }}>Max Words Per Line</label>
-                      <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{maxWordsPerLine} words</span>
-                    </div>
-                    <input
-                      type="range" min={1} max={10} step={1} value={maxWordsPerLine}
-                      onChange={(e) => setMaxWordsPerLine(parseInt(e.target.value, 10))}
-                      style={{ width: '100%' }}
-                    />
-                  </div>
-                )}
-
-                {subtitleMode === 'pop' && (
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
-                      <label className="label" style={{ margin: 0 }}>Word Display Time</label>
-                      <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{wordDisplayTime.toFixed(1)}s</span>
-                    </div>
-                    <input
-                      type="range" min={0.3} max={3.0} step={0.1} value={wordDisplayTime}
-                      onChange={(e) => setWordDisplayTime(parseFloat(e.target.value))}
-                      style={{ width: '100%' }}
-                    />
-                  </div>
-                )}
-              </div>
-
-              {/* Engagement Cards (Retention Styles) */}
-              <div className="inspector-card">
-                <div className="inspector-sub-title">Retention Features</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span>😊</span>
-                      <span style={{ fontSize: '13px', fontWeight: 500, fontFamily: 'Inter' }}>Emoji Pop</span>
-                    </div>
-                    <div className={`stitch-switch ${showEmojis ? 'active' : ''}`} onClick={() => setShowEmojis(!showEmojis)}>
-                      <div className="stitch-switch-handle" />
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span>🧱</span>
-                      <span style={{ fontSize: '13px', fontWeight: 500, fontFamily: 'Inter' }}>3D Extrusion</span>
-                    </div>
-                    <div className={`stitch-switch ${pop3d ? 'active' : ''}`} onClick={() => setPop3d(!pop3d)}>
-                      <div className="stitch-switch-handle" />
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Emoji Word SFX Mappings */}
-              {(() => {
-                const emojiWordsList: {
-                  sceneIdx: number;
-                  wordIdx: number;
-                  wordObj: WordTiming;
-                  emoji: string;
-                }[] = [];
-                scenes.forEach((scene, sceneIdx) => {
-                  if (scene.words && Array.isArray(scene.words)) {
-                    scene.words.forEach((wordObj, wordIdx) => {
-                      const emoji = getWordEmoji(wordObj.word);
-                      if (emoji) {
-                        emojiWordsList.push({
-                          sceneIdx,
-                          wordIdx,
-                          wordObj,
-                          emoji
-                        });
-                      }
-                    });
-                  }
-                });
-
-                const handleUpdateWordSfx = (sIdx: number, wIdx: number, sfxId: string) => {
-                  const updatedScenes = [...scenes];
-                  if (updatedScenes[sIdx] && updatedScenes[sIdx].words && updatedScenes[sIdx].words![wIdx]) {
-                    updatedScenes[sIdx].words![wIdx].sfx = sfxId;
-                    setScenes(updatedScenes);
-                  }
-                };
-
-                if (!showEmojis || emojiWordsList.length === 0) return null;
-
-                return (
-                  <div className="inspector-card" style={{ marginTop: '16px', background: 'var(--bg-card)', border: '1px solid var(--border-medium)' }}>
-                    <div className="inspector-sub-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span>🎵 Emoji Word SFX Mappings</span>
-                      <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: 'normal' }}>{emojiWordsList.length} detected</span>
-                    </div>
-                    <div style={{ fontSize: '11px', color: 'var(--text-gray)', marginBottom: '10px' }}>
-                      Play sound effects exactly when these key emoji words are spoken.
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '220px', overflowY: 'auto', paddingRight: '4px' }}>
-                      {emojiWordsList.map(({ sceneIdx, wordIdx, wordObj, emoji }) => {
-                        const displayWord = wordObj.word;
-                        const selectedSfx = wordObj.sfx || 'none';
-                        return (
-                          <div key={`${sceneIdx}_${wordIdx}`} style={{ 
-                            display: 'flex', flexDirection: 'column', gap: '4px',
-                            background: 'var(--bg-darker)', border: '1px solid var(--border-medium)', 
-                            borderRadius: '4px', padding: '8px 10px'
-                          }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', fontWeight: 500 }}>
-                              <span>"{displayWord}" {emoji}</span>
-                              <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Scene {sceneIdx + 1} at {wordObj.start_time.toFixed(1)}s</span>
-                            </div>
-                            <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginTop: '2px' }}>
-                              <select
-                                value={selectedSfx}
-                                onChange={(e) => handleUpdateWordSfx(sceneIdx, wordIdx, e.target.value)}
-                                className="input-field"
-                                style={{ flex: 1, height: '28px', fontSize: '11px', padding: '0 6px', background: 'var(--bg-medium)' }}
-                              >
-                                <option value="none">No Sound Effect</option>
-                                {sfxList.map(s => (
-                                  <option key={s.id} value={s.id}>{s.name}</option>
-                                ))}
-                              </select>
-                              {selectedSfx !== 'none' && (
-                                <button
-                                  type="button"
-                                  onClick={() => handlePlaySfx(selectedSfx)}
-                                  style={{
-                                    background: 'var(--bg-medium)', border: 'none', 
-                                    color: 'var(--text-white)', width: '28px', height: '28px',
-                                    borderRadius: '4px', display: 'flex', alignItems: 'center',
-                                    justifyContent: 'center', cursor: 'pointer', padding: 0
-                                  }}
-                                >
-                                  {previewingSfx === selectedSfx ? '⏹' : '▶'}
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })()}
+            <div style={{ animation: 'fadeIn 0.2s ease-out', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <SubtitleStyleEditor
+                subtitleMode={subtitleMode}
+                setSubtitleMode={setSubtitleMode}
+                fontName={fontName}
+                setFontName={setFontName}
+                fontSize={fontSize}
+                setFontSize={setFontSize}
+                fontColor={fontColor}
+                setFontColor={setFontColor}
+                outlineColor={outlineColor}
+                setOutlineColor={setOutlineColor}
+                outlineThickness={outlineThickness}
+                setOutlineThickness={setOutlineThickness}
+                bold={bold}
+                setBold={setBold}
+                italic={italic}
+                setItalic={setItalic}
+                shadow={shadow}
+                setShadow={setShadow}
+                highlightColor={highlightColor}
+                setHighlightColor={setHighlightColor}
+                showHighlightBox={showHighlightBox}
+                setShowHighlightBox={setShowHighlightBox}
+                boxColor={boxColor}
+                setBoxColor={setBoxColor}
+                boxRounding={boxRounding}
+                setBoxRounding={setBoxRounding}
+                textFade={textFade}
+                setTextFade={setTextFade}
+                textTransition={textTransition}
+                setTextTransition={setTextTransition}
+                textMotion={textMotion}
+                setTextMotion={setTextMotion}
+                activeWordScale={activeWordScale}
+                setActiveWordScale={setActiveWordScale}
+                wordDisplayTime={wordDisplayTime}
+                setWordDisplayTime={setWordDisplayTime}
+                maxWordsPerLine={maxWordsPerLine}
+                setMaxWordsPerLine={setMaxWordsPerLine}
+                textPositionX={textPositionX}
+                setTextPositionX={setTextPositionX}
+                textPositionY={textPositionY}
+                setTextPositionY={setTextPositionY}
+                showEmojis={showEmojis}
+                setShowEmojis={setShowEmojis}
+                autoEmphasis={autoEmphasis}
+                setAutoEmphasis={setAutoEmphasis}
+                emphasisColor={emphasisColor}
+                setEmphasisColor={setEmphasisColor}
+                neonGlow={neonGlow}
+                setNeonGlow={setNeonGlow}
+                glowColor={glowColor}
+                setGlowColor={setGlowColor}
+                glowBlur={glowBlur}
+                setGlowBlur={setGlowBlur}
+                glowDistance={glowDistance}
+                setGlowDistance={setGlowDistance}
+                highlightTrigger={highlightTrigger}
+                setHighlightTrigger={setHighlightTrigger}
+                textCase={textCase}
+                setTextCase={setTextCase}
+                pop3d={pop3d}
+                setPop3d={setPop3d}
+                pop3dColor={pop3dColor}
+                setPop3dColor={setPop3dColor}
+                pop3dDepth={pop3dDepth}
+                setPop3dDepth={setPop3dDepth}
+                letterSpacing={letterSpacing}
+                setLetterSpacing={setLetterSpacing}
+                wordSpacing={wordSpacing}
+                setWordSpacing={setWordSpacing}
+                shadowColor={shadowColor}
+                setShadowColor={setShadowColor}
+                shadowBlur={shadowBlur}
+                setShadowBlur={setShadowBlur}
+                shadowDistance={shadowDistance}
+                setShadowDistance={setShadowDistance}
+                shadowAngle={shadowAngle}
+                setShadowAngle={setShadowAngle}
+                shadowOpacity={shadowOpacity}
+                setShadowOpacity={setShadowOpacity}
+                normalStyle={normalStyle}
+                setNormalStyle={setNormalStyle}
+                highlightStyle={highlightStyle}
+                setHighlightStyle={setHighlightStyle}
+                emojiStyle={emojiStyle}
+                setEmojiStyle={setEmojiStyle}
+                headingTitle={headingTitle}
+                setHeadingTitle={setHeadingTitle}
+                headingFontName={headingFontName}
+                setHeadingFontName={setHeadingFontName}
+                headingFontSize={headingFontSize}
+                setHeadingFontSize={setHeadingFontSize}
+                headingFontColor={headingFontColor}
+                setHeadingFontColor={setHeadingFontColor}
+                headingBoxColor={headingBoxColor}
+                setHeadingBoxColor={setHeadingBoxColor}
+                headingPadding={headingPadding}
+                setHeadingPadding={setHeadingPadding}
+                showTimer={showTimer}
+                setShowTimer={setShowTimer}
+                headingTopOffset={headingTopOffset}
+                setHeadingTopOffset={setHeadingTopOffset}
+                headingLeftOffset={headingLeftOffset}
+                setHeadingLeftOffset={setHeadingLeftOffset}
+                headingBoxOpacity={headingBoxOpacity}
+                setHeadingBoxOpacity={setHeadingBoxOpacity}
+                headingTextOpacity={headingTextOpacity}
+                setHeadingTextOpacity={setHeadingTextOpacity}
+                brandingTheme={brandingTheme}
+                setBrandingTheme={setBrandingTheme}
+                seriesName={seriesName}
+                setSeriesName={setSeriesName}
+                episodeNumber={episodeNumber}
+                setEpisodeNumber={setEpisodeNumber}
+                nextEpisode={nextEpisode}
+                setNextEpisode={setNextEpisode}
+                scenes={scenes}
+                setScenes={setScenes}
+                sfxList={sfxList}
+                handlePlaySfx={handlePlaySfx}
+                previewingSfx={previewingSfx}
+                brandPrimaryColor={brandPrimaryColor}
+                setBrandPrimaryColor={setBrandPrimaryColor}
+                brandSecondaryColor={brandSecondaryColor}
+                setBrandSecondaryColor={setBrandSecondaryColor}
+                cardPositionY={cardPositionY}
+                setCardPositionY={setCardPositionY}
+                cardScale={cardScale}
+                setCardScale={setCardScale}
+                cardFontName={cardFontName}
+                setCardFontName={setCardFontName}
+                showLayoutCards={showLayoutCards}
+                setShowLayoutCards={setShowLayoutCards}
+                applyHUDToAll={applyHUDToAll}
+                setApplyHUDToAll={setApplyHUDToAll}
+              />
             </div>
           )}
+
+
 
           {/* TAB 2: VIDEO */}
           {sidebarTab === 'video' && (
@@ -3854,95 +3619,184 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
 
           {/* TAB 3: AUDIO */}
           {sidebarTab === 'audio' && (
-            <div style={{ animation: 'fadeIn 0.2s ease-out' }}>
+            <div style={{ animation: 'fadeIn 0.2s ease-out', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              
+              {/* 1. Voiceover */}
               <div className="inspector-card">
-                <div className="inspector-sub-title">Voiceover & Volume</div>
-                <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
-                    <label className="label" style={{ margin: 0 }}>Voiceover Volume</label>
-                    <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{Math.round(voiceoverVolume * 100)}%</span>
+                <div className="inspector-sub-title">Voiceover Track</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: '11.5px', color: 'var(--text-gray)' }}>Mute Voiceover</span>
+                    <div 
+                      className={`stitch-switch ${muteVoiceover ? 'active' : ''}`} 
+                      onClick={() => setMuteVoiceover(!muteVoiceover)}
+                    >
+                      <div className="stitch-switch-handle" />
+                    </div>
                   </div>
-                  <input
-                    type="range" min={0.0} max={1.5} step={0.05} value={voiceoverVolume}
-                    onChange={(e) => setVoiceoverVolume(parseFloat(e.target.value))}
-                    style={{ width: '100%' }}
-                  />
+                  
+                  {!muteVoiceover && (
+                    <div style={{ animation: 'fadeIn 0.2s ease-out' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                        <span style={{ fontSize: '11px', color: 'var(--text-gray)' }}>Volume</span>
+                        <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{Math.round(voiceoverVolume * 100)}%</span>
+                      </div>
+                      <input
+                        type="range" min={0.0} max={1.5} step={0.05} value={voiceoverVolume}
+                        onChange={(e) => setVoiceoverVolume(parseFloat(e.target.value))}
+                        style={{ width: '100%', accentColor: 'var(--primary)' }}
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
 
+              {/* 2. Video Clips original audio */}
+              <div className="inspector-card">
+                <div className="inspector-sub-title">Video Clip Audio</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: '11.5px', color: 'var(--text-gray)' }}>Mute Original Video Audio</span>
+                    <div 
+                      className={`stitch-switch ${muteVideoAudio ? 'active' : ''}`} 
+                      onClick={() => setMuteVideoAudio(!muteVideoAudio)}
+                    >
+                      <div className="stitch-switch-handle" />
+                    </div>
+                  </div>
+                  
+                  {!muteVideoAudio && (
+                    <div style={{ animation: 'fadeIn 0.2s ease-out' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                        <span style={{ fontSize: '11px', color: 'var(--text-gray)' }}>Volume</span>
+                        <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{Math.round(videoVolume * 100)}%</span>
+                      </div>
+                      <input
+                        type="range" min={0.0} max={1.0} step={0.05} value={videoVolume}
+                        onChange={(e) => setVideoVolume(parseFloat(e.target.value))}
+                        style={{ width: '100%', accentColor: 'var(--primary)' }}
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* 3. Transition SFX Audio */}
+              <div className="inspector-card">
+                <div className="inspector-sub-title">Transition SFX Audio</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: '11.5px', color: 'var(--text-gray)' }}>Mute Sound Effects (SFX)</span>
+                    <div 
+                      className={`stitch-switch ${muteSfx ? 'active' : ''}`} 
+                      onClick={() => setMuteSfx(!muteSfx)}
+                    >
+                      <div className="stitch-switch-handle" />
+                    </div>
+                  </div>
+                  
+                  {!muteSfx && (
+                    <div style={{ animation: 'fadeIn 0.2s ease-out' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                        <span style={{ fontSize: '11px', color: 'var(--text-gray)' }}>Volume</span>
+                        <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{Math.round(sfxVolume * 100)}%</span>
+                      </div>
+                      <input
+                        type="range" min={0.0} max={1.0} step={0.05} value={sfxVolume}
+                        onChange={(e) => setSfxVolume(parseFloat(e.target.value))}
+                        style={{ width: '100%', accentColor: 'var(--primary)' }}
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* 4. Background Music */}
               <div className="inspector-card">
                 <div className="inspector-sub-title">Background Music</div>
-                <div style={{ marginBottom: '12px' }}>
-                  <label className="label">BGM Source</label>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                    <button
-                      type="button" className={bgmSource === 'library' ? 'btn-primary' : 'btn-secondary'}
-                      onClick={() => setBgmSource('library')} style={{ fontSize: '11px', padding: '6px', justifyContent: 'center' }}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: '11.5px', color: 'var(--text-gray)' }}>Mute BG Music</span>
+                    <div 
+                      className={`stitch-switch ${muteBgMusic ? 'active' : ''}`} 
+                      onClick={() => setMuteBgMusic(!muteBgMusic)}
                     >
-                      From Library
-                    </button>
-                    <button
-                      type="button" className={bgmSource === 'custom' ? 'btn-primary' : 'btn-secondary'}
-                      onClick={() => setBgmSource('custom')} style={{ fontSize: '11px', padding: '6px', justifyContent: 'center' }}
-                    >
-                      Custom Path
-                    </button>
+                      <div className="stitch-switch-handle" />
+                    </div>
                   </div>
+
+                  <div style={{ marginBottom: '4px' }}>
+                    <label className="label" style={{ fontSize: '11px', marginBottom: '4px' }}>BGM Source</label>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                      <button
+                        type="button" className={bgmSource === 'library' ? 'btn-primary' : 'btn-secondary'}
+                        onClick={() => setBgmSource('library')} style={{ fontSize: '11px', padding: '6px', justifyContent: 'center' }}
+                      >
+                        From Library
+                      </button>
+                      <button
+                        type="button" className={bgmSource === 'custom' ? 'btn-primary' : 'btn-secondary'}
+                        onClick={() => setBgmSource('custom')} style={{ fontSize: '11px', padding: '6px', justifyContent: 'center' }}
+                      >
+                        Custom Path
+                      </button>
+                    </div>
+                  </div>
+
+                  {bgmSource === 'library' ? (
+                    <div>
+                      <label className="label" style={{ fontSize: '11px', marginBottom: '4px' }}>Select BGM Track</label>
+                      <select className="input-field" value={bgMusicPath} onChange={(e) => setBgMusicPath(e.target.value)} style={{ fontSize: '12px', height: '34px' }}>
+                        <option value="">-- No Background Music --</option>
+                        {bgms.map(bgm => (
+                          <option key={bgm.id} value={bgm.path}>
+                            {bgm.name} ({bgm.duration ? `${Math.floor(bgm.duration / 60)}:${String(Math.floor(bgm.duration % 60)).padStart(2, '0')}` : '?'})
+                          </option>
+                        ))}
+                      </select>
+                      {bgms.length === 0 && (
+                        <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px', display: 'block' }}>
+                          No tracks imported yet. Go to Music Library tab to import BGMs.
+                        </span>
+                      )}
+                    </div>
+                  ) : (
+                    <div>
+                      <label className="label" style={{ fontSize: '11px', marginBottom: '4px' }}>Custom Audio File Path</label>
+                      <input
+                        type="text" className="input-field" placeholder="e.g. /path/to/bg_music.mp3"
+                        value={bgMusicPath} onChange={(e) => setBgMusicPath(e.target.value)} style={{ fontSize: '12px', height: '34px' }}
+                      />
+                    </div>
+                  )}
+
+                  {!muteBgMusic && bgMusicPath && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '4px', animation: 'fadeIn 0.2s ease-out' }}>
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                          <span style={{ fontSize: '11px', color: 'var(--text-gray)' }}>BG Music Volume</span>
+                          <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{Math.round(bgMusicVolume * 100)}%</span>
+                        </div>
+                        <input
+                          type="range" min={0.0} max={0.5} step={0.01} value={bgMusicVolume}
+                          onChange={(e) => setBgMusicVolume(parseFloat(e.target.value))}
+                          style={{ width: '100%', accentColor: 'var(--primary)' }}
+                        />
+                      </div>
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                          <span style={{ fontSize: '11px', color: 'var(--text-gray)' }}>Start Offset (skip intro)</span>
+                          <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{bgMusicStartOffset}s</span>
+                        </div>
+                        <input
+                          type="range" min={0} max={300} step={1} value={bgMusicStartOffset}
+                          onChange={(e) => setBgMusicStartOffset(parseInt(e.target.value, 10))}
+                          style={{ width: '100%', accentColor: 'var(--primary)' }}
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
-
-                {bgmSource === 'library' ? (
-                  <div style={{ marginBottom: '12px' }}>
-                    <label className="label">Select BGM Track</label>
-                    <select className="input-field" value={bgMusicPath} onChange={(e) => setBgMusicPath(e.target.value)}>
-                      <option value="">-- No Background Music --</option>
-                      {bgms.map(bgm => (
-                        <option key={bgm.id} value={bgm.path}>
-                          {bgm.name} ({bgm.duration ? `${Math.floor(bgm.duration / 60)}:${String(Math.floor(bgm.duration % 60)).padStart(2, '0')}` : '?'})
-                        </option>
-                      ))}
-                    </select>
-                    {bgms.length === 0 && (
-                      <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px', display: 'block' }}>
-                        No tracks imported yet. Go to Music Library tab to import BGMs.
-                      </span>
-                    )}
-                  </div>
-                ) : (
-                  <div style={{ marginBottom: '12px' }}>
-                    <label className="label">Custom Audio File Path</label>
-                    <input
-                      type="text" className="input-field" placeholder="e.g. /path/to/bg_music.mp3"
-                      value={bgMusicPath} onChange={(e) => setBgMusicPath(e.target.value)}
-                    />
-                  </div>
-                )}
-
-                {bgMusicPath && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                    <div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
-                        <label className="label" style={{ margin: 0 }}>BG Music Volume</label>
-                        <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{Math.round(bgMusicVolume * 100)}%</span>
-                      </div>
-                      <input
-                        type="range" min={0.0} max={0.5} step={0.01} value={bgMusicVolume}
-                        onChange={(e) => setBgMusicVolume(parseFloat(e.target.value))}
-                        style={{ width: '100%' }}
-                      />
-                    </div>
-                    <div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
-                        <label className="label" style={{ margin: 0 }}>Start Offset (skip intro)</label>
-                        <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{bgMusicStartOffset}s</span>
-                      </div>
-                      <input
-                        type="range" min={0} max={300} step={1} value={bgMusicStartOffset}
-                        onChange={(e) => setBgMusicStartOffset(parseInt(e.target.value, 10))}
-                        style={{ width: '100%' }}
-                      />
-                    </div>
-                  </div>
-                )}
               </div>
             </div>
           )}
@@ -4322,6 +4176,106 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
             </button>
           </div>
 
+        </div>
+      </div>
+
+      {/* RIGHT: Live Video Preview */}
+      <div style={{ borderLeft: '1px solid var(--border-light)', paddingLeft: '20px' }}>
+        <div style={{ position: 'sticky', top: '0px', height: 'calc(100vh - 80px)', display: 'flex', flexDirection: 'column' }}>
+          {/* Real-time Video Preview Player */}
+          {scenes.length > 0 && (
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-white)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Play size={14} style={{ color: 'var(--primary)' }} />
+                Real-Time Video Preview
+              </div>
+              <div style={{ 
+                height: 'calc(100vh - 120px)',
+                maxHeight: 'calc(100vh - 120px)',
+                aspectRatio: aspectRatio === '9:16' ? '9/16' : aspectRatio === '1:1' ? '1/1' : '16/9', 
+                maxWidth: aspectRatio === '16:9' ? '450px' : 'none',
+                borderRadius: '12px', 
+                overflow: 'hidden', 
+                background: '#000000',
+                border: '1px solid var(--border-medium)',
+                position: 'relative'
+              }}>
+                <PlayerErrorBoundary componentName="CreateProject-RemotionPlayer">
+                  <Player
+                    component={VideoReel as React.ComponentType<any>}
+                    inputProps={{
+                      scenes: scenes.map(s => ({
+                        ...s,
+                        clipUrl: s.clipId === 'original' 
+                          ? originalVideoUrl 
+                          : (s.clipId ? `/api/clips/${s.clipId}/video` : null)
+                      })),
+                      voiceoverUrl,
+                      voiceoverVolume: muteVoiceover ? 0.0 : voiceoverVolume,
+                      bgMusicUrl: bgMusicPath,
+                      bgMusicVolume: muteBgMusic ? 0.0 : bgMusicVolume,
+                      videoVolume: muteVideoAudio ? 0.0 : videoVolume,
+                      sfxVolume: muteSfx ? 0.0 : sfxVolume,
+                      subtitleMode,
+                      fontName,
+                      fontSize,
+                      bold,
+                      italic,
+                      shadow,
+                      activeWordScale,
+                      normalStyle,
+                      highlightStyle,
+                      emojiStyle,
+                      aspectRatio,
+                      fillMode,
+                      textPositionX,
+                      textPositionY,
+                      maxWordsPerLine,
+                      highlightTrigger,
+                      textCase,
+                      autoEmphasis,
+                      pop3d,
+                      pop3dColor,
+                      pop3dDepth,
+                      letterSpacing,
+                      wordSpacing,
+                      shadowColor,
+                      shadowBlur,
+                      shadowDistance,
+                      shadowAngle,
+                      shadowOpacity,
+                      outlineColor,
+                      neonGlow,
+                      glowColor,
+                      glowBlur,
+                      glowDistance,
+                      textAnimation,
+                      baseUrl: window.location.port ? window.location.origin.replace(window.location.port, '8000') : window.location.origin,
+                      subtitlesOnly: projectType === 'subtitles',
+                      brandPrimaryColor,
+                      brandSecondaryColor,
+                      cardPositionY,
+                      cardScale,
+                      cardFontName,
+                      showLayoutCards,
+                      applyHUDToAll,
+                    }}
+                    durationInFrames={Math.max(1, Math.round((scenes[scenes.length - 1]?.end_time || 30) * 30))}
+                    fps={30}
+                    compositionWidth={aspectRatio === '16:9' ? 1920 : 1080}
+                    compositionHeight={aspectRatio === '9:16' ? 1920 : 1080}
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      maxHeight: '100%'
+                    }}
+                    controls
+                    logLevel="trace"
+                  />
+                </PlayerErrorBoundary>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

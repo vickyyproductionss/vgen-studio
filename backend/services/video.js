@@ -18,6 +18,25 @@ function shapeDevanagari(text) {
 }
 
 /**
+ * Formats a word for "First Letter Larger, All Caps" style using ASS font scale tags.
+ * First letter gets 1.30x base scale, trailing letters get 0.90x base scale.
+ */
+function formatWordForFirstLetterLarger(word, baseScale = 1.0) {
+  if (!word) return '';
+  const match = word.match(/[a-zA-Z0-9\u0900-\u097F]/);
+  const firstCharIndex = match && match.index !== undefined ? match.index : 0;
+  
+  const leading = word.substring(0, firstCharIndex);
+  const firstChar = word.charAt(firstCharIndex).toUpperCase();
+  const trailing = word.substring(firstCharIndex + 1).toUpperCase();
+  
+  const firstScale = Math.round(100 * baseScale * 1.30);
+  const trailingScale = Math.round(100 * baseScale * 0.90);
+  
+  return `${leading}{\\fscx${firstScale}\\fscy${firstScale}}${firstChar}{\\fscx${trailingScale}\\fscy${trailingScale}}${trailing}`;
+}
+
+/**
  * Ensures a Google Font TTF file exists in the fonts directory.
  * If missing, it downloads it dynamically from Google Webfonts Helper.
  */
@@ -83,7 +102,7 @@ export async function ensureFontExists(fontName) {
 /**
  * Executes an FFmpeg command and returns a promise
  */
-function runFFmpeg(args, options = {}) {
+export function runFFmpeg(args, options = {}) {
   return new Promise((resolve, reject) => {
     const ffmpegArgs = ['-nostdin', ...args];
     console.log(`Running FFmpeg: ${ffmpegPath} ${ffmpegArgs.join(' ')}`);
@@ -133,13 +152,14 @@ export async function getVideoDuration(filePath) {
       throw err;
     });
 
-    const match = stderr.match(/Duration: (\d{2}):(\d{2}):(\d{2})\.(\d{2})/);
+    const match = stderr.match(/Duration: (\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?/);
     if (match) {
       const hours = parseInt(match[1], 10);
       const minutes = parseInt(match[2], 10);
       const seconds = parseInt(match[3], 10);
-      const centiseconds = parseInt(match[4], 10);
-      return hours * 3600 + minutes * 60 + seconds + centiseconds / 100;
+      const fractionStr = match[4] || '0';
+      const fraction = parseFloat(`0.${fractionStr}`);
+      return hours * 3600 + minutes * 60 + seconds + fraction;
     }
     return 0;
   } catch (err) {
@@ -1134,7 +1154,51 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
   if (mode === 'classic') {
     // Classic Mode: standard subtitle lines with optional fade
     let text = scene.text;
-    if (style.autoEmphasis) {
+    if (style.textCase === 'first-word-larger') {
+      const words = scene.words || [];
+      if (words.length > 0) {
+        text = words.map(w => {
+          const category = getWordCategory(w.word);
+          let baseScale = 1.0;
+          let tagColor = toTagColor(primaryColor);
+          if (style.autoEmphasis && style.highlightTrigger !== 'none') {
+            if (category === 'highlight') {
+              tagColor = toTagColor(hexToAssColor(highlightStyle.fontColor || '#FFFF00'));
+              baseScale = highlightStyle.activeWordScale || 1.15;
+            } else if (category === 'emoji') {
+              tagColor = toTagColor(hexToAssColor(emojiStyle.fontColor || '#FFFF00'));
+              baseScale = emojiStyle.activeWordScale || 1.15;
+            }
+          }
+          const formatted = formatWordForFirstLetterLarger(w.word, baseScale);
+          return `{\\c${tagColor}}${formatted}{\\c${toTagColor(primaryColor)}\\fscx100\\fscy100}`;
+        }).join(' ');
+      } else {
+        const wordsList = text.trim().split(/\s+/);
+        text = wordsList.map(w => formatWordForFirstLetterLarger(w, 1.0)).join(' ') + '{\\fscx100\\fscy100}';
+      }
+    } else if (style.textCase === 'upper') {
+      text = text.toUpperCase();
+      if (style.autoEmphasis && style.highlightTrigger !== 'none') {
+        const words = scene.words || [];
+        if (words.length > 0) {
+          text = words.map(w => {
+            const rawWord = w.word.toUpperCase();
+            const category = getWordCategory(w.word);
+            if (category === 'highlight') {
+              const empCol = toTagColor(hexToAssColor(highlightStyle.fontColor || '#FFFF00'));
+              const scale = Math.round(100 * (highlightStyle.activeWordScale || 1.15));
+              return `{\\fscx${scale}\\fscy${scale}\\c${empCol}}${rawWord}{\\fscx100\\fscy100\\c${toTagColor(primaryColor)}}`;
+            } else if (category === 'emoji') {
+              const empCol = toTagColor(hexToAssColor(emojiStyle.fontColor || '#FFFF00'));
+              const scale = Math.round(100 * (emojiStyle.activeWordScale || 1.15));
+              return `{\\fscx${scale}\\fscy${scale}\\c${empCol}}${rawWord}{\\fscx100\\fscy100\\c${toTagColor(primaryColor)}}`;
+            }
+            return rawWord;
+          }).join(' ');
+        }
+      }
+    } else if (style.autoEmphasis && style.highlightTrigger !== 'none') {
       const words = scene.words || [];
       if (words.length > 0) {
         text = words.map(w => {
@@ -1206,15 +1270,18 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
       // Snappy pop-in scale animation if zoom bump is enabled (> 1.0)
       const activeWordScale = wordStyle.activeWordScale || 1.0;
       let scaleTag = '';
-      if (activeWordScale > 1.0) {
+      if (activeWordScale > 1.0 && style.textCase !== 'first-word-larger') {
         const scaleStart = Math.round(90 * activeWordScale);
         const scaleEnd = Math.round(100 * activeWordScale);
         scaleTag = `\\fscx${scaleStart}\\fscy${scaleStart}\\t(0,60,\\fscx${scaleEnd}\\fscy${scaleEnd})`;
-      } else {
+      } else if (style.textCase !== 'first-word-larger') {
         scaleTag = `\\fscx100\\fscy100`;
       }
 
-      const wordText = w.word;
+      let wordText = w.word;
+      if (style.textCase === 'upper') {
+        wordText = wordText.toUpperCase();
+      }
 
       // Background Box for single word
       if (showBox) {
@@ -1236,10 +1303,22 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
       const glowTagsInner = getWordTags(wordStyle, true, 'glowInner', outlineColor, outlineSize, fontSize, style, category);
       const coreTags = getWordTags(wordStyle, true, 'core', outlineColor, outlineSize, fontSize, style, category);
 
-      const glowTextOuter = `{\\an5${glowTagsOuter}}${wordText}`;
-      const glowTextMedium = `{\\an5${glowTagsMedium}}${wordText}`;
-      const glowTextInner = `{\\an5${glowTagsInner}}${wordText}`;
-      const coreText = `{\\an5${coreTags}}${wordText}`;
+      let glowTextOuter, glowTextMedium, glowTextInner, coreText;
+      if (style.textCase === 'first-word-larger') {
+        const outerForm = formatWordForFirstLetterLarger(w.word, activeWordScale);
+        const medForm = formatWordForFirstLetterLarger(w.word, activeWordScale);
+        const innerForm = formatWordForFirstLetterLarger(w.word, activeWordScale);
+        const coreForm = formatWordForFirstLetterLarger(w.word, activeWordScale);
+        glowTextOuter = `{\\an5${glowTagsOuter}}${outerForm}`;
+        glowTextMedium = `{\\an5${glowTagsMedium}}${medForm}`;
+        glowTextInner = `{\\an5${glowTagsInner}}${innerForm}`;
+        coreText = `{\\an5${coreTags}}${coreForm}`;
+      } else {
+        glowTextOuter = `{\\an5${glowTagsOuter}}${wordText}`;
+        glowTextMedium = `{\\an5${glowTagsMedium}}${wordText}`;
+        glowTextInner = `{\\an5${glowTagsInner}}${wordText}`;
+        coreText = `{\\an5${coreTags}}${wordText}`;
+      }
 
       const glowLayerOuter = startLayer;
       const glowLayerMedium = startLayer + 1;
@@ -1297,6 +1376,16 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         }
 
         const tags = getWordTags(wordStyle, isActive, layerType, outlineColor, outlineSize, fontSize, style, category);
+
+        if (style.textCase === 'first-word-larger') {
+          const baseScale = isActive ? (wordStyle.activeWordScale || 1.0) : 1.0;
+          const formatted = formatWordForFirstLetterLarger(rawWord, baseScale);
+          return `{\\rDefault\\an5${tags}}${formatted}{\\fscx100\\fscy100}`;
+        }
+
+        if (style.textCase === 'upper') {
+          rawWord = rawWord.toUpperCase();
+        }
 
         let scaleTag = '';
         if (isActive) {
@@ -1617,10 +1706,25 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
       const glowTagsInner = getWordTags(wordStyle, true, 'glowInner', outlineColor, outlineSize, fontSize, style, category);
       const coreTags = getWordTags(wordStyle, true, 'core', outlineColor, outlineSize, fontSize, style, category);
 
-      const glowTextOuter = `{\\an5${glowTagsOuter}}${wordText}`;
-      const glowTextMedium = `{\\an5${glowTagsMedium}}${wordText}`;
-      const glowTextInner = `{\\an5${glowTagsInner}}${wordText}`;
-      const coreText = `{\\an5${coreTags}}${wordText}`;
+      let glowTextOuter, glowTextMedium, glowTextInner, coreText;
+      let animTag = wordAnim;
+
+      if (style.textCase === 'first-word-larger') {
+        const outerForm = formatWordForFirstLetterLarger(w.word, activeWordScale);
+        const medForm = formatWordForFirstLetterLarger(w.word, activeWordScale);
+        const innerForm = formatWordForFirstLetterLarger(w.word, activeWordScale);
+        const coreForm = formatWordForFirstLetterLarger(w.word, activeWordScale);
+        glowTextOuter = `{\\an5${glowTagsOuter}}${outerForm}`;
+        glowTextMedium = `{\\an5${glowTagsMedium}}${medForm}`;
+        glowTextInner = `{\\an5${glowTagsInner}}${innerForm}`;
+        coreText = `{\\an5${coreTags}}${coreForm}`;
+        animTag = `\\alpha&H00&\\t(0,${popInMs},\\alpha&H00&)\\t(${burstStart},${durMs},\\alpha&HFF&)`;
+      } else {
+        glowTextOuter = `{\\an5${glowTagsOuter}}${wordText}`;
+        glowTextMedium = `{\\an5${glowTagsMedium}}${wordText}`;
+        glowTextInner = `{\\an5${glowTagsInner}}${wordText}`;
+        coreText = `{\\an5${coreTags}}${wordText}`;
+      }
 
       const glowLayerOuter = startLayer;
       const glowLayerMedium = startLayer + 1;
@@ -1628,12 +1732,12 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
       const coreLayer = anyNeonGlow ? startLayer + 3 : startLayer;
 
       if (anyNeonGlow) {
-        events += `Dialogue: ${glowLayerOuter},${startStr},${endStr},Default,,0,0,0,,{\\an5${moveTag}${wordAnim}}${glowTextOuter}\n`;
-        events += `Dialogue: ${glowLayerMedium},${startStr},${endStr},Default,,0,0,0,,{\\an5${moveTag}${wordAnim}}${glowTextMedium}\n`;
-        events += `Dialogue: ${glowLayerInner},${startStr},${endStr},Default,,0,0,0,,{\\an5${moveTag}${wordAnim}}${glowTextInner}\n`;
-        events += `Dialogue: ${coreLayer},${startStr},${endStr},Default,,0,0,0,,{\\an5${moveTag}${wordAnim}}${coreText}\n`;
+        events += `Dialogue: ${glowLayerOuter},${startStr},${endStr},Default,,0,0,0,,{\\an5${moveTag}${animTag}}${glowTextOuter}\n`;
+        events += `Dialogue: ${glowLayerMedium},${startStr},${endStr},Default,,0,0,0,,{\\an5${moveTag}${animTag}}${glowTextMedium}\n`;
+        events += `Dialogue: ${glowLayerInner},${startStr},${endStr},Default,,0,0,0,,{\\an5${moveTag}${animTag}}${glowTextInner}\n`;
+        events += `Dialogue: ${coreLayer},${startStr},${endStr},Default,,0,0,0,,{\\an5${moveTag}${animTag}}${coreText}\n`;
       } else {
-        events += `Dialogue: ${coreLayer},${startStr},${endStr},Default,,0,0,0,,{\\an5${moveTag}${wordAnim}}${coreText}\n`;
+        events += `Dialogue: ${coreLayer},${startStr},${endStr},Default,,0,0,0,,{\\an5${moveTag}${animTag}}${coreText}\n`;
       }
     }
   }
@@ -2024,6 +2128,12 @@ export async function assembleVideo(options, onProgress) {
         clipPath = gcsService.isGcsEnabled() ? localClipsPaths.get(scene.clipId) : clip.path;
         clipStartOffset = scene.clipStart || 0;
         clipDuration = clip.duration;
+      } else if (scene.clipId === 'original') {
+        if (localOriginalVideoPath) {
+          clipPath = localOriginalVideoPath;
+          clipStartOffset = (scene.clipStart !== undefined && scene.clipStart !== 0) ? scene.clipStart : scene.start_time;
+          clipDuration = voiceoverDuration || 999999;
+        }
       } else if (!talkingHeadEnabled) {
         // Fallback to backward compatibility: if talking head is disabled, show original video full screen
         if (localOriginalVideoPath) {

@@ -7,6 +7,8 @@ interface SettingsProps {
 
 export default function Settings({ onSettingsSaved }: SettingsProps) {
   const [elevenLabsApiKey, setElevenLabsApiKey] = useState('');
+  const [pexelsApiKey, setPexelsApiKey] = useState('');
+  const [pixabayApiKey, setPixabayApiKey] = useState('');
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
@@ -21,6 +23,8 @@ export default function Settings({ onSettingsSaved }: SettingsProps) {
       if (res.ok) {
         const data = await res.json();
         setElevenLabsApiKey(data.elevenLabsApiKey || '');
+        setPexelsApiKey(data.pexelsApiKey || '');
+        setPixabayApiKey(data.pixabayApiKey || '');
       }
     } catch (err) {
       console.error('Failed to load settings:', err);
@@ -40,7 +44,9 @@ export default function Settings({ onSettingsSaved }: SettingsProps) {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          elevenLabsApiKey
+          elevenLabsApiKey,
+          pexelsApiKey,
+          pixabayApiKey
         })
       });
 
@@ -66,7 +72,7 @@ export default function Settings({ onSettingsSaved }: SettingsProps) {
       <div style={{ marginBottom: '24px' }}>
         <h2 style={{ fontSize: '28px', marginBottom: '8px' }}>Application Settings</h2>
         <p style={{ color: 'var(--text-gray)', fontSize: '14px' }}>
-          Configure API credentials to enable video intelligence, voiceovers, and automatic segmentation.
+          Configure API credentials to enable video intelligence, voiceovers, stock B-roll fetching, and automatic segmentation.
         </p>
       </div>
 
@@ -102,7 +108,7 @@ export default function Settings({ onSettingsSaved }: SettingsProps) {
           </div>
         )}
 
-        <div style={{ marginBottom: '32px' }}>
+        <div style={{ marginBottom: '24px' }}>
           <label className="label" htmlFor="elevenlabs-key">
             <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Key size={14} style={{ color: 'var(--accent-blue)' }} />
@@ -124,6 +130,56 @@ export default function Settings({ onSettingsSaved }: SettingsProps) {
             marginTop: '6px'
           }}>
             Required if you want to generate high-quality text-to-speech voiceovers directly within the software.
+          </span>
+        </div>
+
+        <div style={{ marginBottom: '24px' }}>
+          <label className="label" htmlFor="pexels-key">
+            <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Key size={14} style={{ color: 'var(--accent-purple)' }} />
+              Pexels API Key (Optional)
+            </span>
+          </label>
+          <input
+            id="pexels-key"
+            type="password"
+            className="input-field"
+            placeholder="Enter Pexels API Key"
+            value={pexelsApiKey}
+            onChange={(e) => setPexelsApiKey(e.target.value)}
+          />
+          <span style={{
+            fontSize: '11px',
+            color: 'var(--text-muted)',
+            display: 'block',
+            marginTop: '6px'
+          }}>
+            Used to automatically download cinematic B-roll clips for long-form and short-form videos.
+          </span>
+        </div>
+
+        <div style={{ marginBottom: '32px' }}>
+          <label className="label" htmlFor="pixabay-key">
+            <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Key size={14} style={{ color: 'var(--accent-indigo)' }} />
+              Pixabay API Key (Optional)
+            </span>
+          </label>
+          <input
+            id="pixabay-key"
+            type="password"
+            className="input-field"
+            placeholder="Enter Pixabay API Key"
+            value={pixabayApiKey}
+            onChange={(e) => setPixabayApiKey(e.target.value)}
+          />
+          <span style={{
+            fontSize: '11px',
+            color: 'var(--text-muted)',
+            display: 'block',
+            marginTop: '6px'
+          }}>
+            Fallback stock video search provider to maximize chances of finding perfect B-roll clips.
           </span>
         </div>
 

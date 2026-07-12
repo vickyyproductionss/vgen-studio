@@ -4,6 +4,25 @@
     "uploads/*",
     "uploads/**",
     "db.json",
-    "error.log"
+    "error.log",
+    "**/uploads/**",
+    "**/db.json",
+    "**/error.log",
+    "**/*.mp4",
+    "**/*.ass",
+    "**/*.jpg",
+    "**/*.png",
+    "**/*.mp3",
+    "**/*.json",
+    "**/*.ttf",
+    "**/*.woff",
+    "**/*.woff2",
+    "**/*.zip",
+    "**/*.tmp",
+    "**/*.crdownload",
+    "fonts/**",
+    "**/fonts/**",
+    "temp/**",
+    "**/temp/**"
   ]
 }

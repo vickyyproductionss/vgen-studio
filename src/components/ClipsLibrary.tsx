@@ -29,6 +29,7 @@ export default function ClipsLibrary() {
   const [uploading, setUploading] = useState(false);
   const [uploadQueue, setUploadQueue] = useState<UploadProgress[]>([]);
   const [error, setError] = useState('');
+  const [activeTab, setActiveTab] = useState<'uploads' | 'broll'>('uploads');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -271,12 +272,49 @@ export default function ClipsLibrary() {
     }
   };
 
+  const isStockOrBroll = (clip: Clip) => {
+    // 1. Check tags
+    const hasSystemTag = Array.isArray(clip.tags) && clip.tags.some(tag => 
+      tag === 'stock_downloaded' || 
+      tag === 'ai_generated' || 
+      tag === 'fallback' ||
+      tag === 'recreate_fallback'
+    );
+    if (hasSystemTag) return true;
+
+    // 2. Check name prefix (e.g., starts with "STOCK" or "AI - ")
+    if (clip.name) {
+      const lowerName = clip.name.toLowerCase();
+      if (lowerName.startsWith('stock') || lowerName.startsWith('ai -') || lowerName.startsWith('ai_')) {
+        return true;
+      }
+    }
+
+    // 3. Check path / file name prefix
+    if (clip.path) {
+      const filename = clip.path.split('/').pop() || '';
+      if (filename.startsWith('stock_') || filename.includes('/stock_') || filename.startsWith('ai_clip_') || filename.includes('/ai_clip_')) {
+        return true;
+      }
+    }
+
+    // 4. Check ID prefix
+    if (clip.id && (clip.id.startsWith('pexels_') || clip.id.startsWith('pixabay_') || clip.id.startsWith('ai_clip_'))) {
+      return true;
+    }
+
+    return false;
+  };
+
   const filteredClips = clips.filter(clip => {
+    const matchesTab = activeTab === 'broll' ? isStockOrBroll(clip) : !isStockOrBroll(clip);
+    if (!matchesTab) return false;
+
     const query = search.toLowerCase();
     return (
       clip.name.toLowerCase().includes(query) ||
       clip.description.toLowerCase().includes(query) ||
-      clip.tags.some(tag => tag.toLowerCase().includes(query))
+      (Array.isArray(clip.tags) && clip.tags.some(tag => tag.toLowerCase().includes(query)))
     );
   });
 
@@ -456,6 +494,46 @@ export default function ClipsLibrary() {
             {importing ? 'Importing...' : (importMode === 'file' ? 'Add Clip' : 'Scan Folder')}
           </button>
         </form>
+      </div>
+
+      {/* Tabs for Uploads vs B-Roll / Stock */}
+      <div style={{ display: 'flex', borderBottom: '1px solid var(--border-light)', marginBottom: '24px', gap: '8px' }}>
+        <button
+          type="button"
+          onClick={() => setActiveTab('uploads')}
+          style={{
+            padding: '10px 16px',
+            background: 'none',
+            border: 'none',
+            borderBottom: activeTab === 'uploads' ? '2px solid var(--primary)' : '2px solid transparent',
+            color: activeTab === 'uploads' ? '#fff' : 'var(--text-gray)',
+            fontWeight: 600,
+            fontSize: '14px',
+            cursor: 'pointer',
+            transition: 'all 0.2s',
+            outline: 'none'
+          }}
+        >
+          Uploaded Clips ({clips.filter(c => !isStockOrBroll(c)).length})
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('broll')}
+          style={{
+            padding: '10px 16px',
+            background: 'none',
+            border: 'none',
+            borderBottom: activeTab === 'broll' ? '2px solid var(--primary)' : '2px solid transparent',
+            color: activeTab === 'broll' ? '#fff' : 'var(--text-gray)',
+            fontWeight: 600,
+            fontSize: '14px',
+            cursor: 'pointer',
+            transition: 'all 0.2s',
+            outline: 'none'
+          }}
+        >
+          B-Roll & Stock Library ({clips.filter(isStockOrBroll).length})
+        </button>
       </div>
 
       {/* Search & Stats */}

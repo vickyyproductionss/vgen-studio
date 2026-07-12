@@ -39,6 +39,8 @@ function getLocalDb() {
       settings: {
         geminiApiKey: '',
         elevenLabsApiKey: '',
+        pexelsApiKey: '',
+        pixabayApiKey: '',
         defaultOutputDir: path.resolve(__dirname, '..', 'uploads', 'generated'),
         lastActiveProjectId: '',
         lastSelectedVoice: ''

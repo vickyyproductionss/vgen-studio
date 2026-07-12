@@ -11,8 +11,12 @@ const ai = new GoogleGenAI({
   location: 'us-central1'
 });
 
-// Helper to dynamically obtain client (forced to global Vertex AI per instructions)
+// Helper to dynamically obtain client (forced to global Vertex AI per instructions, with API Key fallback)
 function getAiClient(apiKey) {
+  if (apiKey) {
+    console.log('[Gemini Client] Using provided API Key...');
+    return new GoogleGenAI({ apiKey });
+  }
   console.log('[Gemini Client] Using global Vertex AI (enterprise)...');
   return ai;
 }
@@ -25,13 +29,14 @@ async function getAudioDuration(filePath) {
     let stderr = '';
     proc.stderr.on('data', (d) => stderr += d.toString());
     proc.on('close', () => {
-      const match = stderr.match(/Duration: (\d{2}):(\d{2}):(\d{2})\.(\d{2})/);
+      const match = stderr.match(/Duration: (\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?/);
       if (match) {
         const hours = parseInt(match[1], 10);
         const minutes = parseInt(match[2], 10);
         const seconds = parseInt(match[3], 10);
-        const centiseconds = parseInt(match[4], 10);
-        resolve(hours * 3600 + minutes * 60 + seconds + centiseconds / 100);
+        const fractionStr = match[4] || '0';
+        const fraction = parseFloat(`0.${fractionStr}`);
+        resolve(hours * 3600 + minutes * 60 + seconds + fraction);
       } else {
         resolve(0);
       }
@@ -218,13 +223,13 @@ Return the result as a JSON object matching the requested schema.`;
 /**
  * Transcribes audio and aligns the words/sentences with start and end times using Gemini
  */
-export async function alignScriptAndAudio(scriptText, audioPath, apiKey) {
+export async function alignScriptAndAudio(scriptText, audioPath, apiKey, language = 'original') {
   const maxAttempts = 3;
   let delay = 1500;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      return await alignScriptAndAudioInternal(scriptText, audioPath, apiKey);
+      return await alignScriptAndAudioInternal(scriptText, audioPath, apiKey, language);
     } catch (err) {
       console.warn(`[Gemini Aligner] Attempt ${attempt} failed with error: ${err.message}`);
       if (attempt === maxAttempts) {
@@ -237,9 +242,8 @@ export async function alignScriptAndAudio(scriptText, audioPath, apiKey) {
   }
 }
 
-async function alignScriptAndAudioInternal(scriptText, audioPath, apiKey) {
+async function alignScriptAndAudioInternal(scriptText, audioPath, apiKey, language = 'original') {
   const client = getAiClient(apiKey);
-
 
   let audioDuration = 0;
   try {
@@ -255,9 +259,17 @@ async function alignScriptAndAudioInternal(scriptText, audioPath, apiKey) {
 
   const hasScript = scriptText && scriptText.trim().length > 0;
   console.log('Aligning script and audio...');
-  
-  const prompt = hasScript 
-    ? `You are a script timing generator. You are given a reference script:
+
+  // Auto-detect if script is Hindi/Hinglish.
+  // Devanagari test OR if the script explicitly looks like Hinglish or language is set to hindi/hinglish.
+  const isHindiOrHinglish = /[\u0900-\u097F]/.test(scriptText) || 
+                            language === 'hindi' || 
+                            language === 'hinglish';
+
+  let prompt = '';
+  if (isHindiOrHinglish) {
+    prompt = hasScript 
+      ? `You are a script timing generator. You are given a reference script:
 "${scriptText}"
 
 And the uploaded audio file which is a reading of this script. The total duration of this audio file is exactly ${audioDuration.toFixed(2)} seconds.
@@ -275,7 +287,7 @@ For each segment, you MUST generate and provide the transcripts in both Hindi an
 8. words: A copy of the words_hinglish array.
 
 Ensure that the segments cover the whole audio timeline, and the start/end times are highly accurate based on the audio recording of ${audioDuration.toFixed(2)} seconds.`
-    : `You are an audio transcriber and timing generator. 
+      : `You are an audio transcriber and timing generator. 
 Analyze the uploaded audio file, transcribe it, and segment the transcribed text into logical clips/phrases. The total duration of this audio file is exactly ${audioDuration.toFixed(2)} seconds.
 CRITICAL: Segment the speech naturally at logical pauses, sentence boundaries, or major phrase boundaries. Do NOT force a minimum duration for the segments. Keep the segments as natural, individual spoken phrases/sentences (even if they are short, e.g., 1.0 to 2.0 seconds long). Do not group spoken phrases together unless they naturally flow as a single spoken statement in the audio.
 
@@ -290,6 +302,75 @@ For each segment, you MUST generate and provide the transcripts in both Hindi an
 8. words: A copy of the words_hinglish array.
 
 Ensure that the segments cover the whole audio timeline, and the start/end times are highly accurate based on the audio recording of ${audioDuration.toFixed(2)} seconds.`;
+  } else {
+    // Retain original language (e.g. English, Spanish, etc.)
+    prompt = hasScript 
+      ? `You are a script timing generator. You are given a reference script in its original language (e.g. English):
+"${scriptText}"
+
+And the uploaded audio file which is a reading of this script. The total duration of this audio file is exactly ${audioDuration.toFixed(2)} seconds.
+Analyze the audio, match it to the script, and segment the script into logical clips/sentences. 
+CRITICAL: Segment the script naturally at sentence boundaries or major phrase boundaries. Do NOT force a minimum duration for the segments. Keep the segments as natural, individual sentences/phrases (even if they are short, e.g., 1.0 to 2.0 seconds long).
+
+For each segment, you MUST generate and provide the transcripts in the original language of the script:
+1. text: The transcribed spoken dialogue in its original language (e.g., English), exactly matching the reference script words.
+2. text_hinglish: A copy of the "text" field.
+3. text_hindi: A copy of the "text" field.
+4. start_time in seconds (relative to the beginning of the audio, starting at 0.0).
+5. end_time in seconds.
+6. words: An array of words inside the "text" transcript, with their individual start_time and end_time timings.
+7. words_hinglish: A copy of the "words" array.
+8. words_hindi: A copy of the "words" array.
+
+Ensure that the segments cover the whole audio timeline, and the start/end times are highly accurate based on the audio recording of ${audioDuration.toFixed(2)} seconds.`
+      : `You are an audio transcriber and timing generator. 
+Analyze the uploaded audio file, transcribe it in its original language (e.g., English), and segment the transcribed text into logical clips/phrases. The total duration of this audio file is exactly ${audioDuration.toFixed(2)} seconds.
+CRITICAL: Segment the speech naturally at logical pauses, sentence boundaries, or major phrase boundaries. Do NOT force a minimum duration for the segments. Keep the segments as natural, individual spoken phrases/sentences.
+
+For each segment, you MUST generate and provide the transcripts:
+1. text: The transcribed spoken dialogue in its original language.
+2. text_hinglish: A copy of the "text" field.
+3. text_hindi: A copy of the "text" field.
+4. start_time in seconds (relative to the beginning of the audio, starting at 0.0).
+5. end_time in seconds.
+6. words: An array of words inside the "text" transcript, with their individual start_time and end_time timings.
+7. words_hinglish: A copy of the "words" array.
+8. words_hindi: A copy of the "words" array.
+
+Ensure that the segments cover the whole audio timeline, and the start/end times are highly accurate based on the audio recording of ${audioDuration.toFixed(2)} seconds.`;
+  }
+
+  // Append storyteller instruction block to whatever prompt was constructed
+  prompt += `\n\nADDITIONAL STORIES LAYOUT CUES:
+For each segmented phrase/clip, you MUST also analyze the meaning/context of the narration text and determine the following storytelling visual properties:
+1. "layout": The visual layout mode for this scene (choose from: "graph", "versus", "quote", "stat_callout", "timeline_checkpoint", "danger_callout", "progress_ratio", "pro_tip", "versus_meter", "tier_list_ranker", "full_broll"). Use "versus" for confrontations/rivalries, "quote" when direct statements or thoughts are narrated, "stat_callout" for historical years/dates, currency values, or percentages, "timeline_checkpoint" to mark historical milestones, "graph" to show relationships/connections, "danger_callout" for caution/warnings/mistakes, "progress_ratio" for percentage progress bars, "pro_tip" for actionable tips, "versus_meter" for comparison balance sliders, "tier_list_ranker" for rank grades (S/A/B/C/F), and "full_broll" for descriptive narration.
+2. "layoutProps": An object containing specific properties for the chosen layout (leave empty if not applicable):
+    - "quoteText": The quote content (string, if layout is "quote").
+    - "quoteAuthor": The author of the quote (string, if layout is "quote").
+    - "statValue": The large number/year/stat to display (string, if layout is "stat_callout").
+    - "statLabel": The description of the statistic (string, if layout is "stat_callout").
+    - "versusLeft": The name of the left-side rival (string, if layout is "versus").
+    - "versusRight": The name of the right-side rival (string, if layout is "versus").
+    - "versusLabel": Subtitle for the versus battle (string, if layout is "versus").
+    - "versusLeftFeatures": A list of 2-3 key characteristics or specifications of the left rival (array of strings, if layout is "versus").
+    - "versusRightFeatures": A list of 2-3 key characteristics or specifications of the right rival (array of strings, if layout is "versus").
+    - "timelineDate": The key date/year for this milestone (string, if layout is "timeline_checkpoint").
+    - "timelineLabel": The title of the milestone (string, if layout is "timeline_checkpoint").
+    - "dangerTitle": Title of caution (string, if layout is "danger_callout").
+    - "dangerText": Description of caution (string, if layout is "danger_callout").
+    - "progressValue": Numeric percentage or completion value (string/number, if layout is "progress_ratio").
+    - "progressLabel": Progress label (string, if layout is "progress_ratio").
+    - "tipTitle": Tip title e.g. PRO TIP (string, if layout is "pro_tip").
+    - "tipText": Tip advice text (string, if layout is "pro_tip").
+    - "meterLeft": Left contender (string, if layout is "versus_meter").
+    - "meterRight": Right contender (string, if layout is "versus_meter").
+    - "meterValue": Percentage of left contender (0-100 number, if layout is "versus_meter").
+    - "meterLabel": Meter description (string, if layout is "versus_meter").
+    - "tierRank": Letter grade S/A/B/C/D/F (string, if layout is "tier_list_ranker").
+    - "tierItem": Item being ranked (string, if layout is "tier_list_ranker").
+    - "tierLabel": Tier label (string, if layout is "tier_list_ranker").
+3. "ambientSoundscape": Background ambient soundscape loop (choose from: "none", "vintage_projector", "cyberpunk_hum", "nature_ambience", "tense_drone", "office_chatter", "war_rumblings").
+4. "postProcessingPreset": Cinematic color grading filter (choose from: "none", "vintage_sepia", "cyber_neon", "noir_monochrome", "cinematic_warm").`;
 
   const response = await generateContentWithFallback(client, {
     models: ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-1.5-pro', 'gemini-1.5-flash'],
@@ -349,9 +430,47 @@ Ensure that the segments cover the whole audio timeline, and the start/end times
                 },
                 required: ['word', 'start_time', 'end_time']
               }
-            }
+            },
+            layout: { type: 'STRING' },
+            layoutProps: {
+              type: 'OBJECT',
+              properties: {
+                quoteText: { type: 'STRING' },
+                quoteAuthor: { type: 'STRING' },
+                statValue: { type: 'STRING' },
+                statLabel: { type: 'STRING' },
+                versusLeft: { type: 'STRING' },
+                versusRight: { type: 'STRING' },
+                versusLabel: { type: 'STRING' },
+                versusLeftFeatures: {
+                  type: 'ARRAY',
+                  items: { type: 'STRING' }
+                },
+                versusRightFeatures: {
+                  type: 'ARRAY',
+                  items: { type: 'STRING' }
+                },
+                timelineDate: { type: 'STRING' },
+                timelineLabel: { type: 'STRING' },
+                dangerTitle: { type: 'STRING' },
+                dangerText: { type: 'STRING' },
+                progressValue: { type: 'STRING' },
+                progressLabel: { type: 'STRING' },
+                tipTitle: { type: 'STRING' },
+                tipText: { type: 'STRING' },
+                meterLeft: { type: 'STRING' },
+                meterRight: { type: 'STRING' },
+                meterValue: { type: 'STRING' },
+                meterLabel: { type: 'STRING' },
+                tierRank: { type: 'STRING' },
+                tierItem: { type: 'STRING' },
+                tierLabel: { type: 'STRING' }
+              }
+            },
+            ambientSoundscape: { type: 'STRING' },
+            postProcessingPreset: { type: 'STRING' }
           },
-          required: ['text', 'text_hindi', 'text_hinglish', 'start_time', 'end_time', 'words', 'words_hindi', 'words_hinglish']
+          required: ['text', 'text_hindi', 'text_hinglish', 'start_time', 'end_time', 'words', 'words_hindi', 'words_hinglish', 'layout', 'ambientSoundscape', 'postProcessingPreset']
         }
       }
     }
@@ -360,7 +479,26 @@ Ensure that the segments cover the whole audio timeline, and the start/end times
 
   const resultText = response.text;
   console.log('Gemini Alignment Result:', resultText);
-  return JSON.parse(resultText);
+  const parsed = JSON.parse(resultText);
+
+  if (!isHindiOrHinglish && Array.isArray(parsed)) {
+    console.log('[Gemini Aligner] Non-Hindi/Hinglish script detected. Programmatically overriding text_hindi and text_hinglish to retain original language.');
+    for (const item of parsed) {
+      if (item) {
+        // Enforce the original language text
+        item.text_hindi = item.text;
+        item.text_hinglish = item.text;
+        
+        // Also map the words
+        if (item.words) {
+          item.words_hindi = JSON.parse(JSON.stringify(item.words));
+          item.words_hinglish = JSON.parse(JSON.stringify(item.words));
+        }
+      }
+    }
+  }
+
+  return parsed;
 }
 
 /**
@@ -652,10 +790,18 @@ export async function analyzeRecreatedReel(filePath, apiKey) {
   const lowresPath = path.join(fileDir, `${baseName}_lowres_${Date.now()}${ext}`);
 
   try {
-    // 1. Compress the video to keep base64 payload under limits
+    // 1. Get original video duration
+    let duration = await getAudioDuration(filePath);
+    if (!duration || duration <= 0) {
+      console.warn(`[Gemini Recreate] Failed to parse video duration. Falling back to 15.0s.`);
+      duration = 15.0;
+    }
+    console.log(`[Gemini Recreate] Original video duration: ${duration.toFixed(2)}s`);
+
+    // 2. Compress the video to keep base64 payload under limits
     await compressVideo(filePath, lowresPath);
     
-    // 2. Read the low-res compressed video
+    // 3. Read the low-res compressed video
     const mimeType = getMimeType(lowresPath);
     const fileBuffer = fs.readFileSync(lowresPath);
     const base64Data = fileBuffer.toString('base64');
@@ -667,11 +813,14 @@ export async function analyzeRecreatedReel(filePath, apiKey) {
 
     console.log('[Gemini Recreate] Sending video for Reel analysis...');
     const prompt = `Analyze this video reel. It consists of multiple video clips merged together, and on-screen text overlays.
+The video's total duration is exactly ${duration.toFixed(2)} seconds. All scene start_time and end_time values, and textOverlay start_time and end_time values, must be specified in absolute seconds relative to the start of the video (from 0 to ${duration.toFixed(2)} seconds).
+Do NOT normalize the timestamps (e.g. do NOT output them in the range 0 to 1). The absolute timestamps must span the entire ${duration.toFixed(2)} seconds.
+
 Provide a structured JSON breakdown containing:
 1. "description": A short summary of the overall reel (1-2 sentences).
 2. "scenes": A list of video scenes/clips. Detect where the clips change (scene cuts). For each scene, provide:
-   - "start_time": Start time of the scene in seconds.
-   - "end_time": End time of the scene in seconds.
+   - "start_time": Start time of the scene in seconds (absolute time, e.g. 0 or 4.5).
+   - "end_time": End time of the scene in seconds (absolute time, e.g. 4.5 or 9.2).
    - "visual_description": Detailed description of the visual scene (what is happening, who is in it, actions, setting).
    - "is_static": Boolean. True if the scene is a static image or a photo with absolutely no video motion, false if the scene is a moving video clip.
 3. "textOverlays": A list of on-screen text overlays detected in the video. For each text overlay, provide:
@@ -733,7 +882,54 @@ Return the result as a JSON object matching the requested schema.`;
 
     const resultText = response.text;
     console.log('[Gemini Recreate] Reel Analysis Result:', resultText);
-    return JSON.parse(resultText);
+    let result = JSON.parse(resultText);
+
+    // Smart Post-processing and scaling
+    if (result && typeof result === 'object' && duration > 0) {
+      let maxTime = 0;
+      if (result.scenes && Array.isArray(result.scenes)) {
+        for (const s of result.scenes) {
+          if (s.start_time > maxTime) maxTime = s.start_time;
+          if (s.end_time > maxTime) maxTime = s.end_time;
+        }
+      }
+      if (result.textOverlays && Array.isArray(result.textOverlays)) {
+        for (const t of result.textOverlays) {
+          if (t.start_time > maxTime) maxTime = t.start_time;
+          if (t.end_time > maxTime) maxTime = t.end_time;
+        }
+      }
+
+      // If maximum timestamp is normalized (<= 1.05, or <= 1.5 when the video is significantly longer), scale up
+      const isNormalized = maxTime > 0 && (maxTime <= 1.05 || (maxTime <= 1.5 && duration > 3.0 * maxTime));
+      if (duration > 2.0 && isNormalized) {
+        console.log(`[Gemini Recreate] Detected normalized timestamps (maxTime=${maxTime}). Scaling all times by duration=${duration}s.`);
+        const scaleFactor = duration;
+        if (result.scenes && Array.isArray(result.scenes)) {
+          for (const s of result.scenes) {
+            s.start_time = Number((s.start_time * scaleFactor).toFixed(3));
+            s.end_time = Number((s.end_time * scaleFactor).toFixed(3));
+          }
+        }
+        if (result.textOverlays && Array.isArray(result.textOverlays)) {
+          for (const t of result.textOverlays) {
+            t.start_time = Number((t.start_time * scaleFactor).toFixed(3));
+            t.end_time = Number((t.end_time * scaleFactor).toFixed(3));
+          }
+        }
+      } else {
+        // Just make sure the final scene ends exactly at duration if close
+        if (result.scenes && Array.isArray(result.scenes) && result.scenes.length > 0) {
+          const lastScene = result.scenes[result.scenes.length - 1];
+          if (lastScene.end_time < duration && (duration - lastScene.end_time < 2.0)) {
+            console.log(`[Gemini Recreate] Adjusting last scene end_time from ${lastScene.end_time}s to ${duration}s.`);
+            lastScene.end_time = Number(duration.toFixed(3));
+          }
+        }
+      }
+    }
+
+    return result;
     
   } catch (error) {
     // Clean up low-res file if still exists
@@ -1018,4 +1214,695 @@ export async function generateAiAsset(prompt, type, duration, apiKey, subjectPho
   });
 }
 
+/**
+ * Generates a full YouTube long-form script (1200+ words) and structured storyboard scenes
+ */
+export async function generateYoutubeScriptAndStoryboard(topic, niche, apiKey) {
+  const aiClient = getAiClient(apiKey);
+  console.log(`[Gemini] Generating long-form YouTube script for topic: "${topic}" under niche: "${niche}"...`);
 
+  const prompt = `You are the chief copywriter and editor for a premium YouTube channel brand family named "${niche}".
+Your goal is to write a comprehensive, highly educational, storytelling-focused script of approximately 1200-1500 words about the topic: "${topic}".
+The target audience wants to listen to this video and feel they gained massive value, so make the script intellectually rich, engaging, and detailed. DO NOT use generic summaries, abbreviations, or placeholders like "[Insert story here]". Write the complete spoken words.
+
+You must structure the script into consecutive, short storyboard scenes.
+Each scene must represent between 4 to 8 seconds of speech (about 10 to 20 words per scene).
+For each scene, you must provide:
+1. "text": The narration text for the scene.
+2. "visualDescription": A description of the ideal stock footage B-roll to display.
+3. "sfxKeywords": 2-3 search query keywords to find this footage on Pexels/Pixabay (e.g. "rainy window", "ancient marble statue", "meditation silhouette").
+4. "transition": Recommended video transition (choose from: "none", "fade", "slide-left", "slide-right", "zoom-in", "zoom-out").
+5. "sfx": Suggested cut sound effect (choose from: "none", "cinematic-swoosh", "trans_paper_slide", "trans_glitch_digital", "reveal_ding_bell", "reveal_pop_bubble").
+6. "shake": Boolean, set to true if the narration text of this scene contains strong action verbs or high impact keywords (e.g., "clashed", "severed", "boomed", "fused", "shattered", "exploded"). Otherwise false.
+7. "shakeIntensity": Integer between 10 and 45 representing the pixel shake offset if shake is true (default 20).
+8. "shakeSpeed": Integer between 10 and 30 representing the frequency of the shake in Hz if shake is true (default 18).
+9. "layout": The visual layout mode for this scene (choose from: "graph", "versus", "quote", "stat_callout", "timeline_checkpoint", "danger_callout", "progress_ratio", "pro_tip", "versus_meter", "tier_list_ranker", "full_broll"). Use "versus" for confrontations/rivalries, "quote" when direct statements or thoughts are narrated, "stat_callout" for historical years/dates, currency values, or percentages, "timeline_checkpoint" to mark historical milestones, "graph" to show relationships/connections, "danger_callout" for warnings/caution/mistakes, "progress_ratio" for percentage progress bars, "pro_tip" for actionable tips, "versus_meter" for comparison balance sliders, "tier_list_ranker" for rank grades (S/A/B/C/F), and "full_broll" for descriptive narration.
+10. "layoutProps": An object containing specific properties for the chosen layout (leave empty if not applicable):
+    - "quoteText": The quote content (string, if layout is "quote").
+    - "quoteAuthor": The author of the quote (string, if layout is "quote").
+    - "statValue": The large number/year/stat to display (string, if layout is "stat_callout").
+    - "statLabel": The description of the statistic (string, if layout is "stat_callout").
+    - "versusLeft": The name of the left-side rival (string, if layout is "versus").
+    - "versusRight": The name of the right-side rival (string, if layout is "versus").
+    - "versusLabel": Subtitle for the versus battle (string, if layout is "versus").
+    - "versusLeftFeatures": A list of 2-3 key characteristics or specifications of the left rival (array of strings, if layout is "versus").
+    - "versusRightFeatures": A list of 2-3 key characteristics or specifications of the right rival (array of strings, if layout is "versus").
+    - "timelineDate": The key date/year for this milestone (string, if layout is "timeline_checkpoint").
+    - "timelineLabel": The title of the milestone (string, if layout is "timeline_checkpoint").
+    - "dangerTitle": Title of caution (string, if layout is "danger_callout").
+    - "dangerText": Description of caution (string, if layout is "danger_callout").
+    - "progressValue": Numeric percentage value (string/number, if layout is "progress_ratio").
+    - "progressLabel": Progress description label (string, if layout is "progress_ratio").
+    - "tipTitle": Tip title e.g. PRO TIP (string, if layout is "pro_tip").
+    - "tipText": Tip advice text (string, if layout is "pro_tip").
+    - "meterLeft": Left contender (string, if layout is "versus_meter").
+    - "meterRight": Right contender (string, if layout is "versus_meter").
+    - "meterValue": Percentage of left contender (0-100, if layout is "versus_meter").
+    - "meterLabel": Meter description (string, if layout is "versus_meter").
+    - "tierRank": Letter grade S/A/B/C/D/F (string, if layout is "tier_list_ranker").
+    - "tierItem": Item being ranked (string, if layout is "tier_list_ranker").
+    - "tierLabel": Tier label (string, if layout is "tier_list_ranker").
+11. "ambientSoundscape": Background ambient soundscape loop (choose from: "none", "vintage_projector", "cyberpunk_hum", "nature_ambience", "tense_drone", "office_chatter", "war_rumblings").
+12. "postProcessingPreset": Cinematic color grading filter (choose from: "none", "vintage_sepia", "cyber_neon", "noir_monochrome", "cinematic_warm").
+
+Generate a title for the video and output the result in structured JSON.`;
+
+  const requestConfig = {
+    contents: prompt,
+    config: {
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: 'OBJECT',
+        properties: {
+          title: { type: 'STRING' },
+          scriptText: { type: 'STRING' },
+          scenes: {
+            type: 'ARRAY',
+            items: {
+              type: 'OBJECT',
+              properties: {
+                text: { type: 'STRING' },
+                visualDescription: { type: 'STRING' },
+                sfxKeywords: { type: 'STRING' },
+                transition: { type: 'STRING' },
+                sfx: { type: 'STRING' },
+                shake: { type: 'BOOLEAN' },
+                shakeIntensity: { type: 'INTEGER' },
+                shakeSpeed: { type: 'INTEGER' },
+                layout: { type: 'STRING' },
+                layoutProps: {
+                  type: 'OBJECT',
+                  properties: {
+                    quoteText: { type: 'STRING' },
+                    quoteAuthor: { type: 'STRING' },
+                    statValue: { type: 'STRING' },
+                    statLabel: { type: 'STRING' },
+                    versusLeft: { type: 'STRING' },
+                    versusRight: { type: 'STRING' },
+                    versusLabel: { type: 'STRING' },
+                    versusLeftFeatures: {
+                      type: 'ARRAY',
+                      items: { type: 'STRING' }
+                    },
+                    versusRightFeatures: {
+                      type: 'ARRAY',
+                      items: { type: 'STRING' }
+                    },
+                    timelineDate: { type: 'STRING' },
+                    timelineLabel: { type: 'STRING' },
+                    dangerTitle: { type: 'STRING' },
+                    dangerText: { type: 'STRING' },
+                    progressValue: { type: 'STRING' },
+                    progressLabel: { type: 'STRING' },
+                    tipTitle: { type: 'STRING' },
+                    tipText: { type: 'STRING' },
+                    meterLeft: { type: 'STRING' },
+                    meterRight: { type: 'STRING' },
+                    meterValue: { type: 'STRING' },
+                    meterLabel: { type: 'STRING' },
+                    tierRank: { type: 'STRING' },
+                    tierItem: { type: 'STRING' },
+                    tierLabel: { type: 'STRING' }
+                  }
+                },
+                ambientSoundscape: { type: 'STRING' },
+                postProcessingPreset: { type: 'STRING' }
+              },
+              required: ['text', 'visualDescription', 'sfxKeywords', 'transition', 'sfx', 'layout', 'ambientSoundscape', 'postProcessingPreset']
+            }
+          }
+        },
+        required: ['title', 'scriptText', 'scenes']
+      }
+    }
+  };
+
+  const response = await generateContentWithFallback(aiClient, requestConfig);
+  return JSON.parse(response.text);
+}
+
+/**
+ * Generates a short promo Reel script (30-50s) ending in suspense from the long script
+ */
+export async function generateYoutubeShortScript(longScriptText, apiKey) {
+  const aiClient = getAiClient(apiKey);
+  console.log('[Gemini] Generating promotional suspense Short script from long-form script...');
+
+  const prompt = `You are a viral YouTube Shorts and Instagram Reels marketing expert.
+Read the following long-form script and write a highly engaging 30-50 second promotional Short script (about 70-110 words total).
+The Short MUST:
+1. Start with a powerful hook.
+2. Tell a fascinating story or share a bizarre fact from the long script.
+3. Stop abruptly in intense suspense / cliffhanger.
+4. Direct the viewer to watch the full video to find out the resolution (e.g., "But what Marcus Aurelius did next shocked his enemies. To see the full story, watch the linked video below").
+
+Structure the Short into 4-6 consecutive scenes (each 4-8 seconds).
+For each scene, provide:
+1. "text": The spoken narration.
+2. "visualDescription": A description of the ideal stock B-roll.
+3. "sfxKeywords": 2-3 search query keywords for Pexels/Pixabay (should be vertical portrait videos).
+4. "transition": Video transition (choose from: "none", "fade", "slide-up", "slide-down", "zoom-in").
+5. "sfx": Sound effect (choose from: "none", "cinematic-swoosh", "hook_bass_drop", "hook_vinyl_scratch", "reveal_swoosh_zip").
+6. "shake": Boolean, set to true if the narration text of this scene contains strong action verbs or high impact keywords (e.g., "clashed", "severed", "boomed", "fused", "shattered", "exploded"). Otherwise false.
+7. "shakeIntensity": Integer between 10 and 45 representing the pixel shake offset if shake is true (default 20).
+8. "shakeSpeed": Integer between 10 and 30 representing the frequency of the shake in Hz if shake is true (default 18).
+9. "layout": The visual layout mode for this scene (choose from: "graph", "versus", "quote", "stat_callout", "timeline_checkpoint", "danger_callout", "progress_ratio", "pro_tip", "versus_meter", "tier_list_ranker", "full_broll"). Use "versus" for confrontations/rivalries, "quote" when direct statements or thoughts are narrated, "stat_callout" for historical years/dates, currency values, or percentages, "timeline_checkpoint" to mark historical milestones, "graph" to show relationships/connections, "danger_callout" for warnings/caution/mistakes, "progress_ratio" for percentage progress bars, "pro_tip" for actionable tips, "versus_meter" for comparison balance sliders, "tier_list_ranker" for rank grades (S/A/B/C/F), and "full_broll" for descriptive narration.
+10. "layoutProps": An object containing specific properties for the chosen layout (leave empty if not applicable):
+    - "quoteText": The quote content (string, if layout is "quote").
+    - "quoteAuthor": The author of the quote (string, if layout is "quote").
+    - "statValue": The large number/year/stat to display (string, if layout is "stat_callout").
+    - "statLabel": The description of the statistic (string, if layout is "stat_callout").
+    - "versusLeft": The name of the left-side rival (string, if layout is "versus").
+    - "versusRight": The name of the right-side rival (string, if layout is "versus").
+    - "versusLabel": Subtitle for the versus battle (string, if layout is "versus").
+    - "versusLeftFeatures": A list of 2-3 key characteristics or specifications of the left rival (array of strings, if layout is "versus").
+    - "versusRightFeatures": A list of 2-3 key characteristics or specifications of the right rival (array of strings, if layout is "versus").
+    - "timelineDate": The key date/year for this milestone (string, if layout is "timeline_checkpoint").
+    - "timelineLabel": The title of the milestone (string, if layout is "timeline_checkpoint").
+    - "dangerTitle": Title of caution (string, if layout is "danger_callout").
+    - "dangerText": Description of caution (string, if layout is "danger_callout").
+    - "progressValue": Numeric percentage value (string/number, if layout is "progress_ratio").
+    - "progressLabel": Progress description label (string, if layout is "progress_ratio").
+    - "tipTitle": Tip title e.g. PRO TIP (string, if layout is "pro_tip").
+    - "tipText": Tip advice text (string, if layout is "pro_tip").
+    - "meterLeft": Left contender (string, if layout is "versus_meter").
+    - "meterRight": Right contender (string, if layout is "versus_meter").
+    - "meterValue": Percentage of left contender (0-100, if layout is "versus_meter").
+    - "meterLabel": Meter description (string, if layout is "versus_meter").
+    - "tierRank": Letter grade S/A/B/C/D/F (string, if layout is "tier_list_ranker").
+    - "tierItem": Item being ranked (string, if layout is "tier_list_ranker").
+    - "tierLabel": Tier label (string, if layout is "tier_list_ranker").
+11. "ambientSoundscape": Background ambient soundscape loop (choose from: "none", "vintage_projector", "cyberpunk_hum", "nature_ambience", "tense_drone", "office_chatter", "war_rumblings").
+12. "postProcessingPreset": Cinematic color grading filter (choose from: "none", "vintage_sepia", "cyber_neon", "noir_monochrome", "cinematic_warm").
+
+Long-form Script:
+"""
+${longScriptText}
+"""
+
+Output the result in structured JSON.`;
+
+  const requestConfig = {
+    contents: prompt,
+    config: {
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: 'OBJECT',
+        properties: {
+          title: { type: 'STRING' },
+          scriptText: { type: 'STRING' },
+          scenes: {
+            type: 'ARRAY',
+            items: {
+              type: 'OBJECT',
+              properties: {
+                text: { type: 'STRING' },
+                visualDescription: { type: 'STRING' },
+                sfxKeywords: { type: 'STRING' },
+                transition: { type: 'STRING' },
+                sfx: { type: 'STRING' },
+                shake: { type: 'BOOLEAN' },
+                shakeIntensity: { type: 'INTEGER' },
+                shakeSpeed: { type: 'INTEGER' },
+                layout: { type: 'STRING' },
+                 layoutProps: {
+                  type: 'OBJECT',
+                  properties: {
+                    quoteText: { type: 'STRING' },
+                    quoteAuthor: { type: 'STRING' },
+                    statValue: { type: 'STRING' },
+                    statLabel: { type: 'STRING' },
+                    versusLeft: { type: 'STRING' },
+                    versusRight: { type: 'STRING' },
+                    versusLabel: { type: 'STRING' },
+                    versusLeftFeatures: {
+                      type: 'ARRAY',
+                      items: { type: 'STRING' }
+                    },
+                    versusRightFeatures: {
+                      type: 'ARRAY',
+                      items: { type: 'STRING' }
+                    },
+                    timelineDate: { type: 'STRING' },
+                    timelineLabel: { type: 'STRING' },
+                    dangerTitle: { type: 'STRING' },
+                    dangerText: { type: 'STRING' },
+                    progressValue: { type: 'STRING' },
+                    progressLabel: { type: 'STRING' },
+                    tipTitle: { type: 'STRING' },
+                    tipText: { type: 'STRING' },
+                    meterLeft: { type: 'STRING' },
+                    meterRight: { type: 'STRING' },
+                    meterValue: { type: 'STRING' },
+                    meterLabel: { type: 'STRING' },
+                    tierRank: { type: 'STRING' },
+                    tierItem: { type: 'STRING' },
+                    tierLabel: { type: 'STRING' }
+                  }
+                },
+                ambientSoundscape: { type: 'STRING' },
+                postProcessingPreset: { type: 'STRING' }
+              },
+              required: ['text', 'visualDescription', 'sfxKeywords', 'transition', 'sfx', 'layout', 'ambientSoundscape', 'postProcessingPreset']
+            }
+          }
+        },
+        required: ['title', 'scriptText', 'scenes']
+      }
+    }
+  };
+
+  const response = await generateContentWithFallback(aiClient, requestConfig);
+  return JSON.parse(response.text);
+}
+
+/**
+ * Bulk enriches B-roll keywords and visual descriptions for scenes using Gemini
+ */
+export async function enrichScenesMetadata(scenesToEnrich, apiKey) {
+  if (!scenesToEnrich || scenesToEnrich.length === 0) return [];
+  const aiClient = getAiClient(apiKey);
+  console.log(`[Gemini] Bulk-enriching B-roll keywords and descriptions for ${scenesToEnrich.length} scenes...`);
+
+  // Map each scene to an index and its text so the model knows how to reply
+  const sceneItems = scenesToEnrich.map((s, idx) => ({
+    index: idx,
+    text: s.text
+  }));
+
+  const prompt = `You are a video production director. You are given a list of narration sentences from a video script.
+For each sentence, analyze the words being spoken and generate:
+1. "visualDescription": A description of a highly relevant B-roll stock footage video clip that visually represents the actions, objects, or themes described in the sentence. Avoid generic "abstract" descriptions unless the sentence itself is purely abstract.
+2. "sfxKeywords": 2-3 specific search keywords to fetch this clip on stock video platforms like Pexels or Pixabay (e.g., if the sentence is "you are looking at your phone", the keywords should be "using smartphone, typing phone"). DO NOT use generic words like "cinematic", "abstract", "whoosh", "swoosh", or the transition names.
+
+Input scenes:
+${JSON.stringify(sceneItems, null, 2)}
+
+Output the result in structured JSON as an array of objects matching the input index order.`;
+
+  const requestConfig = {
+    contents: prompt,
+    config: {
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: 'OBJECT',
+        properties: {
+          enrichedScenes: {
+            type: 'ARRAY',
+            items: {
+              type: 'OBJECT',
+              properties: {
+                index: { type: 'INTEGER' },
+                visualDescription: { type: 'STRING' },
+                sfxKeywords: { type: 'STRING' }
+              },
+              required: ['index', 'visualDescription', 'sfxKeywords']
+            }
+          }
+        },
+        required: ['enrichedScenes']
+      }
+    }
+  };
+
+  const response = await generateContentWithFallback(aiClient, requestConfig);
+  const data = JSON.parse(response.text);
+  return data.enrichedScenes || [];
+}
+
+/**
+ * Auto-suggests layouts, properties, soundscapes, color presets, transitions, and SFX for scenes using Gemini
+ */
+export async function suggestStorytellerAndAssetsForScenes(scenes, scriptText, apiKey) {
+  const aiClient = getAiClient(apiKey);
+  console.log(`[Gemini] Auto-suggesting storyteller layouts and transitions for ${scenes.length} scenes...`);
+
+  const sceneItems = scenes.map((s, idx) => ({
+    index: idx,
+    text: s.text,
+    visualDescription: s.visualDescription || ''
+  }));
+
+  const prompt = `You are a professional video editor and director. 
+We have a video script divided into consecutive storyboard scenes. 
+For each scene, you must analyze its narration text and visual description, and determine the optimal cinematic storyteller properties (layout, layoutProps, ambientSoundscape, postProcessingPreset) and asset transition/sound effect settings to make the video highly engaging, professional, and visually stunning.
+
+Here is the list of scenes (JSON format, containing scene index, text, and visual description):
+${JSON.stringify(sceneItems, null, 2)}
+
+Rules for Storyteller visual properties:
+1. "layout": Choose from: "graph", "versus", "quote", "stat_callout", "timeline_checkpoint", "danger_callout", "progress_ratio", "pro_tip", "versus_meter", "tier_list_ranker", "full_broll"). Use "versus" for confrontations/rivalries, "quote" when direct statements or thoughts are narrated, "stat_callout" for historical years/dates, currency values, or percentages, "timeline_checkpoint" to mark historical milestones, "graph" to show relationships/connections, "danger_callout" for warnings/caution/mistakes, "progress_ratio" for percentage progress bars, "pro_tip" for actionable tips, "versus_meter" for comparison balance sliders, "tier_list_ranker" for rank grades (S/A/B/C/F), and "full_broll" for descriptive narration.
+2. "layoutProps": An object containing specific properties for the chosen layout (leave empty/null if layout is "graph" or "full_broll"):
+    - "quoteText": The quote content (string, if layout is "quote").
+    - "quoteAuthor": The author of the quote (string, if layout is "quote").
+    - "statValue": The large number/year/stat to display (string, if layout is "stat_callout").
+    - "statLabel": The description of the statistic (string, if layout is "stat_callout").
+    - "versusLeft": The name of the left-side rival (string, if layout is "versus").
+    - "versusRight": The name of the right-side rival (string, if layout is "versus").
+    - "versusLabel": Subtitle for the versus battle (string, if layout is "versus").
+    - "versusLeftFeatures": A list of 2-3 key characteristics or specifications of the left rival (array of strings, if layout is "versus").
+    - "versusRightFeatures": A list of 2-3 key characteristics or specifications of the right rival (array of strings, if layout is "versus").
+    - "timelineDate": The key date/year for this milestone (string, if layout is "timeline_checkpoint").
+    - "timelineLabel": The title of the milestone (string, if layout is "timeline_checkpoint").
+    - "dangerTitle": Title of caution (string, if layout is "danger_callout").
+    - "dangerText": Description of caution (string, if layout is "danger_callout").
+    - "progressValue": Numeric percentage value (string/number, if layout is "progress_ratio").
+    - "progressLabel": Progress description label (string, if layout is "progress_ratio").
+    - "tipTitle": Tip title e.g. PRO TIP (string, if layout is "pro_tip").
+    - "tipText": Tip advice text (string, if layout is "pro_tip").
+    - "meterLeft": Left contender (string, if layout is "versus_meter").
+    - "meterRight": Right contender (string, if layout is "versus_meter").
+    - "meterValue": Percentage of left contender (0-100, if layout is "versus_meter").
+    - "meterLabel": Meter description (string, if layout is "versus_meter").
+    - "tierRank": Letter grade S/A/B/C/D/F (string, if layout is "tier_list_ranker").
+    - "tierItem": Item being ranked (string, if layout is "tier_list_ranker").
+    - "tierLabel": Tier label (string, if layout is "tier_list_ranker").
+3. "ambientSoundscape": Background ambient soundscape loop (choose from: "none", "vintage_projector", "cyberpunk_hum", "nature_ambience", "tense_drone", "office_chatter", "war_rumblings"). Choose what best matches the mood of the scene.
+4. "postProcessingPreset": Cinematic color grading filter (choose from: "none", "vintage_sepia", "cyber_neon", "noir_monochrome", "cinematic_warm"). Choose what best matches the scene's emotional tone.
+
+Rules for Transitions, SFX, and Shake settings:
+5. "transition": Video transition (choose from: "none", "fade", "slide-left", "slide-right", "zoom-in", "zoom-out").
+6. "sfx": Cut sound effect (choose from: "none", "cinematic-swoosh", "trans_paper_slide", "trans_glitch_digital", "reveal_ding_bell", "reveal_pop_bubble").
+7. "shake": Boolean, set to true if the narration text of this scene contains strong action verbs or high impact keywords (e.g., "clashed", "severed", "boomed", "fused", "shattered", "exploded"). Otherwise false.
+8. "shakeIntensity": Integer between 10 and 45 representing the pixel shake offset if shake is true (default 20).
+9. "shakeSpeed": Integer between 10 and 30 representing the frequency of the shake in Hz if shake is true (default 18).
+
+Output the result in structured JSON.`;
+
+  const requestConfig = {
+    contents: prompt,
+    config: {
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: 'OBJECT',
+        properties: {
+          scenes: {
+            type: 'ARRAY',
+            items: {
+              type: 'OBJECT',
+              properties: {
+                index: { type: 'INTEGER' },
+                layout: { type: 'STRING' },
+                layoutProps: {
+                  type: 'OBJECT',
+                  properties: {
+                    quoteText: { type: 'STRING' },
+                    quoteAuthor: { type: 'STRING' },
+                    statValue: { type: 'STRING' },
+                    statLabel: { type: 'STRING' },
+                    versusLeft: { type: 'STRING' },
+                    versusRight: { type: 'STRING' },
+                    versusLabel: { type: 'STRING' },
+                    versusLeftFeatures: {
+                      type: 'ARRAY',
+                      items: { type: 'STRING' }
+                    },
+                    versusRightFeatures: {
+                      type: 'ARRAY',
+                      items: { type: 'STRING' }
+                    },
+                    timelineDate: { type: 'STRING' },
+                    timelineLabel: { type: 'STRING' },
+                    dangerTitle: { type: 'STRING' },
+                    dangerText: { type: 'STRING' },
+                    progressValue: { type: 'STRING' },
+                    progressLabel: { type: 'STRING' },
+                    tipTitle: { type: 'STRING' },
+                    tipText: { type: 'STRING' },
+                    meterLeft: { type: 'STRING' },
+                    meterRight: { type: 'STRING' },
+                    meterValue: { type: 'STRING' },
+                    meterLabel: { type: 'STRING' },
+                    tierRank: { type: 'STRING' },
+                    tierItem: { type: 'STRING' },
+                    tierLabel: { type: 'STRING' }
+                  }
+                },
+                ambientSoundscape: { type: 'STRING' },
+                postProcessingPreset: { type: 'STRING' },
+                transition: { type: 'STRING' },
+                sfx: { type: 'STRING' },
+                shake: { type: 'BOOLEAN' },
+                shakeIntensity: { type: 'INTEGER' },
+                shakeSpeed: { type: 'INTEGER' }
+              },
+              required: ['index', 'layout', 'ambientSoundscape', 'postProcessingPreset', 'transition', 'sfx', 'shake']
+            }
+          }
+        },
+        required: ['scenes']
+      }
+    }
+  };
+
+  const response = await generateContentWithFallback(aiClient, requestConfig);
+  const data = JSON.parse(response.text);
+  return data.scenes || [];
+}
+
+
+export async function extractStoryGraph(scriptText, scenes, apiKey) {
+  const aiClient = getAiClient(apiKey);
+  console.log(`[Gemini] Extracting story graph for script (${scenes.length} scenes)...`);
+  
+  const sceneItems = scenes.map((s, idx) => ({
+    index: idx,
+    text: s.text
+  }));
+
+  const prompt = `You are a script visualizer and graphic editor. Your goal is to convert a storyboard script into a "Living Scene Graph" visual experience.
+A Living Scene Graph shows key subjects (people, organizations, concepts, objects) as nodes and their relationships as connecting lines, dynamically appearing and changing scene-by-scene.
+
+Analyze the script and scenes, and extract:
+1. "entities": A flat list of unique entities that appear in the script. Assign a clean string id to each (e.g. "steve_jobs", "iphone", "apple_inc").
+   For each entity:
+   - "id": Unique string identifier (snake_case, no spaces).
+   - "name": Nice display name (e.g. "Steve Jobs").
+   - "type": Choose exactly from: "character", "object", "concept", "organization", "location".
+
+2. "graphEvents": A timeline of visual events mapped to scene indices (0-indexed matching the input scenes).
+   Events should represent:
+   - "introduce": Bring an entity onto the screen. Specify "sceneIndex", "entityId", and optionally "x" (0-100) and "y" (0-100) positions (e.g., center-left, center-right, or spread out so they do not overlap).
+   - "remove": Fade out/remove an entity. Specify "sceneIndex" and "entityId".
+   - "connect": Draw an animated line between two active entities. Specify "sceneIndex", "fromEntityId", "toEntityId", a brief "label" describing the connection (e.g., "created", "founded", "owns", "competed"), and a "sentiment" characterising the relationship (exactly one of: "positive" for collaboration/ally/merger, "conflict" for rivalry/fight/competition, or "neutral" for standard association).
+   - "disconnect": Remove a connection. Specify "sceneIndex", "fromEntityId", "toEntityId".
+   - "highlight": Pulse/highlight an entity when it is actively being discussed in that scene. Specify "sceneIndex" and "entityId".
+
+3. "sceneContexts": A summary context for each scene. An array of objects:
+   - "sceneIndex": Integer index of the scene.
+   - "context": A brief (3-6 words) on-screen caption summarizing the primary action/relationship of the graph in this scene (e.g., "Steve Jobs introduces iPhone" or "Jobs and Wozniak found Apple"). Keep it concise.
+
+CRITICAL VISUAL COMPACTION RULES:
+- Keep the graph simple, clean, and local to each scene. Do not let nodes accumulate indefinitely across scenes.
+- When the script transitions to new characters/objects or a new topic, make sure to explicitly emit "remove" events at that sceneIndex for older entities that are no longer actively mentioned.
+- Typically, try to keep at most 3-4 active nodes on screen at any time to avoid clutter and confusion.
+
+Input script:
+"${scriptText}"
+
+Input scenes:
+${JSON.stringify(sceneItems, null, 2)}
+
+Provide clean positions (x: 10-90, y: 15-85) for introduced entities so they spread out nicely on a 100x100 canvas.
+Output the result in structured JSON.`;
+
+  const requestConfig = {
+    contents: prompt,
+    config: {
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: 'OBJECT',
+        properties: {
+          entities: {
+            type: 'ARRAY',
+            items: {
+              type: 'OBJECT',
+              properties: {
+                id: { type: 'STRING' },
+                name: { type: 'STRING' },
+                type: { type: 'STRING', enum: ['character', 'object', 'concept', 'organization', 'location'] }
+              },
+              required: ['id', 'name', 'type']
+            }
+          },
+          graphEvents: {
+            type: 'ARRAY',
+            items: {
+              type: 'OBJECT',
+              properties: {
+                sceneIndex: { type: 'INTEGER' },
+                action: { type: 'STRING', enum: ['introduce', 'remove', 'connect', 'disconnect', 'highlight'] },
+                entityId: { type: 'STRING' },
+                fromEntityId: { type: 'STRING' },
+                toEntityId: { type: 'STRING' },
+                label: { type: 'STRING' },
+                sentiment: { type: 'STRING', enum: ['positive', 'conflict', 'neutral'] },
+                x: { type: 'NUMBER' },
+                y: { type: 'NUMBER' }
+              },
+              required: ['sceneIndex', 'action']
+            }
+          },
+          sceneContexts: {
+            type: 'ARRAY',
+            items: {
+              type: 'OBJECT',
+              properties: {
+                sceneIndex: { type: 'INTEGER' },
+                context: { type: 'STRING' }
+              },
+              required: ['sceneIndex', 'context']
+            }
+          }
+        },
+        required: ['entities', 'graphEvents', 'sceneContexts']
+      }
+    }
+  };
+
+  const response = await generateContentWithFallback(aiClient, requestConfig);
+  return JSON.parse(response.text);
+}
+
+/**
+ * Uses Gemini to generate a viral video script and idea utilizing a list of library clips
+ */
+export async function generateViralVideoIdeaFromClips(libraryClips, apiKey) {
+  const aiClient = getAiClient(apiKey);
+  console.log('[Gemini] Pitching viral video idea from library clips...');
+
+  const clipsDescriptionList = libraryClips.map((clip) => {
+    return `- Clip ID: "${clip.id}"
+  Filename: "${clip.name}"
+  Duration: ${clip.duration}s
+  Description: "${clip.description || 'No description available'}"
+  Tags: [${(clip.tags || []).join(', ')}]`;
+  }).join('\n\n');
+
+  const prompt = `You are a viral YouTube Shorts and Instagram Reels marketing expert.
+We have a library of local videos. Here is the list of available video clips with their descriptions and tags:
+${clipsDescriptionList}
+
+Your task is to:
+1. Look into all the uploaded videos and their context/descriptions.
+2. Generate a cohesive, highly engaging viral video idea (30-50 seconds, about 70-110 words total) that can be constructed by combining a sequence of these library clips.
+3. You MUST map each part of the script to a specific clip from the library. Do NOT invent clip IDs. Only use clip IDs from the list above.
+4. Structure the script into 4-6 consecutive scenes (each scene should play for 4 to 8 seconds).
+5. For each scene, specify which library clip to use by providing its "clipId", and specify the "clipStart" offset (in seconds) within that clip.
+   Ensure that "clipStart" + the scene's duration does not exceed the library clip's total duration! (If a library clip's duration is 10s, and the scene is 5s, clipStart must be between 0 and 5).
+6. Provide a descriptive spoken narration text in Hinglish/English for each scene.
+
+CRITICAL Rules for Clip Selection:
+- You MUST maximize the variety of clips used. Avoid reusing the same clip ID multiple times if there are other matching clips available in the library.
+- You MUST NOT use the same clip ID in two consecutive scenes.
+- Every scene must use a unique clip ID from the library, unless you have fewer library clips than scenes.
+
+For each scene, output:
+- "text": The spoken narration.
+- "clipId": The ID of the matching clip from the library (MUST be from the list).
+- "clipStart": Start time in seconds (relative to the beginning of the library clip).
+- "clipDuration": The duration of this scene in seconds (4-8 seconds).
+- "visualDescription": Why this clip is a good visual match for the narration.
+- "transition": Recommended video transition (choose from: "none", "fade", "slide-up", "slide-down", "zoom-in").
+- "sfx": Sound effect (choose from: "none", "cinematic-swoosh", "hook_bass_drop", "hook_vinyl_scratch", "reveal_swoosh_zip").
+- "shake": Boolean, set to true if the narration text contains strong action/impact words.
+- "layout": Visual layout mode (choose from: "graph", "versus", "quote", "stat_callout", "timeline_checkpoint", "danger_callout", "progress_ratio", "pro_tip", "versus_meter", "tier_list_ranker", "full_broll").
+- "layoutProps": An object containing specific properties for the chosen layout (leave empty if not applicable):
+    - "quoteText": The quote content (string, if layout is "quote").
+    - "quoteAuthor": The author of the quote (string, if layout is "quote").
+    - "statValue": The large number/year/stat to display (string, if layout is "stat_callout").
+    - "statLabel": The description of the statistic (string, if layout is "stat_callout").
+    - "versusLeft": The name of the left-side rival (string, if layout is "versus").
+    - "versusRight": The name of the right-side rival (string, if layout is "versus").
+    - "versusLabel": Subtitle for the versus battle (string, if layout is "versus").
+    - "versusLeftFeatures": A list of 2-3 key characteristics or specifications of the left rival (array of strings, if layout is "versus").
+    - "versusRightFeatures": A list of 2-3 key characteristics or specifications of the right rival (array of strings, if layout is "versus").
+    - "timelineDate": The key date/year for this milestone (string, if layout is "timeline_checkpoint").
+    - "timelineLabel": The title of the milestone (string, if layout is "timeline_checkpoint").
+    - "dangerTitle": Title of caution (string, if layout is "danger_callout").
+    - "dangerText": Description of caution (string, if layout is "danger_callout").
+    - "progressValue": Numeric percentage value (string/number, if layout is "progress_ratio").
+    - "progressLabel": Progress description label (string, if layout is "progress_ratio").
+    - "tipTitle": Tip title e.g. PRO TIP (string, if layout is "pro_tip").
+    - "tipText": Tip advice text (string, if layout is "pro_tip").
+    - "meterLeft": Left contender (string, if layout is "versus_meter").
+    - "meterRight": Right contender (string, if layout is "versus_meter").
+    - "meterValue": Percentage of left contender (0-100, if layout is "versus_meter").
+    - "meterLabel": Meter description (string, if layout is "versus_meter").
+    - "tierRank": Letter grade S/A/B/C/D/F (string, if layout is "tier_list_ranker").
+    - "tierItem": Item being ranked (string, if layout is "tier_list_ranker").
+    - "tierLabel": Tier label (string, if layout is "tier_list_ranker").
+- "ambientSoundscape": Background ambient soundscape loop (choose from: "none", "vintage_projector", "cyberpunk_hum", "nature_ambience", "tense_drone", "office_chatter", "war_rumblings").
+- "postProcessingPreset": Cinematic color grading filter (choose from: "none", "vintage_sepia", "cyber_neon", "noir_monochrome", "cinematic_warm").
+
+Output the result in structured JSON.`;
+
+  const requestConfig = {
+    contents: prompt,
+    config: {
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: 'OBJECT',
+        properties: {
+          title: { type: 'STRING' },
+          scriptText: { type: 'STRING' },
+          scenes: {
+            type: 'ARRAY',
+            items: {
+              type: 'OBJECT',
+              properties: {
+                text: { type: 'STRING' },
+                clipId: { type: 'STRING' },
+                clipStart: { type: 'NUMBER' },
+                clipDuration: { type: 'NUMBER' },
+                visualDescription: { type: 'STRING' },
+                transition: { type: 'STRING' },
+                sfx: { type: 'STRING' },
+                shake: { type: 'BOOLEAN' },
+                shakeIntensity: { type: 'INTEGER' },
+                shakeSpeed: { type: 'INTEGER' },
+                layout: { type: 'STRING' },
+                layoutProps: {
+                  type: 'OBJECT',
+                  properties: {
+                    quoteText: { type: 'STRING' },
+                    quoteAuthor: { type: 'STRING' },
+                    statValue: { type: 'STRING' },
+                    statLabel: { type: 'STRING' },
+                    versusLeft: { type: 'STRING' },
+                    versusRight: { type: 'STRING' },
+                    versusLabel: { type: 'STRING' },
+                    versusLeftFeatures: { type: 'ARRAY', items: { type: 'STRING' } },
+                    versusRightFeatures: { type: 'ARRAY', items: { type: 'STRING' } },
+                    timelineDate: { type: 'STRING' },
+                    timelineLabel: { type: 'STRING' },
+                    dangerTitle: { type: 'STRING' },
+                    dangerText: { type: 'STRING' },
+                    progressValue: { type: 'NUMBER' },
+                    progressLabel: { type: 'STRING' },
+                    tipTitle: { type: 'STRING' },
+                    tipText: { type: 'STRING' },
+                    meterLeft: { type: 'STRING' },
+                    meterRight: { type: 'STRING' },
+                    meterValue: { type: 'NUMBER' },
+                    meterLabel: { type: 'STRING' },
+                    tierRank: { type: 'STRING' },
+                    tierItem: { type: 'STRING' },
+                    tierLabel: { type: 'STRING' }
+                  }
+                },
+                ambientSoundscape: { type: 'STRING' },
+                postProcessingPreset: { type: 'STRING' }
+              },
+              required: ['text', 'clipId', 'clipStart', 'clipDuration']
+            }
+          }
+        },
+        required: ['title', 'scriptText', 'scenes']
+      }
+    }
+  };
+
+  const response = await generateContentWithFallback(aiClient, requestConfig);
+  return JSON.parse(response.text);
+}

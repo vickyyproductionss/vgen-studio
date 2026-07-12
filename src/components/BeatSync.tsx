@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Zap, Upload, Play, Pause, Trash2, Music, Video, Activity, ChevronRight, AlertTriangle, CheckCircle, RefreshCw, Scissors, Sparkles, Type, Sparkle } from 'lucide-react';
 import RichClipSelector from './RichClipSelector';
+import { Player } from '@remotion/player';
+import { VideoReel } from '../remotion/VideoReel';
+import { PlayerErrorBoundary } from './PlayerErrorBoundary';
 
 interface ClipSegment {
   start_time: number;
@@ -16,6 +19,7 @@ interface Clip {
   thumbnail: string;
   exists?: boolean;
   segments?: ClipSegment[];
+  tags?: string[];
 }
 
 interface BGM {
@@ -398,7 +402,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
   
   // Subtitle styling states
   const [subtitleMode, setSubtitleMode] = useState<'classic' | 'pop' | 'smart-highlight' | 'centered-word'>('smart-highlight');
-  const [fontName, setFontName] = useState('Arial');
+  const [fontName, setFontName] = useState('Bangers');
   const [fontSelectorOpen, setFontSelectorOpen] = useState(false);
   const [fontSearchQuery, setFontSearchQuery] = useState('');
   const [fontLoading, setFontLoading] = useState(false);
@@ -412,13 +416,13 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
   const [aiGenLoading, setAiGenLoading] = useState(false);
   const [aiGenError, setAiGenError] = useState('');
   const [fontDownloadError, setFontDownloadError] = useState('');
-  const [fontSize, setFontSize] = useState(24);
+  const [fontSize, setFontSize] = useState(48);
   const [fontColor, setFontColor] = useState('#FFFFFF');
   const [outlineColor, setOutlineColor] = useState('#000000');
-  const [bold, setBold] = useState(true);
+  const [bold, setBold] = useState(false);
   const [italic, setItalic] = useState(false);
   const [shadow, setShadow] = useState(true);
-  const [highlightColor, setHighlightColor] = useState('#FFFF00');
+  const [highlightColor, setHighlightColor] = useState('#FACC15');
   const [showHighlightBox, setShowHighlightBox] = useState(false);
   const [boxColor, setBoxColor] = useState('#8A4BF3');
   const [boxRounding, setBoxRounding] = useState(8);
@@ -429,14 +433,14 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
   const [wordDisplayTime, setWordDisplayTime] = useState(1.0);
   const [maxWordsPerLine, setMaxWordsPerLine] = useState(3);
   const [textPositionX, setTextPositionX] = useState(0);
-  const [textPositionY, setTextPositionY] = useState(-70);
+  const [textPositionY, setTextPositionY] = useState(-65);
   const [showEmojis, setShowEmojis] = useState(false);
   const [autoEmphasis, setAutoEmphasis] = useState(false);
-  const [emphasisColor, setEmphasisColor] = useState('#FFFF00');
-  const [neonGlow, setNeonGlow] = useState(false);
-  const [glowColor, setGlowColor] = useState('#00FFFF');
-  const [glowBlur, setGlowBlur] = useState(6);
-  const [glowDistance, setGlowDistance] = useState(3);
+  const [emphasisColor, setEmphasisColor] = useState('#FFFFFF');
+  const [neonGlow, setNeonGlow] = useState(true);
+  const [glowColor, setGlowColor] = useState('#FFFFFF');
+  const [glowBlur, setGlowBlur] = useState(1);
+  const [glowDistance, setGlowDistance] = useState(20);
   const [highlightTrigger, setHighlightTrigger] = useState<'all' | 'emphasis' | 'emoji'>('all');
   const [pop3d, setPop3d] = useState(false);
   const [pop3dColor, setPop3dColor] = useState('#000000');
@@ -461,26 +465,26 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
   const [normalStyle, setNormalStyle] = useState<WordStyle>({
     fontColor: '#FFFFFF',
     activeWordScale: 1.0,
-    neonGlow: false,
-    glowColor: '#00FFFF',
-    glowBlur: 6,
-    glowDistance: 3
+    neonGlow: true,
+    glowColor: '#FFFFFF',
+    glowBlur: 1,
+    glowDistance: 20
   });
   const [highlightStyle, setHighlightStyle] = useState<WordStyle>({
-    fontColor: '#FFFF00',
+    fontColor: '#FACC15',
     activeWordScale: 1.15,
-    neonGlow: false,
-    glowColor: '#00FFFF',
-    glowBlur: 6,
-    glowDistance: 3
+    neonGlow: true,
+    glowColor: '#FACC15',
+    glowBlur: 1,
+    glowDistance: 20
   });
   const [emojiStyle, setEmojiStyle] = useState<WordStyle>({
-    fontColor: '#FFFF00',
+    fontColor: '#FACC15',
     activeWordScale: 1.15,
-    neonGlow: false,
-    glowColor: '#00FFFF',
-    glowBlur: 6,
-    glowDistance: 3
+    neonGlow: true,
+    glowColor: '#FACC15',
+    glowBlur: 1,
+    glowDistance: 20
   });
   const [styleTab, setStyleTab] = useState<'normal' | 'highlight' | 'emoji'>('normal');
   
@@ -552,6 +556,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
   const [fillMode, setFillMode] = useState<'crop' | 'fit'>('crop');
   const [clipTransition, setClipTransition] = useState<string>('none');
   const [transitionDuration, setTransitionDuration] = useState(0.3);
+  const [clipTransitionSfx, setClipTransitionSfx] = useState<string>('none');
   const [beatEffects, setBeatEffects] = useState({
     whiteFlash: false, whiteFlashIntensity: 0.6,
     rgbSplit: false, rgbSplitPixels: 6,
@@ -678,26 +683,26 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
         const norm = state.normalStyle || {
           fontColor: state.fontColor || '#FFFFFF',
           activeWordScale: 1.0,
-          neonGlow: !!state.neonGlow,
-          glowColor: state.glowColor || '#00FFFF',
-          glowBlur: state.glowBlur !== undefined ? state.glowBlur : 6,
-          glowDistance: state.glowDistance !== undefined ? state.glowDistance : 3
+          neonGlow: state.neonGlow !== undefined ? !!state.neonGlow : true,
+          glowColor: state.glowColor || '#FFFFFF',
+          glowBlur: state.glowBlur !== undefined ? state.glowBlur : 1,
+          glowDistance: state.glowDistance !== undefined ? state.glowDistance : 20
         };
         const high = state.highlightStyle || {
-          fontColor: state.highlightColor || '#FFFF00',
+          fontColor: state.highlightColor || '#FACC15',
           activeWordScale: state.activeWordScale !== undefined ? state.activeWordScale : 1.15,
-          neonGlow: !!state.neonGlow,
-          glowColor: state.glowColor || '#00FFFF',
-          glowBlur: state.glowBlur !== undefined ? state.glowBlur : 6,
-          glowDistance: state.glowDistance !== undefined ? state.glowDistance : 3
+          neonGlow: state.neonGlow !== undefined ? !!state.neonGlow : true,
+          glowColor: state.glowColor || '#FACC15',
+          glowBlur: state.glowBlur !== undefined ? state.glowBlur : 1,
+          glowDistance: state.glowDistance !== undefined ? state.glowDistance : 20
         };
         const emoj = state.emojiStyle || {
-          fontColor: state.highlightColor || '#FFFF00',
+          fontColor: state.highlightColor || '#FACC15',
           activeWordScale: state.activeWordScale !== undefined ? state.activeWordScale : 1.15,
-          neonGlow: !!state.neonGlow,
-          glowColor: state.glowColor || '#00FFFF',
-          glowBlur: state.glowBlur !== undefined ? state.glowBlur : 6,
-          glowDistance: state.glowDistance !== undefined ? state.glowDistance : 3
+          neonGlow: state.neonGlow !== undefined ? !!state.neonGlow : true,
+          glowColor: state.glowColor || '#FACC15',
+          glowBlur: state.glowBlur !== undefined ? state.glowBlur : 1,
+          glowDistance: state.glowDistance !== undefined ? state.glowDistance : 20
         };
         setNormalStyle(norm);
         setHighlightStyle(high);
@@ -1698,10 +1703,11 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
     const updated = scenes.map(scene => ({
       ...scene,
       transition: clipTransition,
-      transitionDuration: transitionDuration
+      transitionDuration: transitionDuration,
+      sfx: clipTransitionSfx
     }));
     setScenes(updated);
-    alert('Applied transition settings to all scenes!');
+    alert('Applied transition and SFX settings to all scenes!');
   };
 
   const handleRecommendTransitionsAndSfx = () => {
@@ -1779,7 +1785,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
         const res = await fetch('/api/match-clips', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ scenes, useAiFallback })
+          body: JSON.stringify({ scenes, useAiFallback, excludeBroll: true })
         });
 
         if (!res.ok) {
@@ -1799,7 +1805,27 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
         setSuccess('AI Semantic matching complete!');
       } else {
         // Music Beats: Random clip + random segment + random offset within segment for each beat scene
-        const availableClips = clips.filter(c => c.exists !== false);
+        const isStockOrBroll = (clip: Clip) => {
+          // 1. Check tags
+          const hasSystemTag = Array.isArray(clip.tags) && clip.tags.some((tag: string) => 
+            tag === 'stock_downloaded' || 
+            tag === 'ai_generated' || 
+            tag === 'fallback' ||
+            tag === 'recreate_fallback'
+          );
+          if (hasSystemTag) return true;
+
+          // 2. Check name prefix
+          if (clip.name) {
+            const lowerName = clip.name.toLowerCase();
+            if (lowerName.startsWith('stock') || lowerName.startsWith('ai -') || lowerName.startsWith('ai_')) {
+              return true;
+            }
+          }
+          return false;
+        };
+
+        const availableClips = clips.filter(c => c.exists !== false && !isStockOrBroll(c));
         if (availableClips.length === 0 && !useAiFallback) {
           throw new Error('Video Library is empty or all clips are missing on disk. Import clips first, or enable AI Fallback.');
         }
@@ -2066,7 +2092,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
   });
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: '32px' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px max-content', gap: '24px' }}>
       
       {/* LEFT COLUMN: Beat sync timelines and segment editor */}
       <div>
@@ -2379,6 +2405,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
                           clips={clips}
                           onGenerateAi={() => openAiGenModal(idx)}
                           showOriginal={false}
+                          excludeBroll={true}
                         />
                       </div>
                       {selectedClip && (() => {
@@ -2914,7 +2941,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
                       </div>
                       <input
                         type="range"
-                        min={1.1}
+                        min={0.8}
                         max={2.0}
                         step={0.05}
                         value={threshold}
@@ -3158,7 +3185,41 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
               </div>
             )}
 
-            <div style={{ marginTop: '10px' }}>
+            {clipTransition !== 'none' && (
+              <div style={{ marginTop: '10px' }}>
+                <label className="label">Default Transition SFX</label>
+                <select
+                  className="input-field"
+                  value={clipTransitionSfx}
+                  onChange={(e) => setClipTransitionSfx(e.target.value)}
+                  style={{ height: '34px', fontSize: '12px' }}
+                >
+                  <option value="none">None</option>
+                  {(sfxList.length > 0 ? sfxList : [
+                    { id: 'trans_swoosh_fast', name: 'Snappy Swoosh' },
+                    { id: 'trans_swoosh_deep', name: 'Cinematic Whoosh' },
+                    { id: 'trans_glitch_digital', name: 'Glitch / Static' },
+                    { id: 'trans_shutter_click', name: 'Shutter & Flash' },
+                    { id: 'trans_vhs_rewind', name: 'Tape Rewind' },
+                    { id: 'trans_paper_slide', name: 'Page Slide' },
+                    { id: 'reveal_pop_bubble', name: 'Bubble Pop' },
+                    { id: 'reveal_kb_click', name: 'Keyboard Tap' },
+                    { id: 'reveal_ding_bell', name: 'Snappy Ding' },
+                    { id: 'reveal_swoosh_zip', name: 'Micro Zip' },
+                    { id: 'reveal_chime_sweet', name: 'Synth Chime' },
+                    { id: 'hook_bass_drop', name: 'Sub Bass Rumble' },
+                    { id: 'hook_vinyl_scratch', name: 'Record Scratch' },
+                    { id: 'hook_metal_hit', name: 'Cinematic Metal Hit' },
+                    { id: 'hook_woosh_hit', name: 'Whoosh To Hit' },
+                    { id: 'hook_cymbal_swell', name: 'Reversed Cymbal' }
+                  ]).map(sfx => (
+                    <option key={sfx.id} value={sfx.id}>{sfx.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            <div style={{ marginTop: '14px' }}>
               <button
                 type="button"
                 className="btn-secondary"
@@ -4760,6 +4821,86 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
               </>
             );
           })()}
+        </div>
+      </div>
+
+      {/* RIGHT COLUMN: Live Video Preview */}
+      <div style={{ borderLeft: '1px solid var(--border-light)', paddingLeft: '20px' }}>
+        <div style={{ position: 'sticky', top: '0px', height: 'calc(100vh - 80px)', display: 'flex', flexDirection: 'column' }}>
+          {scenes.length > 0 && (
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-white)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Play size={14} style={{ color: 'var(--primary)' }} />
+                Real-Time Video Preview
+              </div>
+              <div style={{ 
+                height: 'calc(100vh - 120px)',
+                maxHeight: 'calc(100vh - 120px)',
+                aspectRatio: aspectRatio === '9:16' ? '9/16' : aspectRatio === '1:1' ? '1/1' : '16/9', 
+                maxWidth: aspectRatio === '16:9' ? '450px' : 'none',
+                borderRadius: '12px', 
+                overflow: 'hidden', 
+                background: '#000000',
+                border: '1px solid var(--border-medium)',
+                position: 'relative'
+              }}>
+                <PlayerErrorBoundary componentName="BeatSync-RemotionPlayer">
+                  <Player
+                    component={VideoReel as React.ComponentType<any>}
+                    inputProps={{
+                      scenes: scenes.map(s => ({
+                        ...s,
+                        clipUrl: s.clipId ? `/api/clips/${s.clipId}/video` : null
+                      })),
+                      voiceoverUrl: audioUrl || (audioPath ? `/api/serve-local-file?path=${encodeURIComponent(audioPath)}` : ''),
+                      voiceoverVolume: 1.0,
+                      bgMusicUrl: undefined,
+                      bgMusicVolume: 0.0,
+                      videoVolume: 0.0,
+                      sfxVolume: 1.0,
+                      subtitleMode,
+                      fontName,
+                      fontSize,
+                      bold,
+                      italic,
+                      shadow,
+                      activeWordScale,
+                      normalStyle,
+                      highlightStyle,
+                      emojiStyle,
+                      aspectRatio,
+                      fillMode,
+                      textPositionX,
+                      textPositionY,
+                      maxWordsPerLine,
+                      highlightTrigger,
+                      autoEmphasis,
+                      pop3d,
+                      pop3dColor,
+                      neonGlow,
+                      glowColor,
+                      glowBlur,
+                      glowDistance,
+                      backgroundPattern: 'none',
+                      backgroundColor: '#000000',
+                      baseUrl: window.location.port ? window.location.origin.replace(window.location.port, '8000') : window.location.origin,
+                    }}
+                    durationInFrames={Math.max(1, Math.round((scenes[scenes.length - 1]?.end_time || 30) * 30))}
+                    fps={30}
+                    compositionWidth={aspectRatio === '16:9' ? 1920 : 1080}
+                    compositionHeight={aspectRatio === '9:16' ? 1920 : 1080}
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      maxHeight: '100%'
+                    }}
+                    controls
+                    logLevel="trace"
+                  />
+                </PlayerErrorBoundary>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

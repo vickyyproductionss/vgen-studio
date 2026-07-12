@@ -4,14 +4,14 @@ import { Folder, Plus, Trash2, Search, AlertCircle, Play, Pencil } from 'lucide-
 interface Project {
   id: string;
   name: string;
-  type: 'create' | 'beatsync' | 'talkinghead';
+  type: 'create' | 'beatsync' | 'talkinghead' | 'subtitles';
   updatedAt: string;
   state: any;
   diskSize?: number;
 }
 
 interface ProjectsListProps {
-  onOpenProject: (projectId: string, type: 'create' | 'beatsync' | 'talkinghead') => void;
+  onOpenProject: (projectId: string, type: 'create' | 'beatsync' | 'talkinghead' | 'subtitles') => void;
 }
 
 
@@ -20,7 +20,7 @@ export default function ProjectsList({ onOpenProject }: ProjectsListProps) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const [typeFilter, setTypeFilter] = useState<'all' | 'create' | 'beatsync' | 'talkinghead'>('all');
+  const [typeFilter, setTypeFilter] = useState<'all' | 'create' | 'beatsync' | 'talkinghead' | 'subtitles'>('all');
   const [error, setError] = useState('');
   const [clips, setClips] = useState<any[]>([]);
   const [activeJobs, setActiveJobs] = useState<any[]>([]);
@@ -110,6 +110,8 @@ export default function ProjectsList({ onOpenProject }: ProjectsListProps) {
       ? "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=500&auto=format&fit=crop&q=60"
       : proj.type === 'talkinghead'
       ? "https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?w=500&auto=format&fit=crop&q=60"
+      : proj.type === 'subtitles'
+      ? "https://images.unsplash.com/photo-1485846234645-a62644f84728?w=500&auto=format&fit=crop&q=60"
       : "https://images.unsplash.com/photo-1614850523459-c2f4c699c52e?w=500&auto=format&fit=crop&q=60";
   };
 
@@ -145,7 +147,7 @@ export default function ProjectsList({ onOpenProject }: ProjectsListProps) {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const handleCreateProject = async (type: 'create' | 'beatsync' | 'talkinghead') => {
+  const handleCreateProject = async (type: 'create' | 'beatsync' | 'talkinghead' | 'subtitles') => {
     try {
       setError('');
       const res = await fetch('/api/projects', {
@@ -232,6 +234,14 @@ export default function ProjectsList({ onOpenProject }: ProjectsListProps) {
             Talking Head Video
           </button>
           <button
+            onClick={() => handleCreateProject('subtitles')}
+            className="btn-secondary"
+            style={{ padding: '0 16px', height: '36px', fontSize: '12px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}
+          >
+            <Plus size={14} />
+            Add Subtitles
+          </button>
+          <button
             onClick={() => handleCreateProject('beatsync')}
             className="btn-primary"
             style={{
@@ -259,14 +269,14 @@ export default function ProjectsList({ onOpenProject }: ProjectsListProps) {
       {/* Filter and Search Bar */}
       <div className="glass-panel" style={{ padding: '16px 20px', marginBottom: '32px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '20px', borderRadius: '8px' }}>
         <div style={{ display: 'flex', gap: '8px' }}>
-          {(['all', 'create', 'talkinghead', 'beatsync'] as const).map(filter => (
+          {(['all', 'create', 'talkinghead', 'subtitles', 'beatsync'] as const).map(filter => (
             <button
               key={filter}
               className={typeFilter === filter ? 'btn-primary' : 'btn-secondary'}
               onClick={() => setTypeFilter(filter)}
               style={{ fontSize: '12px', padding: '6px 16px', textTransform: 'capitalize', fontWeight: typeFilter === filter ? 700 : 500 }}
             >
-              {filter === 'create' ? 'Voiceover' : filter === 'talkinghead' ? 'Talking Head' : filter === 'beatsync' ? 'Beat Sync' : 'All Projects'}
+              {filter === 'create' ? 'Voiceover' : filter === 'talkinghead' ? 'Talking Head' : filter === 'subtitles' ? 'Add Subtitles' : filter === 'beatsync' ? 'Beat Sync' : 'All Projects'}
             </button>
           ))}
         </div>
@@ -299,15 +309,18 @@ export default function ProjectsList({ onOpenProject }: ProjectsListProps) {
           <p style={{ color: 'var(--text-gray)', fontSize: '13px', maxWidth: '320px', margin: '0 auto 24px auto', fontFamily: 'Inter' }}>
             {searchQuery || typeFilter !== 'all'
               ? 'Try modifying your search or category filters.'
-              : 'Get started by creating a new Voiceover script, Talking Head video, or Beat Sync project.'}
+              : 'Get started by creating a new Voiceover script, Talking Head video, Add Subtitles, or Beat Sync project.'}
           </p>
           {!searchQuery && typeFilter === 'all' && (
-            <div style={{ display: 'flex', justifyContent: 'center', gap: '12px' }}>
+            <div style={{ display: 'flex', justifyContent: 'center', gap: '12px', flexWrap: 'wrap' }}>
               <button onClick={() => handleCreateProject('create')} className="btn-secondary" style={{ fontSize: '12px', fontWeight: 600 }}>
                 Voiceover Script
               </button>
               <button onClick={() => handleCreateProject('talkinghead')} className="btn-secondary" style={{ fontSize: '12px', fontWeight: 600 }}>
                 Talking Head
+              </button>
+              <button onClick={() => handleCreateProject('subtitles')} className="btn-secondary" style={{ fontSize: '12px', fontWeight: 600 }}>
+                Add Subtitles
               </button>
               <button onClick={() => handleCreateProject('beatsync')} className="btn-primary" style={{ fontSize: '12px', fontWeight: 700 }}>
                 Beat Sync

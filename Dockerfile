@@ -11,6 +11,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-noto-color-emoji \
     fonts-liberation \
     ca-certificates \
+    libnss3 \
+    libdbus-1-3 \
+    libatk1.0-0 \
+    libgbm-dev \
+    libasound2 \
+    libxrandr2 \
+    libxkbcommon-dev \
+    libxfixes3 \
+    libxcomposite1 \
+    libxdamage1 \
+    libatk-bridge2.0-0 \
+    libpango-1.0-0 \
+    libcairo2 \
+    libcups2 \
   && rm -rf /var/lib/apt/lists/* \
   && fc-cache -fv
 
@@ -22,6 +36,7 @@ COPY package*.json ./
 COPY backend/package*.json ./backend/
 
 RUN npm install --production=false
+RUN npx remotion browser ensure
 RUN cd backend && npm install --production
 
 # --- Application code layer ---
