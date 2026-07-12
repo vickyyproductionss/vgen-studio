@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Film, Settings as SettingsIcon, Play, Video, Terminal, Music, Zap, Folder, LogOut, User, Check, X, Bell, HelpCircle, Rocket, Sun, Moon, Sparkles } from 'lucide-react';
+import { Film, Settings as SettingsIcon, Play, Video, Terminal, Music, Zap, Folder, LogOut, User, Check, X, Bell, HelpCircle, Rocket, Sun, Moon, Sparkles, Clock } from 'lucide-react';
 import ClipsLibrary from './components/ClipsLibrary';
 import MusicLibrary from './components/MusicLibrary';
 import CreateProject from './components/CreateProject';
@@ -11,8 +11,9 @@ import RecreateReel from './components/RecreateReel';
 import SubjectProfile from './components/SubjectProfile';
 import YoutubeCreator from './components/YoutubeCreator';
 import QuickBeatSync from './components/QuickBeatSync';
+import RenderHistory from './components/RenderHistory';
 
-type Tab = 'projects' | 'library' | 'music' | 'create' | 'render' | 'settings' | 'editor' | 'beatsync' | 'recreate' | 'subject' | 'youtube' | 'quick-beatsync';
+type Tab = 'projects' | 'library' | 'music' | 'create' | 'render' | 'settings' | 'editor' | 'beatsync' | 'recreate' | 'subject' | 'youtube' | 'quick-beatsync' | 'history';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('projects');
@@ -487,6 +488,14 @@ export default function App() {
                 }} />
               )}
             </div>
+
+            <div
+              className={`nav-link ${activeTab === 'history' ? 'active' : ''}`}
+              onClick={() => handleTabClick('history')}
+            >
+              <Clock size={18} />
+              Render History
+            </div>
           </nav>
         </div>
 
@@ -678,6 +687,10 @@ export default function App() {
 
         {activeTab === 'render' && (
           <RenderCenter jobId={activeJobId} onClearJob={clearRenderSession} />
+        )}
+
+        {activeTab === 'history' && (
+          <RenderHistory />
         )}
 
         {activeTab === 'settings' && (

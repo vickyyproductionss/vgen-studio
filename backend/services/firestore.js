@@ -629,5 +629,76 @@ export const dbService = {
       throw err;
     }
   }
+  // --- Render Jobs (background rendering persistence) ---
+
+  async saveRenderJob(job) {
+    // job: { jobId, userId, type, status, progress, createdAt, title }
+    if (useLocalDb) {
+      const db = getLocalDb();
+      db.renderJobs = db.renderJobs || [];
+      const idx = db.renderJobs.findIndex(j => j.jobId === job.jobId);
+      if (idx !== -1) db.renderJobs[idx] = { ...db.renderJobs[idx], ...job };
+      else db.renderJobs.push(job);
+      saveLocalDb(db);
+      return job;
+    }
+    try {
+      await firestore.collection('render_jobs').doc(job.jobId).set(job, { merge: true });
+      return job;
+    } catch (err) {
+      console.error('[Database Error] Failed to save render job:', err.message);
+    }
+  },
+
+  async updateRenderJob(jobId, updates) {
+    if (useLocalDb) {
+      const db = getLocalDb();
+      db.renderJobs = db.renderJobs || [];
+      const idx = db.renderJobs.findIndex(j => j.jobId === jobId);
+      if (idx !== -1) db.renderJobs[idx] = { ...db.renderJobs[idx], ...updates };
+      saveLocalDb(db);
+      return;
+    }
+    try {
+      await firestore.collection('render_jobs').doc(jobId).set(updates, { merge: true });
+    } catch (err) {
+      console.error('[Database Error] Failed to update render job:', err.message);
+    }
+  },
+
+  async getRenderJob(jobId) {
+    if (useLocalDb) {
+      const db = getLocalDb();
+      return (db.renderJobs || []).find(j => j.jobId === jobId) || null;
+    }
+    try {
+      const doc = await firestore.collection('render_jobs').doc(jobId).get();
+      if (!doc.exists) return null;
+      return { ...doc.data() };
+    } catch (err) {
+      console.error('[Database Error] Failed to get render job:', err.message);
+      return null;
+    }
+  },
+
+  async listRenderJobs(userId) {
+    if (useLocalDb) {
+      const db = getLocalDb();
+      return (db.renderJobs || [])
+        .filter(j => j.userId === userId)
+        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    }
+    try {
+      const snap = await firestore.collection('render_jobs')
+        .where('userId', '==', userId)
+        .orderBy('createdAt', 'desc')
+        .limit(50)
+        .get();
+      return snap.docs.map(d => ({ ...d.data() }));
+    } catch (err) {
+      console.error('[Database Error] Failed to list render jobs:', err.message);
+      return [];
+    }
+  },
 };
 

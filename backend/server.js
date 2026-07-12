@@ -3133,6 +3133,20 @@ app.post('/api/generate-video', async (req, res) => {
 
     activeJobs.set(jobId, jobState);
 
+    // Persist job to Firestore so user can track it after tab close
+    const jobTitle = projectId ? `Video Render` : `Quick Render`;
+    dbService.saveRenderJob({
+      jobId,
+      userId,
+      type: 'voiceover',
+      title: jobTitle,
+      status: 'rendering',
+      progress: 0,
+      resultUrl: null,
+      error: null,
+      createdAt: new Date().toISOString()
+    }).catch(e => console.error('[Render History] Failed to save job:', e.message));
+
     const clips = await dbService.getClips(userId);
 
     // Trigger video compilation in background
@@ -3383,6 +3397,14 @@ async function runVideoCompilation(jobId, options) {
     job.status = 'Completed';
     job.resultUrl = outputPath.startsWith('http') ? outputPath : `/uploads/generated/${path.basename(outputPath)}`;
 
+    // Persist completion to Firestore
+    dbService.updateRenderJob(jobId, {
+      status: 'completed',
+      progress: 100,
+      resultUrl: job.resultUrl,
+      completedAt: new Date().toISOString()
+    }).catch(e => console.error('[Render History] Failed to update completed job:', e.message));
+
     // Associate rendered video path with project
     if (options.projectId) {
       const proj = await dbService.getProject(options.projectId);
@@ -3400,6 +3422,14 @@ async function runVideoCompilation(jobId, options) {
     job.status = 'Failed';
     job.error = error.message;
 
+    // Persist failure to Firestore
+    dbService.updateRenderJob(jobId, {
+      status: 'failed',
+      progress: 100,
+      error: error.message,
+      completedAt: new Date().toISOString()
+    }).catch(e => console.error('[Render History] Failed to update failed job:', e.message));
+
     // Refund credits on failure
     if (userId && userId !== 'local-user' && estimatedCredits > 0) {
       try {
@@ -3415,6 +3445,26 @@ async function runVideoCompilation(jobId, options) {
     }
   }
 }
+
+// GET /api/renders - Render history for current user (persisted in Firestore)
+app.get('/api/renders', async (req, res) => {
+  const userId = getUserId(req);
+  try {
+    // Merge in-memory active jobs with persisted history
+    const persisted = await dbService.listRenderJobs(userId);
+    // Update status of any persisted jobs that are still actively running
+    const merged = persisted.map(job => {
+      const live = activeJobs.get(job.jobId);
+      if (live && (live.status !== 'Completed' && live.status !== 'Failed')) {
+        return { ...job, status: 'rendering', progress: live.progress };
+      }
+      return job;
+    });
+    res.json(merged);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // Expose all currently active rendering jobs
 app.get('/api/jobs/active', (req, res) => {
