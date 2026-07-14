@@ -3529,6 +3529,11 @@ function runDownloadReel(url, outDir, filename, ffmpegPath) {
     let stdout = '';
     let stderr = '';
     
+    // Handle spawn errors (e.g. python3 not found) — prevents unhandled crash
+    proc.on('error', (err) => {
+      reject(new Error(`Failed to start python3: ${err.message}. Is python3 installed in the environment?`));
+    });
+    
     proc.stdout.on('data', (d) => stdout += d.toString());
     proc.stderr.on('data', (d) => stderr += d.toString());
     
