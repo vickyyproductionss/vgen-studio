@@ -113,8 +113,14 @@ export default function RecreateReel({ onOpenProject }: RecreateReelProps) {
       });
 
       if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.error || 'Failed to analyze and recreate the reel.');
+        let errMsg = `Server error: ${response.status} ${response.statusText}`;
+        try {
+          const errData = await response.json();
+          errMsg = errData.error || errMsg;
+        } catch (_) {
+          // Response wasn't JSON (e.g. 503 Service Unavailable HTML) — use status text
+        }
+        throw new Error(errMsg);
       }
 
       const data = await response.json();
