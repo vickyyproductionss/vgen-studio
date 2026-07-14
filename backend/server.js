@@ -37,7 +37,7 @@ import { gcsService } from './services/gcs.js';
 import { Storage } from '@google-cloud/storage';
 import { searchStockVideo, downloadStockVideo } from './services/stock.js';
 import { startGcpLipsyncJob, getGcpJobStatus } from './services/gcpAvatar.js';
-import { renderRemotionVideo } from './services/remotionRenderer.js';
+import { renderRemotionVideo, renderRemotionVideoChunked } from './services/remotionRenderer.js';
 // Local SadTalker kept as fallback (used if AVATAR_API_URL is not set)
 import { startLipsyncJob, lipsyncJobs } from './services/sadtalker.js';
 
@@ -3375,13 +3375,43 @@ async function runVideoCompilation(jobId, options) {
       isRendering: true
     };
 
-    console.log(`[Recreation Render] Triggering Remotion render...`);
+    console.log(`[Recreation Render] Triggering chunked Remotion render...`);
 
-    await renderRemotionVideo(remotionProps, localOutputPath, (progress) => {
-      const progressPercent = Math.round(5 + progress * 90);
-      job.progress = progressPercent;
-      job.status = `Rendering frames: ${progressPercent}%`;
-    });
+    const chunkDir = path.join(options.outputDir, `chunks_${jobId}`);
+    const chunkPaths = await renderRemotionVideoChunked(
+      remotionProps,
+      chunkDir,
+      jobId,
+      (progress) => {
+        const progressPercent = Math.round(5 + progress * 85);
+        job.progress = progressPercent;
+        job.status = `Rendering frames: ${progressPercent}%`;
+      },
+      async (chunkIdx, totalChunks) => {
+        job.status = `Rendered chunk ${chunkIdx + 1}/${totalChunks}, merging soon...`;
+        dbService.updateRenderJob(jobId, {
+          status: 'rendering',
+          progress: job.progress,
+          updatedAt: new Date().toISOString()
+        }).catch(() => {});
+      }
+    );
+
+    // Merge chunks → final output file
+    if (chunkPaths.length === 1) {
+      // Single chunk — just rename
+      await fs.rename(chunkPaths[0], localOutputPath);
+    } else {
+      job.status = 'Merging video chunks...';
+      job.progress = 92;
+      const concatFilePath = path.join(chunkDir, `concat_${jobId}.txt`);
+      await fs.writeFile(concatFilePath, chunkPaths.map(p => `file '${p}'`).join('\n'));
+      await runFFmpeg(['-f', 'concat', '-safe', '0', '-i', concatFilePath, '-c', 'copy', '-y', localOutputPath]);
+      // Cleanup chunk files
+      for (const cp of chunkPaths) { try { await fs.unlink(cp); } catch (_) {} }
+      try { await fs.unlink(concatFilePath); } catch (_) {}
+      try { await fs.rmdir(chunkDir); } catch (_) {}
+    }
 
     let outputPath = localOutputPath;
     if (gcsService.isGcsEnabled()) {
@@ -5178,6 +5208,25 @@ app.listen(PORT, () => {
       }
     } catch (err) {
       console.error('[Startup Recovery] Failed to check for interrupted tasks:', err.message);
+    }
+  })();
+
+  // Mark any render jobs that were stuck 'rendering' from a previous crashed instance as 'failed'
+  (async () => {
+    try {
+      const staleJobs = await dbService.listStaleRenderJobs();
+      if (staleJobs.length > 0) {
+        console.log(`[Startup Recovery] Found ${staleJobs.length} stale rendering job(s) — marking as failed...`);
+        for (const job of staleJobs) {
+          await dbService.updateRenderJob(job.jobId, {
+            status: 'failed',
+            error: 'Server restarted during render. Please retry.',
+            completedAt: new Date().toISOString()
+          });
+        }
+      }
+    } catch (err) {
+      console.error('[Startup Recovery] Failed to clean up stale render jobs:', err.message);
     }
   })();
 });

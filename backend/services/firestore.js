@@ -701,5 +701,25 @@ export const dbService = {
       return [];
     }
   },
+
+  /**
+   * Returns all render jobs currently stuck in 'rendering' state (across all users).
+   * Used on server startup to mark crashed jobs as failed.
+   */
+  async listStaleRenderJobs() {
+    if (useLocalDb) {
+      const db = getLocalDb();
+      return (db.renderJobs || []).filter(j => j.status === 'rendering');
+    }
+    try {
+      const snap = await firestore.collection('render_jobs')
+        .where('status', '==', 'rendering')
+        .get();
+      return snap.docs.map(d => ({ ...d.data() }));
+    } catch (err) {
+      console.error('[Database Error] Failed to list stale render jobs:', err.message);
+      return [];
+    }
+  },
 };
 
