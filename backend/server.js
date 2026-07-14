@@ -4109,6 +4109,13 @@ app.post('/api/generate-viral-video', async (req, res) => {
       };
       activeJobs.set(jobId, jobState);
 
+      // Persist to Firestore for Render History
+      dbService.saveRenderJob({
+        jobId, userId, type: 'replicate-reel', title: 'Replicate Reel',
+        status: 'rendering', progress: 0, resultUrl: null, error: null,
+        createdAt: new Date().toISOString()
+      }).catch(e => console.error('[Render History] Failed to save job:', e.message));
+
       const dbClips = await dbService.getClips(userId);
       runVideoCompilation(jobId, {
         projectId: newProject.id,
@@ -4271,6 +4278,13 @@ app.post('/api/generate-viral-video', async (req, res) => {
       };
       activeJobs.set(jobId, jobState);
 
+      // Persist to Firestore for Render History
+      dbService.saveRenderJob({
+        jobId, userId, type: 'viral-video', title: 'Quick Beat Sync',
+        status: 'rendering', progress: 0, resultUrl: null, error: null,
+        createdAt: new Date().toISOString()
+      }).catch(e => console.error('[Render History] Failed to save job:', e.message));
+
       const dbClips = await dbService.getClips(userId);
       runVideoCompilation(jobId, {
         projectId: newProject.id,
@@ -4427,6 +4441,13 @@ app.post('/api/generate-viral-video', async (req, res) => {
         error: null
       };
       activeJobs.set(jobId, jobState);
+
+      // Persist to Firestore for Render History
+      dbService.saveRenderJob({
+        jobId, userId, type: 'youtube-short', title: 'YouTube Short',
+        status: 'rendering', progress: 0, resultUrl: null, error: null,
+        createdAt: new Date().toISOString()
+      }).catch(e => console.error('[Render History] Failed to save job:', e.message));
 
       const dbClips = await dbService.getClips(userId);
       runVideoCompilation(jobId, {
