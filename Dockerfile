@@ -25,8 +25,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpango-1.0-0 \
     libcairo2 \
     libcups2 \
+    python3 \
+    python3-pip \
   && rm -rf /var/lib/apt/lists/* \
   && fc-cache -fv
+
+# Install yt-dlp for Instagram/TikTok reel downloading (used by download_reel.py)
+RUN pip3 install --break-system-packages yt-dlp
 
 WORKDIR /app
 
@@ -36,6 +41,8 @@ COPY package*.json ./
 COPY backend/package*.json ./backend/
 
 RUN npm install --production=false
+# Pre-download Chrome Headless Shell so it's baked into the image.
+# This avoids a 92MB download at render time which would block the instance.
 RUN npx remotion browser ensure
 RUN cd backend && npm install --production
 
