@@ -11,13 +11,19 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@remotion/cli": "4.0.478",
-    "@remotion/player": "4.0.478",
-    "@remotion/transitions": "4.0.478",
+    "@remotion/bundler": "4.0.499",
+    "@remotion/cli": "4.0.499",
+    "@remotion/media-utils": "4.0.499",
+    "@remotion/paths": "4.0.499",
+    "@remotion/player": "4.0.499",
+    "@remotion/renderer": "4.0.499",
+    "@remotion/shapes": "4.0.499",
+    "@remotion/transitions": "4.0.499",
+    "@remotion/zod-types": "4.0.499",
     "lucide-react": "^1.17.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
-    "remotion": "4.0.478"
+    "remotion": "4.0.499"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

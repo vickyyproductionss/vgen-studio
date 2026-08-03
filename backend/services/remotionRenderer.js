@@ -4,25 +4,40 @@ import path from 'path';
 import fs from 'fs';
 
 let cachedBundleLocation = null;
+let lastBundleTime = 0;
 
 /**
  * Creates/retrieves the cached webpack bundle location for the Remotion Root.
+ * Automatically rebuilds if any file in src/remotion has been modified.
  */
 async function getBundle() {
-  if (cachedBundleLocation && fs.existsSync(cachedBundleLocation)) {
-    return cachedBundleLocation;
-  }
-  
   let entryPoint = path.resolve(process.cwd(), '../src/remotion/Root.tsx');
   if (!fs.existsSync(entryPoint)) {
     entryPoint = path.resolve(process.cwd(), './src/remotion/Root.tsx');
   }
+
+  const remotionDir = path.dirname(entryPoint);
+  let latestMtime = 0;
+  if (fs.existsSync(remotionDir)) {
+    const files = fs.readdirSync(remotionDir);
+    for (const f of files) {
+      const fullPath = path.join(remotionDir, f);
+      const stat = fs.statSync(fullPath);
+      if (stat.mtimeMs > latestMtime) latestMtime = stat.mtimeMs;
+    }
+  }
+
+  if (cachedBundleLocation && fs.existsSync(cachedBundleLocation) && lastBundleTime >= latestMtime) {
+    return cachedBundleLocation;
+  }
+  
   console.log(`[Remotion Renderer] Bundling entry point: ${entryPoint}`);
   
   cachedBundleLocation = await bundle({
     entryPoint,
     enableAutoplay: false,
   });
+  lastBundleTime = Date.now();
   
   console.log(`[Remotion Renderer] Bundle created at: ${cachedBundleLocation}`);
   return cachedBundleLocation;
@@ -186,13 +201,9 @@ export async function renderRemotionVideoChunked(projectState, chunkDir, jobId, 
     const endFrame = Math.min((i + 1) * CHUNK_FRAMES - 1, durationInFrames - 1);
     const chunkPath = path.join(chunkDir, `chunk_${jobId}_${i}.mp4`);
 
-    // Resume: skip if chunk file already exists (from a previous crashed run in same instance)
+    // Ensure fresh chunk rendering for new export requests
     if (fs.existsSync(chunkPath)) {
-      console.log(`[Remotion Renderer] Chunk ${i + 1}/${numChunks} already exists — skipping (resume)`);
-      chunkPaths.push(chunkPath);
-      if (progressCallback) progressCallback((i + 1) / numChunks);
-      if (onChunkDone) await onChunkDone(i, numChunks, chunkPath, true /* skipped */);
-      continue;
+      try { fs.unlinkSync(chunkPath); } catch (e) {}
     }
 
     console.log(`[Remotion Renderer] Rendering chunk ${i + 1}/${numChunks} (frames ${startFrame}–${endFrame})...`);

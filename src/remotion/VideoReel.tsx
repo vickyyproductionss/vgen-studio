@@ -1,5 +1,5 @@
 import React from 'react';
-import { delayRender, continueRender, Sequence, Audio, AbsoluteFill, useCurrentFrame, useVideoConfig, spring, prefetch, OffthreadVideo, interpolate } from 'remotion';
+import { delayRender, continueRender, Sequence, Audio, AbsoluteFill, useCurrentFrame, useVideoConfig, spring, prefetch, OffthreadVideo, interpolate, Easing } from 'remotion';
 import { SubtitleWord } from './components/SubtitleWord';
 import type { WordStyle } from './components/SubtitleWord';
 import { StoryGraphCanvas } from './components/StoryGraphCanvas';
@@ -27,6 +27,9 @@ export interface Scene {
     end_time: number;
     sfx?: string;
   }[];
+  transition?: string;
+  transitionDuration?: number;
+  transitionEasing?: string;
   shake?: boolean;
   shakeIntensity?: number;
   shakeSpeed?: number;
@@ -337,16 +340,33 @@ export const VideoReel: React.FC<VideoReelProps> = ({
   const { fps, width, height } = useVideoConfig();
   const currentTime = frame / fps;
 
-  // Pre-calculate frame boundaries to prevent microsecond black gaps due to floating-point rounding mismatches
+  // Pre-calculate frame boundaries & transition overlaps to ensure 100% seamless zero-gap transitions
+  const sceneStartFrames: number[] = [];
+  const sceneDurations: number[] = [];
   const boundaries: number[] = [];
+
   if (scenes.length > 0) {
     boundaries.push(Math.round(scenes[0].start_time * fps));
     for (let i = 1; i < scenes.length; i++) {
-      // Set the boundary to the rounded start_time, but ensure it is strictly increasing
       boundaries.push(Math.max(boundaries[i - 1] + 1, Math.round(scenes[i].start_time * fps)));
     }
-    // Set the last boundary to the rounded end_time of the last scene
     boundaries.push(Math.max(boundaries[boundaries.length - 1] + 1, Math.round(scenes[scenes.length - 1].end_time * fps)));
+
+    for (let i = 0; i < scenes.length; i++) {
+      const rawStart = boundaries[i];
+      const rawEnd = boundaries[i + 1];
+      const rawDur = Math.max(1, rawEnd - rawStart);
+
+      const incomingTrans = i > 0 ? (scenes[i - 1].transition || 'none') : 'none';
+      const incomingDur = i > 0 ? (scenes[i - 1].transitionDuration !== undefined ? scenes[i - 1].transitionDuration : 0.3) : 0.3;
+      const incomingFrames = (incomingTrans !== 'none') ? Math.max(1, Math.round(incomingDur * fps)) : 0;
+
+      const startF = Math.max(0, rawStart - incomingFrames);
+      const durF = rawDur + incomingFrames;
+
+      sceneStartFrames.push(startF);
+      sceneDurations.push(durF);
+    }
   }
 
   const hasGraph = !subtitlesOnly && entities && entities.length > 0 && graphEvents && graphEvents.length > 0;
@@ -468,9 +488,11 @@ export const VideoReel: React.FC<VideoReelProps> = ({
 
       {/* 3. Sequence through B-Roll scenes */}
       {scenes.map((scene, idx) => {
-        const startFrame = boundaries[idx];
-        const endFrame = boundaries[idx + 1];
-        const durationInFrames = Math.max(1, endFrame - startFrame);
+        const startFrame = sceneStartFrames[idx];
+        const durationInFrames = sceneDurations[idx];
+
+        const isSceneActive = frame >= startFrame && frame < startFrame + durationInFrames;
+        if (!isSceneActive) return null;
 
         // Calculate rightBlurredMode and merge layoutProps for Versus layout
         let rightBlurredMode: 'blurred' | 'unblurred' | 'auto-transition' = 'auto-transition';
@@ -534,25 +556,14 @@ export const VideoReel: React.FC<VideoReelProps> = ({
           }
         }
 
-        // Calculate current frame offset relative to this scene sequence
-        const relativeFrame = frame - startFrame;
-
-        const isSceneActive = frame >= startFrame && frame < endFrame;
-        if (!isSceneActive) return null;
-
-        // B-Roll Clip Video URL
-        const clipUrl = scene.clipUrl !== undefined
-          ? scene.clipUrl
-          : (!scene.clipId || scene.clipId === 'original'
-            ? null
-            : `/api/clips/${scene.clipId}/video`);
-
-        // Apply shake or zoom transform to clip container
-        // 1. Resolve Transitions
+        // 1. Resolve Transitions & DOTween Easing
         const incomingTrans = idx > 0 ? (scenes[idx - 1].transition || 'none') : 'none';
         const incomingDur = idx > 0 ? (scenes[idx - 1].transitionDuration !== undefined ? scenes[idx - 1].transitionDuration : 0.3) : 0.3;
+        const incomingEasingName = idx > 0 ? (scenes[idx - 1].transitionEasing || 'out-expo') : (scene.transitionEasing || 'out-expo');
+
         const outgoingTrans = idx < scenes.length - 1 ? (scene.transition || 'none') : 'none';
         const outgoingDur = idx < scenes.length - 1 ? (scene.transitionDuration !== undefined ? scene.transitionDuration : 0.3) : 0.3;
+        const outgoingEasingName = scene.transitionEasing || 'out-expo';
 
         const getTransType = (type: string, index: number) => {
           if (!type || type === 'none') return 'none';
@@ -560,7 +571,10 @@ export const VideoReel: React.FC<VideoReelProps> = ({
             const transitionsList = [
               'fade',
               'slide-left', 'slide-right', 'slide-up', 'slide-down',
-              'zoom-in', 'zoom-out'
+              'blur-slide-left', 'blur-slide-right',
+              'pan-left', 'pan-right',
+              'zoom-in', 'zoom-out',
+              'blur-zoom-in'
             ];
             return transitionsList[index % transitionsList.length];
           }
@@ -570,59 +584,149 @@ export const VideoReel: React.FC<VideoReelProps> = ({
         const activeIncomingTrans = getTransType(incomingTrans, idx - 1);
         const activeOutgoingTrans = getTransType(outgoingTrans, idx);
 
-        // 2. Interpolate transition properties
-        const incomingFrames = incomingDur * fps;
-        const outgoingFrames = outgoingDur * fps;
+        const incomingFrames = (activeIncomingTrans !== 'none') ? Math.max(1, Math.round(incomingDur * fps)) : 0;
+        const outgoingFrames = (activeOutgoingTrans !== 'none') ? Math.max(1, Math.round(outgoingDur * fps)) : 0;
+
+        const relativeFrame = frame - startFrame;
+
+        // B-Roll Clip Video URL
+        const clipUrl = scene.clipUrl !== undefined
+          ? scene.clipUrl
+          : (!scene.clipId || scene.clipId === 'original'
+            ? null
+            : `/api/clips/${scene.clipId}/video`);
+
+        const getEasingFn = (easingName: string) => {
+          const name = (easingName || 'out-expo').toLowerCase();
+          switch (name) {
+            case 'out-expo':
+            case 'expo-out':
+            case 'expo':
+              return Easing.out(Easing.exp);
+            case 'in-expo':
+              return Easing.in(Easing.exp);
+            case 'in-out-expo':
+              return Easing.inOut(Easing.exp);
+
+            case 'out-back':
+            case 'back':
+              return Easing.out(Easing.back(1.5));
+            case 'in-out-back':
+              return Easing.inOut(Easing.back(1.5));
+
+            case 'out-bounce':
+            case 'bounce':
+              return Easing.out(Easing.bounce);
+
+            case 'out-elastic':
+            case 'elastic':
+              return Easing.out(Easing.elastic(1));
+
+            case 'out-cubic':
+            case 'cubic':
+              return Easing.out(Easing.cubic);
+            case 'in-out-cubic':
+              return Easing.inOut(Easing.cubic);
+
+            case 'out-quad':
+            case 'quad':
+              return Easing.out(Easing.quad);
+            case 'in-out-quad':
+              return Easing.inOut(Easing.quad);
+
+            case 'out-circ':
+            case 'circ':
+            case 'circle':
+              return Easing.out(Easing.circle);
+
+            case 'linear':
+              return Easing.linear;
+
+            default:
+              return Easing.out(Easing.exp);
+          }
+        };
+
+        const incomingEasing = getEasingFn(incomingEasingName);
+        const outgoingEasing = getEasingFn(outgoingEasingName);
+
+        const parseTrans = (trans: string) => {
+          if (!trans || trans === 'none') {
+            return { hasFade: false, hasBlur: false, hasMove: false, isLeft: false, isRight: false, isUp: false, isDown: false, isZoom: false, isZoomIn: false, isZoomOut: false };
+          }
+          const hasFade = trans.includes('fade');
+          const hasBlur = trans.includes('blur');
+          const isSlideOrPan = trans.includes('slide') || trans.includes('pan');
+          const isLeft = trans.includes('left');
+          const isRight = trans.includes('right');
+          const isUp = trans.includes('up');
+          const isDown = trans.includes('down');
+          const isZoom = trans.includes('zoom');
+          const isZoomIn = trans.includes('zoom-in');
+          const isZoomOut = trans.includes('zoom-out');
+          return { hasFade, hasBlur, hasMove: isSlideOrPan, isLeft, isRight, isUp, isDown, isZoom, isZoomIn, isZoomOut };
+        };
+
+        const inParsed = parseTrans(activeIncomingTrans);
+        const outParsed = parseTrans(activeOutgoingTrans);
 
         let transitionOpacity = 1;
-        if (!subtitlesOnly && activeIncomingTrans === 'fade' && relativeFrame < incomingFrames) {
-          transitionOpacity = interpolate(relativeFrame, [0, incomingFrames], [0, 1], {
-            extrapolateLeft: 'clamp',
-            extrapolateRight: 'clamp',
-          });
-        } else if (!subtitlesOnly && activeOutgoingTrans === 'fade' && relativeFrame > durationInFrames - outgoingFrames) {
-          transitionOpacity = interpolate(relativeFrame, [durationInFrames - outgoingFrames, durationInFrames], [1, 0], {
-            extrapolateLeft: 'clamp',
-            extrapolateRight: 'clamp',
-          });
-        }
-
         let transitionTranslateX = 0;
         let transitionTranslateY = 0;
-        if (!subtitlesOnly && activeIncomingTrans.startsWith('slide-') && relativeFrame < incomingFrames) {
-          const startVal = activeIncomingTrans.includes('left') ? -100 : (activeIncomingTrans.includes('right') ? 100 : 0);
-          const startValY = activeIncomingTrans.includes('up') ? 100 : (activeIncomingTrans.includes('down') ? -100 : 0);
-          if (startVal !== 0) {
-            transitionTranslateX = interpolate(relativeFrame, [0, incomingFrames], [startVal, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
-          }
-          if (startValY !== 0) {
-            transitionTranslateY = interpolate(relativeFrame, [0, incomingFrames], [startValY, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
-          }
-        } else if (!subtitlesOnly && activeOutgoingTrans.startsWith('slide-') && relativeFrame > durationInFrames - outgoingFrames) {
-          const endVal = activeOutgoingTrans.includes('left') ? -100 : (activeOutgoingTrans.includes('right') ? 100 : 0);
-          const endValY = activeOutgoingTrans.includes('up') ? -100 : (activeOutgoingTrans.includes('down') ? 100 : 0);
-          if (endVal !== 0) {
-            transitionTranslateX = interpolate(relativeFrame, [durationInFrames - outgoingFrames, durationInFrames], [0, endVal], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
-          }
-          if (endValY !== 0) {
-            transitionTranslateY = interpolate(relativeFrame, [durationInFrames - outgoingFrames, durationInFrames], [0, endValY], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
-          }
-        }
-
         let transitionScale = 1;
-        if (!subtitlesOnly && (activeIncomingTrans.startsWith('zoom') || activeIncomingTrans.includes('zoom')) && relativeFrame < incomingFrames) {
-          const startVal = activeIncomingTrans.includes('zoom-in') ? 0.75 : 1.25;
-          transitionScale = interpolate(relativeFrame, [0, incomingFrames], [startVal, 1.0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
-        } else if (!subtitlesOnly && (activeOutgoingTrans.startsWith('zoom') || activeOutgoingTrans.includes('zoom')) && relativeFrame > durationInFrames - outgoingFrames) {
-          const endVal = activeOutgoingTrans.includes('zoom-in') ? 1.25 : 0.75;
-          transitionScale = interpolate(relativeFrame, [durationInFrames - outgoingFrames, durationInFrames], [1.0, endVal], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
-        }
-
         let transitionBlur = 0;
-        if (!subtitlesOnly && activeIncomingTrans.includes('blur') && relativeFrame < incomingFrames) {
-          transitionBlur = interpolate(relativeFrame, [0, incomingFrames], [20, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
-        } else if (!subtitlesOnly && activeOutgoingTrans.includes('blur') && relativeFrame > durationInFrames - outgoingFrames) {
-          transitionBlur = interpolate(relativeFrame, [durationInFrames - outgoingFrames, durationInFrames], [0, 20], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+
+        // A. Incoming Transition (first incomingFrames of this scene's sequence)
+        if (!subtitlesOnly && incomingFrames > 0 && relativeFrame < incomingFrames) {
+          const progress = interpolate(relativeFrame, [0, incomingFrames], [0, 1], {
+            extrapolateLeft: 'clamp',
+            extrapolateRight: 'clamp',
+            easing: incomingEasing,
+          });
+
+          if (inParsed.hasFade) {
+            transitionOpacity = progress;
+          }
+          if (inParsed.hasMove) {
+            const startX = inParsed.isLeft ? 100 : (inParsed.isRight ? -100 : 0);
+            const startY = inParsed.isUp ? 100 : (inParsed.isDown ? -100 : 0);
+            transitionTranslateX = (1 - progress) * startX;
+            transitionTranslateY = (1 - progress) * startY;
+          }
+          if (inParsed.isZoom) {
+            const startScale = inParsed.isZoomIn ? 0.8 : 1.2;
+            transitionScale = startScale + (1.0 - startScale) * progress;
+            transitionOpacity = progress;
+          }
+          if (inParsed.hasBlur) {
+            transitionBlur = 14 * (1 - progress);
+          }
+        }
+        // B. Outgoing Transition (last outgoingFrames of this scene's sequence)
+        else if (!subtitlesOnly && outgoingFrames > 0 && relativeFrame > durationInFrames - outgoingFrames) {
+          const progress = interpolate(relativeFrame, [durationInFrames - outgoingFrames, durationInFrames], [0, 1], {
+            extrapolateLeft: 'clamp',
+            extrapolateRight: 'clamp',
+            easing: outgoingEasing,
+          });
+
+          if (outParsed.hasFade) {
+            transitionOpacity = 1 - progress;
+          }
+          if (outParsed.hasMove) {
+            const endX = outParsed.isLeft ? -100 : (outParsed.isRight ? 100 : 0);
+            const endY = outParsed.isUp ? -100 : (outParsed.isDown ? 100 : 0);
+            transitionTranslateX = progress * endX;
+            transitionTranslateY = progress * endY;
+          }
+          if (outParsed.isZoom) {
+            const endScale = outParsed.isZoomIn ? 1.25 : 0.75;
+            transitionScale = 1.0 + (endScale - 1.0) * progress;
+            transitionOpacity = 1 - progress;
+          }
+          if (outParsed.hasBlur) {
+            transitionBlur = 14 * progress;
+          }
         }
 
         let videoTransform = '';
@@ -864,7 +968,6 @@ export const VideoReel: React.FC<VideoReelProps> = ({
                     ? (filterStyle === 'none' ? `blur(${transitionBlur}px)` : `${filterStyle} blur(${transitionBlur}px)`)
                     : filterStyle,
                   opacity: (hasGraph && (!scene.layout || scene.layout === 'graph')) ? brollOpacity * transitionOpacity : transitionOpacity,
-                  transition: 'filter 0.3s ease-in-out',
                 }}
               >
                 {/* B-Roll Video Element */}

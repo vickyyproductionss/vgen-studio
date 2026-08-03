@@ -1,0 +1,1117 @@
+      {/* TAB 3: SUBTITLES */}
+      {sidebarTab === 'subtitles' && (
+        <div style={{ animation: 'fadeIn 0.2s ease-out', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          {syncMode === 'dialogue' ? (
+            <>
+              {/* ACCORDION 1: LAYOUT & POSITIONING */}
+              <div className="inspector-card" style={{ padding: 0, overflow: 'hidden' }}>
+                <div 
+                  onClick={() => setActiveAccordion(activeAccordion === 'layout' ? null as any : 'layout')}
+                  style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    padding: '12px 16px', background: 'rgba(255, 255, 255, 0.02)', cursor: 'pointer',
+                    borderBottom: activeAccordion === 'layout' ? '1px solid var(--border-light)' : 'none',
+                    transition: 'all 0.2s'
+                  }}
+                >
+                  <span style={{ fontSize: '12.5px', fontWeight: 700, color: 'var(--text-white)', display: 'flex', alignItems: 'center', gap: '6px' }}>📐 Layout & Positioning</span>
+                  <span style={{ fontSize: '9px', color: 'var(--text-gray)' }}>{activeAccordion === 'layout' ? '▲' : '▼'}</span>
+                </div>
+                
+                {activeAccordion === 'layout' && (
+                  <div style={{ padding: '16px', animation: 'fadeIn 0.2s ease-out', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                    <div>
+                      <label className="label">Caption Mode</label>
+                      <select
+                        value={subtitleMode}
+                        onChange={(e) => setSubtitleMode(e.target.value as any)}
+                        className="input-field"
+                        style={{ height: '34px', fontSize: '12.5px', background: 'var(--bg-darker)' }}
+                      >
+                        <option value="classic">Classic Lines</option>
+                        <option value="smart-highlight">Smart Highlight</option>
+                        <option value="centered-word">Snappy Single Word</option>
+                        <option value="pop">Floating Pop</option>
+                      </select>
+                    </div>
+
+                    {subtitleMode !== 'pop' && (
+                      <div>
+                        <label className="label" style={{ marginBottom: '6px' }}>Anchor Alignment</label>
+                        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                          <div className="position-grid" style={{
+                            display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '4px',
+                            background: 'var(--bg-darker)', border: '1px solid var(--border-medium)', borderRadius: '6px',
+                            padding: '6px', flexShrink: 0
+                          }}>
+                            {[
+                              { label: 'TL', x: -70, y: 75 }, { label: 'T', x: 0, y: 75 }, { label: 'TR', x: 70, y: 75 },
+                              { label: 'L', x: -70, y: 0 }, { label: 'C', x: 0, y: 0 }, { label: 'R', x: 70, y: 0 },
+                              { label: 'BL', x: -70, y: -70 }, { label: 'B', x: 0, y: -70 }, { label: 'BR', x: 70, y: -70 }
+                            ].map((pos, idx) => {
+                              const isSelected = textPositionX === pos.x && textPositionY === pos.y;
+                              return (
+                                <button
+                                  key={idx} type="button"
+                                  onClick={() => {
+                                    setTextPositionX(pos.x);
+                                    setTextPositionY(pos.y);
+                                  }}
+                                  title={pos.label}
+                                  className={`matrix-btn ${isSelected ? 'active' : ''}`}
+                                  style={{ border: 'none', padding: 0 }}
+                                >
+                                  {isSelected && <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--primary-foreground)' }} />}
+                                </button>
+                              );
+                            })}
+                          </div>
+                          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                            <span style={{ fontSize: '10px', color: 'var(--text-muted)', lineHeight: '1.4', fontFamily: 'Inter' }}>
+                              Select cell to snap subtitles, or drag the offsets below.
+                            </span>
+                            <button
+                              type="button" className="btn-secondary"
+                              style={{ alignSelf: 'flex-start', padding: '2px 8px', height: '24px', fontSize: '10px', borderColor: 'rgba(255, 255, 255, 0.08)', fontFamily: 'Inter', fontWeight: 600 }}
+                              onClick={() => {
+                                  setTextPositionX(0);
+                                  setTextPositionY(-70);
+                              }}
+                            >
+                              Reset to Bottom
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                          <span style={{ fontSize: '11px', color: 'var(--text-gray)', fontFamily: 'Inter' }}>Horizontal Offset (X)</span>
+                          <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{textPositionX > 0 ? `+${textPositionX}` : textPositionX}px</span>
+                        </div>
+                        <input
+                          type="range" min={-100} max={100} step={5} value={textPositionX}
+                          onChange={(e) => setTextPositionX(parseInt(e.target.value, 10))}
+                          style={{ width: '100%', accentColor: 'var(--primary)' }}
+                        />
+                      </div>
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                          <span style={{ fontSize: '11px', color: 'var(--text-gray)', fontFamily: 'Inter' }}>Vertical Offset (Y)</span>
+                          <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{textPositionY > 0 ? `+${textPositionY}` : textPositionY}px</span>
+                        </div>
+                        <input
+                          type="range" min={-100} max={100} step={5} value={textPositionY}
+                          onChange={(e) => setTextPositionY(parseInt(e.target.value, 10))}
+                          style={{ width: '100%', accentColor: 'var(--primary)' }}
+                        />
+                      </div>
+                      
+                      {(subtitleMode === 'classic' || subtitleMode === 'smart-highlight') && (
+                        <div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                            <span style={{ fontSize: '11px', color: 'var(--text-gray)', fontFamily: 'Inter' }}>Max Words per Line</span>
+                            <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{maxWordsPerLine}</span>
+                          </div>
+                          <input
+                            type="range" min={1} max={5} step={1} value={maxWordsPerLine}
+                            onChange={(e) => setMaxWordsPerLine(parseInt(e.target.value, 10))}
+                            style={{ width: '100%', accentColor: 'var(--primary)' }}
+                          />
+                        </div>
+                      )}
+
+                      {subtitleMode === 'pop' && (
+                        <div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                            <span style={{ fontSize: '11px', color: 'var(--text-gray)', fontFamily: 'Inter' }}>Word Display Time</span>
+                            <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{wordDisplayTime.toFixed(1)}s</span>
+                          </div>
+                          <input
+                            type="range" min={0.3} max={3.0} step={0.1} value={wordDisplayTime}
+                            onChange={(e) => setWordDisplayTime(parseFloat(e.target.value))}
+                            style={{ width: '100%', accentColor: 'var(--primary)' }}
+                          />
+                        </div>
+                      )}
+
+                      <div style={{ borderTop: '1px solid var(--border-light)', paddingTop: '12px', marginTop: '4px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <input 
+                            type="checkbox" id="fade-transition" checked={textFade} 
+                            onChange={(e) => setTextFade(e.target.checked)} 
+                            style={{ cursor: 'pointer' }}
+                          />
+                          <label htmlFor="fade-transition" style={{ fontSize: '12px', cursor: 'pointer', userSelect: 'none', color: 'var(--text-white)' }}>
+                            In/Out Fade (150ms)
+                          </label>
+                        </div>
+
+                        <div>
+                          <label className="label" style={{ fontSize: '11px', marginBottom: '4px' }}>In/Out Transition Effect</label>
+                          <select 
+                            className="input-field" 
+                            value={textTransition} 
+                            onChange={(e) => setTextTransition(e.target.value)}
+                            style={{ height: '32px', fontSize: '11.5px', background: 'var(--bg-darker)' }}
+                          >
+                            <option value="none">None (Stationary Entrance/Exit)</option>
+                            <option value="slide-up">Slide Up (No Fade)</option>
+                            <option value="slide-up-fade">Slide Up & Fade</option>
+                            <option value="slide-down">Slide Down (No Fade)</option>
+                            <option value="slide-down-fade">Slide Down & Fade</option>
+                            <option value="slide-left">Slide Left (No Fade)</option>
+                            <option value="slide-left-fade">Slide Left & Fade</option>
+                            <option value="slide-right">Slide Right (No Fade)</option>
+                            <option value="slide-right-fade">Slide Right & Fade</option>
+                            <option value="slide-up-blur">Slide Up with Blur (No Fade)</option>
+                            <option value="slide-up-blur-fade">Slide Up with Blur & Fade</option>
+                            <option value="slide-down-blur">Slide Down with Blur (No Fade)</option>
+                            <option value="slide-down-blur-fade">Slide Down with Blur & Fade</option>
+                            <option value="slide-left-blur">Slide Left with Blur (No Fade)</option>
+                            <option value="slide-left-blur-fade">Slide Left with Blur & Fade</option>
+                            <option value="slide-right-blur">Slide Right with Blur (No Fade)</option>
+                            <option value="slide-right-blur-fade">Slide Right with Blur & Fade</option>
+                            <option value="zoom-in-out">Snappy Zoom In / Zoom Out (No Fade)</option>
+                            <option value="zoom-in-out-fade">Snappy Zoom In / Zoom Out & Fade</option>
+                            <option value="zoom-in-out-blur">Zoom In / Zoom Out with Blur (No Fade)</option>
+                            <option value="zoom-in-out-blur-fade">Zoom In / Zoom Out with Blur & Fade</option>
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="label" style={{ fontSize: '11px', marginBottom: '4px' }}>Stay Animation (Continuous Motion)</label>
+                          <select 
+                            className="input-field" 
+                            value={textMotion} 
+                            onChange={(e) => setTextMotion(e.target.value)}
+                            style={{ height: '32px', fontSize: '11.5px', background: 'var(--bg-darker)' }}
+                          >
+                            <option value="none">None (Stationary)</option>
+                            <option value="float">Floating Text (Slow Rise)</option>
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* ACCORDION 2: TYPOGRAPHY & STYLE */}
+              <div className="inspector-card" style={{ padding: 0, overflow: 'hidden' }}>
+                <div 
+                  onClick={() => setActiveAccordion(activeAccordion === 'typography' ? null as any : 'typography')}
+                  style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    padding: '12px 16px', background: 'rgba(255, 255, 255, 0.02)', cursor: 'pointer',
+                    borderBottom: activeAccordion === 'typography' ? '1px solid var(--border-light)' : 'none',
+                    transition: 'all 0.2s'
+                  }}
+                >
+                  <span style={{ fontSize: '12.5px', fontWeight: 700, color: 'var(--text-white)', display: 'flex', alignItems: 'center', gap: '6px' }}>✍️ Typography & Outline</span>
+                  <span style={{ fontSize: '9px', color: 'var(--text-gray)' }}>{activeAccordion === 'typography' ? '▲' : '▼'}</span>
+                </div>
+
+                {activeAccordion === 'typography' && (
+                  <div style={{ padding: '16px', animation: 'fadeIn 0.2s ease-out', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                    <div style={{ position: 'relative' }}>
+                      <label className="label">Font Family</label>
+                      <div
+                        className="input-field"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setFontSelectorOpen(!fontSelectorOpen);
+                        }}
+                        style={{
+                          cursor: 'pointer', display: 'flex', alignItems: 'center', height: '38px',
+                          background: 'var(--bg-darker)', border: '1px solid var(--border-medium)',
+                          borderRadius: '4px', padding: '0 12px'
+                        }}
+                      >
+                        <Search size={14} style={{ marginRight: '8px', opacity: 0.4 }} />
+                        <span style={{ fontFamily: fontName, fontSize: '13px', fontWeight: 600 }}>{fontName}</span>
+                        <span style={{ fontSize: '8px', color: 'var(--text-gray)', marginLeft: 'auto' }}>▼</span>
+                      </div>
+
+                      {fontSelectorOpen && (
+                        <div
+                          className="premium-card"
+                          style={{
+                            position: 'absolute', top: '64px', left: 0, right: 0, zIndex: 100, padding: '12px',
+                            display: 'flex', flexDirection: 'column', gap: '8px', boxShadow: '0 10px 30px rgba(0,0,0,0.5)',
+                            background: 'var(--bg-card)', border: '1px solid var(--border-light)'
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <input
+                            type="text" className="input-field" placeholder="Search Google Fonts..." value={fontSearchQuery}
+                            onChange={(e) => {
+                              setFontSearchQuery(e.target.value);
+                              setFontDownloadError('');
+                            }}
+                            style={{ height: '32px', fontSize: '12px' }}
+                            autoFocus
+                          />
+
+                          {fontLoading && (
+                            <div style={{ fontSize: '11px', color: 'var(--accent-purple)', padding: '4px' }}>
+                              Downloading from Google Fonts...
+                            </div>
+                          )}
+                          {fontDownloadError && (
+                            <div style={{ fontSize: '11px', color: '#f87171', padding: '4px' }}>
+                              {fontDownloadError}
+                            </div>
+                          )}
+
+                          <div
+                            className="custom-scrollbar"
+                            style={{ maxHeight: '160px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '2px', paddingRight: '4px' }}
+                          >
+                            {filteredFonts.map((font) => (
+                              <div
+                                key={font}
+                                onClick={async () => {
+                                  try {
+                                    await fetch('/api/fonts/ensure', {
+                                      method: 'POST',
+                                      headers: { 'Content-Type': 'application/json' },
+                                      body: JSON.stringify({ fontName: font })
+                                    });
+                                  } catch (_) {}
+                                  loadGoogleFont(font);
+                                  setFontName(font);
+                                  setFontSelectorOpen(false);
+                                  setFontSearchQuery('');
+                                }}
+                                style={{
+                                  padding: '6px 10px', borderRadius: '4px', cursor: 'pointer', fontFamily: font, fontSize: '13px',
+                                  background: fontName === font ? 'rgba(var(--scrollbar-thumb), 0.15)' : 'transparent',
+                                  color: fontName === font ? 'var(--text-white)' : 'var(--text-gray)', transition: 'background 0.2s',
+                                  display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+                                }}
+                              >
+                                <span>{font}</span>
+                                <span style={{ fontSize: '9px', opacity: 0.5, fontStyle: 'italic', fontFamily: 'var(--font-sans)' }}>Preview</span>
+                              </div>
+                            ))}
+
+                            {filteredFonts.length === 0 && fontSearchQuery.trim().length > 0 && (
+                              <div
+                                onClick={() => handleAddCustomFont(fontSearchQuery.trim())}
+                                style={{
+                                  padding: '8px', borderRadius: '4px', cursor: 'pointer', textAlign: 'center',
+                                  border: '1px dashed var(--border-medium)', color: 'var(--accent-purple)', fontSize: '12px', fontWeight: 600
+                                }}
+                              >
+                                📥 Download "{fontSearchQuery.trim()}"
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                        <span style={{ fontSize: '11px', color: 'var(--text-gray)' }}>Font Size</span>
+                        <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{fontSize}px</span>
+                      </div>
+                      <input
+                        type="range" min={16} max={48} step={1} value={fontSize}
+                        onChange={(e) => setFontSize(parseInt(e.target.value, 10))}
+                        style={{ width: '100%', accentColor: 'var(--primary)' }}
+                      />
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', alignItems: 'center', marginTop: '4px' }}>
+                      <div>
+                        <label className="label" style={{ marginBottom: '4px' }}>Outline Color</label>
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          <input 
+                            type="color" value={outlineColor} onChange={(e) => setOutlineColor(e.target.value)} 
+                            style={{ width: '28px', height: '28px', padding: 0, border: 'none', background: 'none', cursor: 'pointer' }} 
+                          />
+                          <span style={{ fontSize: '11px', fontFamily: 'monospace', color: 'var(--text-white)' }}>{outlineColor.toUpperCase()}</span>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="label" style={{ marginBottom: '4px' }}>Formatting</label>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <button
+                            type="button"
+                            onClick={() => setBold(!bold)}
+                            style={{
+                              flex: 1, padding: '6px', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold',
+                              background: bold ? 'var(--primary)' : 'var(--bg-darker)',
+                              border: '1px solid var(--border-medium)', color: bold ? 'var(--text-white)' : 'var(--text-gray)',
+                              cursor: 'pointer', transition: 'all 0.2s'
+                            }}
+                            title="Bold Text"
+                          >
+                            B
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setItalic(!italic)}
+                            style={{
+                              flex: 1, padding: '6px', borderRadius: '4px', fontSize: '11px', fontStyle: 'italic',
+                              background: italic ? 'var(--primary)' : 'var(--bg-darker)',
+                              border: '1px solid var(--border-medium)', color: italic ? 'var(--text-white)' : 'var(--text-gray)',
+                              cursor: 'pointer', transition: 'all 0.2s'
+                            }}
+                            title="Italic Text"
+                          >
+                            I
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setShadow(!shadow)}
+                            style={{
+                              flex: 1, padding: '6px', borderRadius: '4px', fontSize: '11px',
+                              background: shadow ? 'var(--primary)' : 'var(--bg-darker)',
+                              border: '1px solid var(--border-medium)', color: shadow ? 'var(--text-white)' : 'var(--text-gray)',
+                              cursor: 'pointer', transition: 'all 0.2s'
+                            }}
+                            title="Drop Shadow"
+                          >
+                            S
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* ACCORDION 3: ACTIVE WORD STYLES */}
+              <div className="inspector-card" style={{ padding: 0, overflow: 'hidden' }}>
+                <div 
+                  onClick={() => setActiveAccordion(activeAccordion === 'words' ? null as any : 'words')}
+                  style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    padding: '12px 16px', background: 'rgba(255, 255, 255, 0.02)', cursor: 'pointer',
+                    borderBottom: activeAccordion === 'words' ? '1px solid var(--border-light)' : 'none',
+                    transition: 'all 0.2s'
+                  }}
+                >
+                  <span style={{ fontSize: '12.5px', fontWeight: 700, color: 'var(--text-white)', display: 'flex', alignItems: 'center', gap: '6px' }}>✨ Active Word Styles</span>
+                  <span style={{ fontSize: '9px', color: 'var(--text-gray)' }}>{activeAccordion === 'words' ? '▲' : '▼'}</span>
+                </div>
+
+                {activeAccordion === 'words' && (
+                  <div style={{ padding: '16px', animation: 'fadeIn 0.2s ease-out', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <div style={{ display: 'flex', gap: '4px', background: 'rgba(0,0,0,0.2)', padding: '4px', borderRadius: '6px', marginBottom: '8px' }}>
+                      {(['normal', 'highlight', 'emoji'] as const).map(tab => (
+                        <button
+                          key={tab}
+                          type="button"
+                          onClick={() => setStyleTab(tab)}
+                          style={{
+                            flex: 1, padding: '6px 0', borderRadius: '4px', border: 'none',
+                            fontSize: '11px', fontWeight: 600, textTransform: 'capitalize', cursor: 'pointer',
+                            background: styleTab === tab ? 'var(--primary)' : 'transparent',
+                            color: styleTab === tab ? 'var(--text-white)' : 'var(--text-gray)',
+                            transition: 'all 0.2s'
+                          }}
+                        >
+                          {tab}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '12px', borderBottom: '1px solid var(--border-light)', paddingBottom: '10px' }}>
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        onClick={() => {
+                          setHighlightStyle({ ...normalStyle });
+                          setEmojiStyle({ ...normalStyle });
+                        }}
+                        style={{ fontSize: '10px', padding: '4px 8px', height: 'auto' }}
+                      >
+                        Copy Normal to All
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        onClick={() => {
+                          setEmojiStyle({ ...highlightStyle });
+                        }}
+                        style={{ fontSize: '10px', padding: '4px 8px', height: 'auto' }}
+                      >
+                        Copy Highlight to Emoji
+                      </button>
+                    </div>
+
+                    {/* 1. Text Color */}
+                    <div style={{ marginBottom: '12px' }}>
+                      <label className="label" style={{ marginBottom: '4px', fontSize: '11px' }}>Text Color</label>
+                      <div style={{ background: 'rgba(0,0,0,0.15)', border: '1px solid var(--border-medium)', borderRadius: '4px', padding: '4px 8px', display: 'flex', alignItems: 'center', gap: '6px', height: '34px' }}>
+                        <div style={{ position: 'relative', width: '20px', height: '20px', borderRadius: '4px', overflow: 'hidden', border: '1px solid var(--border-medium)', cursor: 'pointer' }}>
+                          <input 
+                            type="color" 
+                            value={styleTab === 'normal' ? normalStyle.fontColor : styleTab === 'highlight' ? highlightStyle.fontColor : emojiStyle.fontColor} 
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              if (styleTab === 'normal') { setNormalStyle({ ...normalStyle, fontColor: val }); setFontColor(val); }
+                              else if (styleTab === 'highlight') { setHighlightStyle({ ...highlightStyle, fontColor: val }); setHighlightColor(val); }
+                              else { setEmojiStyle({ ...emojiStyle, fontColor: val }); }
+                            }}
+                            style={{ position: 'absolute', top: '-4px', left: '-4px', width: '28px', height: '28px', padding: 0, border: 'none', background: 'none', cursor: 'pointer' }}
+                          />
+                        </div>
+                        <input 
+                          type="text" 
+                          value={(styleTab === 'normal' ? normalStyle.fontColor : styleTab === 'highlight' ? highlightStyle.fontColor : emojiStyle.fontColor).toUpperCase()} 
+                          onChange={(e) => {
+                            let val = e.target.value;
+                            if (!val.startsWith('#') && val.length > 0) val = '#' + val;
+                            if (styleTab === 'normal') { setNormalStyle({ ...normalStyle, fontColor: val }); setFontColor(val); }
+                            else if (styleTab === 'highlight') { setHighlightStyle({ ...highlightStyle, fontColor: val }); setHighlightColor(val); }
+                            else { setEmojiStyle({ ...emojiStyle, fontColor: val }); }
+                          }}
+                          className="input-field"
+                          style={{ flex: 1, height: '24px', padding: '2px 6px', fontSize: '10px', fontFamily: 'monospace' }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* 2. Active Word Scale */}
+                    <div style={{ marginBottom: '12px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                        <label className="label" style={{ margin: 0, fontSize: '11px' }}>Active Scale Zoom</label>
+                        <span style={{ fontSize: '10px', fontFamily: 'monospace' }}>
+                          {(styleTab === 'normal' ? normalStyle.activeWordScale : styleTab === 'highlight' ? highlightStyle.activeWordScale : emojiStyle.activeWordScale).toFixed(2)}x
+                        </span>
+                      </div>
+                      <input 
+                        type="range" min={1.00} max={1.60} step={0.05} 
+                        value={styleTab === 'normal' ? normalStyle.activeWordScale : styleTab === 'highlight' ? highlightStyle.activeWordScale : emojiStyle.activeWordScale}
+                        onChange={(e) => {
+                          const val = parseFloat(e.target.value);
+                          if (styleTab === 'normal') { setNormalStyle({ ...normalStyle, activeWordScale: val }); }
+                          else if (styleTab === 'highlight') { setHighlightStyle({ ...highlightStyle, activeWordScale: val }); setActiveWordScale(val); }
+                          else { setEmojiStyle({ ...emojiStyle, activeWordScale: val }); }
+                        }}
+                        style={{ width: '100%', accentColor: 'var(--primary)', cursor: 'pointer' }}
+                      />
+                    </div>
+
+                    {/* 3. Neon Glow */}
+                    <div style={{ borderTop: '1px solid var(--border-light)', paddingTop: '10px', marginTop: '10px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span>💡</span>
+                          <span style={{ fontSize: '11px', fontWeight: 500 }}>Glow Enabled</span>
+                        </div>
+                        <div 
+                          className={`stitch-switch ${(styleTab === 'normal' ? normalStyle.neonGlow : styleTab === 'highlight' ? highlightStyle.neonGlow : emojiStyle.neonGlow) ? 'active' : ''}`} 
+                          onClick={() => {
+                            if (styleTab === 'normal') {
+                              const target = !normalStyle.neonGlow;
+                              setNormalStyle({ ...normalStyle, neonGlow: target });
+                              setNeonGlow(target);
+                            } else if (styleTab === 'highlight') {
+                              const target = !highlightStyle.neonGlow;
+                              setHighlightStyle({ ...highlightStyle, neonGlow: target });
+                            } else {
+                              const target = !emojiStyle.neonGlow;
+                              setEmojiStyle({ ...emojiStyle, neonGlow: target });
+                            }
+                          }}
+                        >
+                          <div className="stitch-switch-handle" />
+                        </div>
+                      </div>
+
+                      {(styleTab === 'normal' ? normalStyle.neonGlow : styleTab === 'highlight' ? highlightStyle.neonGlow : emojiStyle.neonGlow) && (
+                        <div style={{ padding: '8px', background: 'rgba(0,0,0,0.2)', borderRadius: '6px', border: '1px solid var(--border-medium)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                          {/* Glow Color */}
+                          <div>
+                            <label className="label" style={{ marginBottom: '2px', fontSize: '10px' }}>Glow Color</label>
+                            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                              <div style={{ position: 'relative', width: '18px', height: '18px', borderRadius: '4px', overflow: 'hidden', border: '1px solid var(--border-medium)', cursor: 'pointer' }}>
+                                <input 
+                                  type="color" 
+                                  value={styleTab === 'normal' ? normalStyle.glowColor : styleTab === 'highlight' ? highlightStyle.glowColor : emojiStyle.glowColor} 
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    if (styleTab === 'normal') { setNormalStyle({ ...normalStyle, glowColor: val }); setGlowColor(val); }
+                                    else if (styleTab === 'highlight') { setHighlightStyle({ ...highlightStyle, glowColor: val }); }
+                                    else { setEmojiStyle({ ...emojiStyle, glowColor: val }); }
+                                  }}
+                                  style={{ position: 'absolute', top: '-4px', left: '-4px', width: '26px', height: '26px', padding: 0, border: 'none', background: 'none', cursor: 'pointer' }}
+                                />
+                              </div>
+                              <input 
+                                type="text" 
+                                value={(styleTab === 'normal' ? normalStyle.glowColor : styleTab === 'highlight' ? highlightStyle.glowColor : emojiStyle.glowColor).toUpperCase()} 
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  let hex = val;
+                                  if (!hex.startsWith('#') && hex.length > 0) hex = '#' + hex;
+                                  if (styleTab === 'normal') { setNormalStyle({ ...normalStyle, glowColor: hex }); setGlowColor(hex); }
+                                  else if (styleTab === 'highlight') { setHighlightStyle({ ...highlightStyle, glowColor: hex }); }
+                                  else { setEmojiStyle({ ...emojiStyle, glowColor: hex }); }
+                                }}
+                                className="input-field"
+                                style={{ flex: 1, height: '24px', padding: '2px 6px', fontSize: '10px', fontFamily: 'monospace' }}
+                              />
+                            </div>
+                          </div>
+
+                          {/* Glow Blur */}
+                          <div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1px' }}>
+                              <label className="label" style={{ fontSize: '10px', margin: 0 }}>Glow Strength (Blur)</label>
+                              <span style={{ fontSize: '9px', color: 'var(--text-muted)' }}>
+                                {styleTab === 'normal' ? normalStyle.glowBlur : styleTab === 'highlight' ? highlightStyle.glowBlur : emojiStyle.glowBlur}px
+                              </span>
+                            </div>
+                            <input 
+                              type="range" min={1} max={15} step={1} 
+                              value={styleTab === 'normal' ? normalStyle.glowBlur : styleTab === 'highlight' ? highlightStyle.glowBlur : emojiStyle.glowBlur} 
+                              onChange={(e) => {
+                                const val = parseInt(e.target.value, 10);
+                                if (styleTab === 'normal') { setNormalStyle({ ...normalStyle, glowBlur: val }); setGlowBlur(val); }
+                                else if (styleTab === 'highlight') { setHighlightStyle({ ...highlightStyle, glowBlur: val }); }
+                                else { setEmojiStyle({ ...emojiStyle, glowBlur: val }); }
+                              }}
+                              style={{ width: '100%', accentColor: 'var(--primary)', cursor: 'pointer' }}
+                            />
+                          </div>
+
+                          {/* Glow Distance */}
+                          <div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1px' }}>
+                              <label className="label" style={{ fontSize: '10px', margin: 0 }}>Glow Distance</label>
+                              <span style={{ fontSize: '9px', color: 'var(--text-muted)' }}>
+                                {styleTab === 'normal' ? normalStyle.glowDistance : styleTab === 'highlight' ? highlightStyle.glowDistance : emojiStyle.glowDistance}px
+                              </span>
+                            </div>
+                            <input 
+                              type="range" min={1} max={20} step={1} 
+                              value={styleTab === 'normal' ? normalStyle.glowDistance : styleTab === 'highlight' ? highlightStyle.glowDistance : emojiStyle.glowDistance} 
+                              onChange={(e) => {
+                                const val = parseInt(e.target.value, 10);
+                                if (styleTab === 'normal') { setNormalStyle({ ...normalStyle, glowDistance: val }); setGlowDistance(val); }
+                                else if (styleTab === 'highlight') { setHighlightStyle({ ...highlightStyle, glowDistance: val }); }
+                                else { setEmojiStyle({ ...emojiStyle, glowDistance: val }); }
+                              }}
+                              style={{ width: '100%', accentColor: 'var(--primary)', cursor: 'pointer' }}
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Highlight Trigger & Box Styles (Only for active mode highlighting) */}
+                    {(subtitleMode === 'pop' || subtitleMode === 'centered-word' || subtitleMode === 'smart-highlight') && (
+                      <div style={{ borderTop: '1px solid var(--border-light)', paddingTop: '12px', marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                        <div>
+                          <label className="label" style={{ fontSize: '11px', marginBottom: '4px' }}>Highlight Trigger Mode</label>
+                          <select
+                            value={highlightTrigger}
+                            onChange={(e) => setHighlightTrigger(e.target.value as any)}
+                            className="input-field"
+                            style={{ width: '100%', height: '34px', fontSize: '12px', background: 'var(--bg-darker)' }}
+                          >
+                            <option value="all">Highlight Every Word (Standard)</option>
+                            <option value="emphasis">Highlight Emphasis/Highlight Words Only</option>
+                            <option value="emoji">Highlight Emoji Words Only</option>
+                          </select>
+                        </div>
+
+                        {(subtitleMode === 'pop' || subtitleMode === 'centered-word') && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
+                            <input 
+                              type="checkbox" id="show-bg-box" checked={showHighlightBox} 
+                              onChange={(e) => setShowHighlightBox(e.target.checked)} 
+                              style={{ cursor: 'pointer' }}
+                            />
+                            <label htmlFor="show-bg-box" style={{ fontSize: '12px', cursor: 'pointer', userSelect: 'none', color: 'var(--text-white)' }}>
+                              Show Word Background Box
+                            </label>
+                          </div>
+                        )}
+
+                        {(subtitleMode === 'pop' || subtitleMode === 'centered-word') && showHighlightBox && (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', background: 'rgba(0,0,0,0.15)', padding: '10px', borderRadius: '6px', border: '1px solid var(--border-medium)' }}>
+                            <div>
+                              <label className="label" style={{ fontSize: '10.5px' }}>Background Box Color</label>
+                              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                <input type="color" value={boxColor} onChange={(e) => setBoxColor(e.target.value)} />
+                                <input 
+                                  type="text" value={boxColor.toUpperCase()} 
+                                  onChange={(e) => {
+                                    let val = e.target.value;
+                                    if (val.startsWith('#') && val.length <= 7) setBoxColor(val);
+                                    else if (val.length <= 6 && !val.startsWith('#')) setBoxColor('#' + val);
+                                  }}
+                                  className="input-field"
+                                  style={{ width: '90px', height: '28px', padding: '2px 6px', fontSize: '11px', fontFamily: 'monospace', textAlign: 'center' }}
+                                />
+                              </div>
+                            </div>
+
+                            <div>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                                <label className="label" style={{ margin: 0, fontSize: '10.5px' }}>Box Corner Rounding</label>
+                                <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{boxRounding}px</span>
+                              </div>
+                              <input
+                                type="range" min={0} max={24} value={boxRounding}
+                                onChange={(e) => setBoxRounding(parseInt(e.target.value, 10))}
+                                style={{ width: '100%', accentColor: 'var(--primary)' }}
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* ACCORDION 4: CINEMATIC BRANDING & HOOKS */}
+              <div className="inspector-card" style={{ padding: 0, overflow: 'hidden' }}>
+                <div 
+                  onClick={() => setActiveAccordion(activeAccordion === 'branding' ? null as any : 'branding')}
+                  style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    padding: '12px 16px', background: 'rgba(255, 255, 255, 0.02)', cursor: 'pointer',
+                    borderBottom: activeAccordion === 'branding' ? '1px solid var(--border-light)' : 'none',
+                    transition: 'all 0.2s'
+                  }}
+                >
+                  <span style={{ fontSize: '12.5px', fontWeight: 700, color: 'var(--text-white)', display: 'flex', alignItems: 'center', gap: '6px' }}>🎬 Cinematic Branding & Hooks</span>
+                  <span style={{ fontSize: '9px', color: 'var(--text-gray)' }}>{activeAccordion === 'branding' ? '▲' : '▼'}</span>
+                </div>
+
+                {activeAccordion === 'branding' && (
+                  <div style={{ padding: '16px', animation: 'fadeIn 0.2s ease-out', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                    
+                    {/* Hook Badge / Video Title */}
+                    <div style={{ borderBottom: '1px solid var(--border-light)', paddingBottom: '12px' }}>
+                      <label className="label" style={{ fontWeight: 600, fontSize: '11.5px', marginBottom: '6px' }}>🎯 Hook Badge / Video Title</label>
+                      <span style={{ fontSize: '10px', color: 'var(--text-muted)', display: 'block', marginBottom: '8px', lineHeight: '1.3' }}>
+                        Add an animated hook heading in the top safe zone for the first 3 seconds of the video.
+                      </span>
+                      <input
+                        type="text"
+                        className="input-field"
+                        placeholder="e.g. 3 SECRETS TO GROW FAST 🚀"
+                        value={headingTitle}
+                        onChange={(e) => setHeadingTitle(e.target.value)}
+                        style={{ height: '36px', fontSize: '12px', marginBottom: '10px' }}
+                      />
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+                        <input 
+                          type="checkbox" 
+                          id="show-timer-beatsync" 
+                          checked={showTimer} 
+                          onChange={(e) => setShowTimer(e.target.checked)} 
+                          style={{ cursor: 'pointer' }}
+                        />
+                        <label htmlFor="show-timer-beatsync" style={{ fontSize: '12px', cursor: 'pointer', userSelect: 'none', fontWeight: 500, color: 'var(--text-white)' }}>
+                          Show Countdown Timer Overlay
+                        </label>
+                      </div>
+
+                      {(headingTitle.trim().length > 0 || showTimer) && (
+                        <div style={{ animation: 'fadeIn 0.2s ease-out', display: 'flex', flexDirection: 'column', gap: '8px', background: 'var(--bg-darker)', padding: '10px', borderRadius: '6px' }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                            <div>
+                              <label className="label" style={{ fontSize: '10px' }}>Font Family</label>
+                              <select
+                                value={headingFontName}
+                                onChange={(e) => setHeadingFontName(e.target.value)}
+                                className="input-field"
+                                style={{ height: '30px', fontSize: '11px', background: 'var(--bg-medium)' }}
+                              >
+                                <option value="Montserrat">Montserrat</option>
+                                <option value="Oswald">Oswald</option>
+                                <option value="Arial">Arial</option>
+                                <option value="Kalam Bold">Kalam Bold</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="label" style={{ fontSize: '10px' }}>Padding (px)</label>
+                              <input
+                                type="number"
+                                className="input-field"
+                                min={2} max={20}
+                                value={headingPadding}
+                                onChange={(e) => setHeadingPadding(Math.max(2, parseInt(e.target.value, 10) || 6))}
+                                style={{ height: '30px', fontSize: '11px', background: 'var(--bg-medium)' }}
+                              />
+                            </div>
+                          </div>
+
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                            <div>
+                              <label className="label" style={{ fontSize: '10px' }}>Font Size</label>
+                              <input
+                                type="number"
+                                className="input-field"
+                                min={10} max={48}
+                                value={headingFontSize}
+                                onChange={(e) => setHeadingFontSize(Math.max(10, parseInt(e.target.value, 10) || 18))}
+                                style={{ height: '30px', fontSize: '11px', background: 'var(--bg-medium)' }}
+                              />
+                            </div>
+                            <div>
+                              <label className="label" style={{ fontSize: '10px' }}>Text Color</label>
+                              <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                                <input
+                                  type="color"
+                                  value={headingFontColor}
+                                  onChange={(e) => setHeadingFontColor(e.target.value)}
+                                  style={{ width: '24px', height: '24px', border: 'none', borderRadius: '4px', background: 'transparent', cursor: 'pointer', padding 0 }}
+                                />
+                                <span style={{ fontSize: '10px', fontFamily: 'monospace', opacity: 0.7 }}>{headingFontColor}</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="label" style={{ fontSize: '10px' }}>Badge Background Color</label>
+                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                              <input
+                                type="color"
+                                value={headingBoxColor}
+                                onChange={(e) => setHeadingBoxColor(e.target.value)}
+                                style={{ width: '24px', height: '24px', border: 'none', borderRadius: '4px', background: 'transparent', cursor: 'pointer', padding: 0 }}
+                              />
+                              <span style={{ fontSize: '10px', fontFamily: 'monospace', opacity: 0.7 }}>{headingBoxColor}</span>
+                              <div style={{ display: 'flex', gap: '4px', marginLeft: 'auto' }}>
+                                {['#1A1A1A', '#8A4BF3', '#FFCC00', '#FF3333'].map(color => (
+                                  <button
+                                    key={color}
+                                    type="button"
+                                    onClick={() => setHeadingBoxColor(color)}
+                                    style={{
+                                      width: '14px', height: '14px', borderRadius: '50%', background: color,
+                                      border: headingBoxColor === color ? '1.5px solid var(--text-white)' : 'none', cursor: 'pointer',
+                                      padding: 0
+                                    }}
+                                  />
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+                            <div>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                                <span style={{ fontSize: '11px', color: 'var(--text-gray)', fontFamily: 'Inter' }}>Bg Opacity</span>
+                                <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{headingBoxOpacity}%</span>
+                              </div>
+                              <input
+                                type="range"
+                                min={0}
+                                max={100}
+                                step={1}
+                                value={headingBoxOpacity}
+                                onChange={(e) => setHeadingBoxOpacity(parseInt(e.target.value, 10))}
+                                style={{ width: '100%', accentColor: 'var(--primary)' }}
+                              />
+                            </div>
+                            <div>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                                <span style={{ fontSize: '11px', color: 'var(--text-gray)', fontFamily: 'Inter' }}>Text Opacity</span>
+                                <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{headingTextOpacity}%</span>
+                              </div>
+                              <input
+                                type="range"
+                                min={0}
+                                max={100}
+                                step={1}
+                                value={headingTextOpacity}
+                                onChange={(e) => setHeadingTextOpacity(parseInt(e.target.value, 10))}
+                                style={{ width: '100%', accentColor: 'var(--primary)' }}
+                              />
+                            </div>
+                          </div>
+
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', borderTop: '1px solid var(--border-light)', paddingTop: '12px', marginTop: '12px' }}>
+                            <div>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                                <span style={{ fontSize: '11px', color: 'var(--text-gray)', fontFamily: 'Inter' }}>Top Margin (Y)</span>
+                                <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{headingTopOffset}%</span>
+                              </div>
+                              <input
+                                type="range" 
+                                min={2} 
+                                max={30} 
+                                step={1} 
+                                value={headingTopOffset}
+                                onChange={(e) => setHeadingTopOffset(parseInt(e.target.value, 10))}
+                                style={{ width: '100%', accentColor: 'var(--primary)' }}
+                              />
+                            </div>
+                            <div>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                                <span style={{ fontSize: '11px', color: 'var(--text-gray)', fontFamily: 'Inter' }}>Side Margin (X)</span>
+                                <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{headingLeftOffset}%</span>
+                              </div>
+                              <input
+                                type="range" 
+                                min={2} 
+                                max={20} 
+                                step={1} 
+                                value={headingLeftOffset}
+                                onChange={(e) => setHeadingLeftOffset(parseInt(e.target.value, 10))}
+                                style={{ width: '100%', accentColor: 'var(--primary)' }}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Reel Branding System Card */}
+                    <div className="inspector-card" style={{ background: 'var(--bg-darker)', border: '1px solid var(--border-medium)', borderRadius: '8px', padding: '12px' }}>
+                      <div className="inspector-sub-title" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 600, color: 'var(--text-white)', borderBottom: 'none', paddingBottom: 0, marginBottom: '8px' }}>
+                        <span>🎬 Reel Branding System</span>
+                      </div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-gray)', marginBottom: '12px', lineHeight: '1.4' }}>
+                        Overlays premium monochrome branding signatures matching Instagram Reels UI safe zones.
+                      </div>
+
+                      <div style={{ marginBottom: '12px' }}>
+                        <label className="label">Branding Theme</label>
+                        <select
+                          value={brandingTheme}
+                          onChange={(e) => setBrandingTheme(e.target.value as 'none' | 'fitness-in-chunks')}
+                          className="input-field"
+                          style={{ height: '34px', fontSize: '12.5px', background: 'var(--bg-surface)' }}
+                        >
+                          <option value="none">None (Disabled)</option>
+                          <option value="fitness-in-chunks">FitnessInChunks (v1.0)</option>
+                        </select>
+                      </div>
+
+                      {brandingTheme === 'fitness-in-chunks' && (
+                        <div style={{ animation: 'fadeIn 0.2s ease-out', display: 'flex', flexDirection: 'column', gap: '12px', borderTop: '1px solid var(--border-light)', paddingTop: '12px' }}>
+                          <div>
+                            <label className="label">Series Name Signature</label>
+                            <input
+                              type="text"
+                              className="input-field"
+                              placeholder="e.g. FITNESSINCHUNKS"
+                              value={seriesName}
+                              onChange={(e) => setSeriesName(e.target.value)}
+                              style={{ height: '34px', fontSize: '12.5px' }}
+                            />
+                          </div>
+                          
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                            <div>
+                              <label className="label">Episode Number</label>
+                              <input
+                                type="text"
+                                className="input-field"
+                                placeholder="e.g. EP 02"
+                                value={episodeNumber}
+                                onChange={(e) => setEpisodeNumber(e.target.value)}
+                                style={{ height: '34px', fontSize: '12.5px' }}
+                              />
+                            </div>
+                            <div>
+                              <label className="label">Next Episode CTA</label>
+                              <input
+                                type="text"
+                                className="input-field"
+                                placeholder="e.g. EP 03"
+                                value={nextEpisode}
+                                onChange={(e) => setNextEpisode(e.target.value)}
+                                style={{ height: '34px', fontSize: '12.5px' }}
+                              />
+                            </div>
+                          </div>
+
+                          <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-light)', borderRadius: '6px', padding: '10px', fontSize: '10.5px', color: 'var(--text-gray)', lineHeight: '1.4' }}>
+                            <strong style={{ color: 'var(--text-white)', display: 'block', marginBottom: '4px' }}>Theme Specifications Enforced:</strong>
+                            • Typography: Montserrat (ExtraBold topic, Bold episode, Medium series)<br />
+                            • Opacity: Topic 100%, Episode 100%, Series 60%, vertical line 80%<br />
+                            • Layout: Topic card (top-left, 0s-2s), Episode block (bottom-left, persistent), Progress bar (extreme right, vertical line shrinks over time)<br />
+                            • End Screen: Signature visibility increases; introduces centered follow CTA.
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Premium Retention Styles */}
+                    <div style={{ borderTop: '1px solid var(--border-light)', paddingTop: '14px', marginTop: '14px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                      <div>
+                        <label className="label" style={{ fontWeight: 600, color: 'var(--text-white)', marginBottom: '10px' }}>🔥 Premium Retention Styles</label>
+
+                        {/* Auto-Emoji Pop */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+                          <input type="checkbox" id="show-emojis-beatsync" checked={showEmojis} onChange={(e) => setShowEmojis(e.target.checked)} style={{ cursor: 'pointer' }} />
+                          <label htmlFor="show-emojis-beatsync" style={{ fontSize: '13px', cursor: 'pointer', userSelect: 'none', color: 'var(--text-white)' }}>
+                            Auto-Emoji Pop (Algorithm Booster)
+                          </label>
+                        </div>
+                        <div style={{ fontSize: '11px', color: 'var(--text-gray)', marginLeft: '22px', marginTop: '-6px', marginBottom: '12px' }}>
+                          Automatically burns contextual emojis next to matching words on-screen.
+                        </div>
+
+                        {/* Key-Phrase Auto-Emphasis */}
+                        <div style={{ marginBottom: '10px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <input type="checkbox" id="auto-emphasis-beatsync" checked={autoEmphasis} onChange={(e) => setAutoEmphasis(e.target.checked)} style={{ cursor: 'pointer' }} />
+                            <label htmlFor="auto-emphasis-beatsync" style={{ fontSize: '13px', cursor: 'pointer', userSelect: 'none', color: 'var(--text-white)' }}>
+                              Key-Phrase Auto-Emphasis (Hormozi Style)
+                            </label>
+                          </div>
+                          <div style={{ fontSize: '11px', color: 'var(--text-gray)', marginLeft: '22px', marginTop: '2px', marginBottom: '6px' }}>
+                            Highlights high-impact words (e.g. money, free, crash) with a 25% scale bump.
+                          </div>
+                          {autoEmphasis && (
+                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginLeft: '22px' }}>
+                              <span style={{ fontSize: '12px' }}>Emphasis Color:</span>
+                              <input type="color" value={emphasisColor} onChange={(e) => setEmphasisColor(e.target.value)} style={{ width: '28px', height: '28px', padding: 0, border: 'none', background: 'none', cursor: 'pointer' }} />
+                              <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{emphasisColor.toUpperCase()}</span>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* 3D Pop Extrusion */}
+                        <div style={{ marginBottom: '10px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <input type="checkbox" id="pop-3d-beatsync" checked={pop3d} onChange={(e) => setPop3d(e.target.checked)} style={{ cursor: 'pointer' }} />
+                            <label htmlFor="pop-3d-beatsync" style={{ fontSize: '13px', cursor: 'pointer', userSelect: 'none', color: 'var(--text-white)' }}>
+                              3D Pop Extrusion (Retro Meme Style)
+                            </label>
+                          </div>
+                          <div style={{ fontSize: '11px', color: 'var(--text-gray)', marginLeft: '22px', marginTop: '2px', marginBottom: '6px' }}>
+                            Applies a solid, thick blocky shadow offset for high-contrast visibility.
+                          </div>
+                          {pop3d && (
+                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginLeft: '22px' }}>
+                              <span style={{ fontSize: '12px' }}>Pop Color:</span>
+                              <input type="color" value={pop3dColor} onChange={(e) => setPop3dColor(e.target.value)} style={{ width: '28px', height: '28px', padding: 0, border: 'none', background: 'none', cursor: 'pointer' }} />
+                              <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{pop3dColor.toUpperCase()}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Emoji Word SFX Mappings */}
+                    {(() => {
+                      const emojiWordsList: {
+                        sceneIdx: number;
+                        wordIdx: number;
+                        wordObj: WordTiming;
+                        emoji: string;
+                      }[] = [];
+                      scenes.forEach((scene, sceneIdx) => {
+                        if (scene.words && Array.isArray(scene.words)) {
+                          scene.words.forEach((wordObj, wordIdx) => {
+                            const emoji = getWordEmoji(wordObj.word);
+                            if (emoji) {
+                              emojiWordsList.push({
+                                sceneIdx,
+                                wordIdx,
+                                wordObj,
+                                emoji
+                              });
+                            }
+                          });
+                        }
+                      });
+
+                      const handleUpdateWordSfx = (sIdx: number, wIdx: number, sfxId: string) => {
+                        const updatedScenes = [...scenes];
+                        if (updatedScenes[sIdx] && updatedScenes[sIdx].words && updatedScenes[sIdx].words[wIdx]) {
+                          updatedScenes[sIdx].words[wIdx].sfx = sfxId;
+                          setScenes(updatedScenes);
+                        }
+                      };
+
+                      if (!showEmojis || emojiWordsList.length === 0) return null;
+
+                      return (
+                        <div className="inspector-card" style={{ marginTop: '16px', background: 'var(--bg-darker)', border: '1px solid var(--border-medium)', borderRadius: '8px', padding: '12px' }}>
+                          <div className="inspector-sub-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', fontWeight: 600, color: 'var(--text-white)', borderBottom: 'none', paddingBottom: 0, marginBottom: '8px' }}>
+                            <span>🎵 Emoji Word SFX Mappings</span>
+                            <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: 'normal' }}>{emojiWordsList.length} detected</span>
+                          </div>
+                          <div style={{ fontSize: '11px', color: 'var(--text-gray)', marginBottom: '10px' }}>
+                            Play sound effects exactly when these key emoji words are spoken.
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '220px', overflowY: 'auto', paddingRight: '4px' }}>
+                            {emojiWordsList.map(({ sceneIdx, wordIdx, wordObj, emoji }) => {
+                              const displayWord = wordObj.word;
+                              const selectedSfx = wordObj.sfx || 'none';
+                              return (
+                                <div key={`${sceneIdx}_${wordIdx}`} style={{ 
+                                  display: 'flex', flexDirection: 'column', gap: '4px',
+                                  background: 'var(--bg-card)', border: '1px solid var(--border-medium)', 
+                                  borderRadius: '4px', padding: '8px 10px'
+                                }}>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', fontWeight: 500 }}>
+                                    <span>"{displayWord}" {emoji}</span>
+                                    <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Scene {sceneIdx + 1} at {wordObj.start_time.toFixed(1)}s</span>
+                                  </div>
+                                  <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginTop: '2px' }}>
+                                    <select
+                                      value={selectedSfx}
+                                      onChange={(e) => handleUpdateWordSfx(sceneIdx, wordIdx, e.target.value)}
+                                      className="input-field"
+                                      style={{ flex: 1, height: '28px', fontSize: '11px', padding: '0 6px', background: 'var(--bg-medium)' }}
+                                    >
+                                      <option value="none">No Sound Effect</option>
+                                      {sfxList.map(s => (
+                                        <option key={s.id} value={s.id}>{s.name}</option>
+                                      ))}
+                                    </select>
+                                    {selectedSfx !== 'none' && (
+                                      <button
+                                        type="button"
+                                        onClick={() => handlePlaySfx(selectedSfx)}
+                                        style={{
+                                          background: 'var(--bg-medium)', border: 'none', 
+                                          color: 'var(--text-white)', width: '28px', height: '28px',
+                                          borderRadius: '4px', display: 'flex', alignItems: 'center',
+                                          justifyContent: 'center', cursor: 'pointer', padding: 0
+                                        }}
+                                      >
+                                        {previewingSfx === selectedSfx ? '⏹' : '▶'}
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                  </div>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="inspector-card" style={{ padding: '24px', textAlign: 'center', color: 'var(--text-gray)' }}>
+              <Type size={32} style={{ color: 'var(--text-muted)', marginBottom: '12px', margin: '0 auto' }} />
+              <div className="inspector-sub-title" style={{ fontSize: '14px', marginBottom: '6px' }}>Subtitles Disabled</div>
+              <p style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.4' }}>
+                Subtitles are only available in **Spoken Dialogue / Shayari** sync mode.
+              </p>
+              <p style={{ fontSize: '11px', color: 'var(--text-gray)', marginTop: '8px' }}>
+                Switch to **Dialogue Sync** in the **Audio** tab to configure transcription and styling.
+              </p>
+            </div>
+          )}
+        </div>
+      )}

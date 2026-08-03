@@ -1,10 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Zap, Upload, Play, Pause, Trash2, Music, Video, Activity, ChevronRight, AlertTriangle, CheckCircle, RefreshCw, Scissors, Sparkles, Type, Sparkle } from 'lucide-react';
+import { Zap, Upload, Play, Pause, Trash2, Music, Video, Activity, ChevronRight, AlertTriangle, CheckCircle, RefreshCw, Scissors, Sparkles, Type, Sparkle, Search } from 'lucide-react';
 import RichClipSelector from './RichClipSelector';
 import { Player } from '@remotion/player';
-import { prefetch } from 'remotion';
 import { VideoReel } from '../remotion/VideoReel';
-import { PlayerErrorBoundary } from './PlayerErrorBoundary';
 
 interface ClipSegment {
   start_time: number;
@@ -20,7 +18,6 @@ interface Clip {
   thumbnail: string;
   exists?: boolean;
   segments?: ClipSegment[];
-  tags?: string[];
 }
 
 interface BGM {
@@ -53,8 +50,8 @@ interface BeatScene {
   isBeatSyncOnly?: boolean;
   transition?: string;
   transitionDuration?: number;
-  transitionEasing?: string;
   sfx?: string;
+  textStyle?: any;
   speedRamp?: {
     enabled: boolean;
     v0: number;
@@ -68,6 +65,9 @@ interface BeatScene {
     radius: number;
     opacity: number;
   };
+  shake?: boolean;
+  shakeIntensity?: number;
+  shakeSpeed?: number;
 }
 
 interface WordStyle {
@@ -335,6 +335,12 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
   const [audioSource, setAudioSource] = useState<'upload' | 'music_library' | 'video_library'>('upload');
   const [audioPath, setAudioPath] = useState('');
   const [audioUrl, setAudioUrl] = useState('');
+  const [muteBgMusic, setMuteBgMusic] = useState(false);
+  const [bgMusicVolume, setBgMusicVolume] = useState(1.0);
+  const [muteVideoAudio, setMuteVideoAudio] = useState(true);
+  const [videoVolume, setVideoVolume] = useState(0.0);
+  const [muteSfx, setMuteSfx] = useState(false);
+  const [sfxVolume, setSfxVolume] = useState(1.0);
   const [audioName, setAudioName] = useState('');
   const [audioDuration, setAudioDuration] = useState(0);
   const [selectedVideoClipId, setSelectedVideoClipId] = useState('');
@@ -399,46 +405,13 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
     fetchSfxs();
   }, []);
 
-  // Prefetch all clip video URLs into browser cache whenever clip assignments change.
-  // This eliminates the 1-second stutter when the player transitions to a new scene
-  // (without this, each clip is fetched cold on-demand during playback).
-  const prefetchHandles = useRef<Array<{ free: () => void }>>([]);
-  useEffect(() => {
-    // Clean up handles from previous effect run
-    const prev = prefetchHandles.current;
-    prefetchHandles.current = [];
-
-    const uniqueUrls = [
-      ...new Set(
-        scenes
-          .filter(s => s.clipId)
-          .map(s => `/api/clips/${s.clipId}/video`)
-      )
-    ];
-
-    const handles = uniqueUrls.map(url => {
-      try {
-        return prefetch(url, { method: 'blob-url', contentType: 'video/mp4' });
-      } catch {
-        return { free: () => {}, waitUntilDone: () => Promise.resolve() };
-      }
-    });
-
-    prefetchHandles.current = handles;
-
-    return () => {
-      // Free prefetch handles only from previous run (not current)
-      prev.forEach(h => h.free());
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scenes.map(s => s.clipId).join(',')]);
-
   const [miniBeats, setMiniBeats] = useState<number[]>([]);
   const [miniBeatEffect, setMiniBeatEffect] = useState<'none' | 'blink' | 'shake' | 'both'>('none');
   
   // Subtitle styling states
+  const [activeAccordion, setActiveAccordion] = useState<'layout' | 'typography' | 'words' | 'branding' | null>('layout');
   const [subtitleMode, setSubtitleMode] = useState<'classic' | 'pop' | 'smart-highlight' | 'centered-word'>('smart-highlight');
-  const [fontName, setFontName] = useState('Bangers');
+  const [fontName, setFontName] = useState('Montserrat ExtraBold');
   const [fontSelectorOpen, setFontSelectorOpen] = useState(false);
   const [fontSearchQuery, setFontSearchQuery] = useState('');
   const [fontLoading, setFontLoading] = useState(false);
@@ -452,13 +425,13 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
   const [aiGenLoading, setAiGenLoading] = useState(false);
   const [aiGenError, setAiGenError] = useState('');
   const [fontDownloadError, setFontDownloadError] = useState('');
-  const [fontSize, setFontSize] = useState(48);
+  const [fontSize, setFontSize] = useState(26);
   const [fontColor, setFontColor] = useState('#FFFFFF');
   const [outlineColor, setOutlineColor] = useState('#000000');
-  const [bold, setBold] = useState(false);
+  const [bold, setBold] = useState(true);
   const [italic, setItalic] = useState(false);
-  const [shadow, setShadow] = useState(true);
-  const [highlightColor, setHighlightColor] = useState('#FACC15');
+  const [shadow, setShadow] = useState(false);
+  const [highlightColor, setHighlightColor] = useState('#FFFFFF');
   const [showHighlightBox, setShowHighlightBox] = useState(false);
   const [boxColor, setBoxColor] = useState('#8A4BF3');
   const [boxRounding, setBoxRounding] = useState(8);
@@ -469,15 +442,16 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
   const [wordDisplayTime, setWordDisplayTime] = useState(1.0);
   const [maxWordsPerLine, setMaxWordsPerLine] = useState(3);
   const [textPositionX, setTextPositionX] = useState(0);
-  const [textPositionY, setTextPositionY] = useState(-65);
+  const [textPositionY, setTextPositionY] = useState(-70);
   const [showEmojis, setShowEmojis] = useState(false);
   const [autoEmphasis, setAutoEmphasis] = useState(false);
   const [emphasisColor, setEmphasisColor] = useState('#FFFFFF');
   const [neonGlow, setNeonGlow] = useState(true);
   const [glowColor, setGlowColor] = useState('#FFFFFF');
-  const [glowBlur, setGlowBlur] = useState(1);
-  const [glowDistance, setGlowDistance] = useState(20);
-  const [highlightTrigger, setHighlightTrigger] = useState<'all' | 'emphasis' | 'emoji'>('all');
+  const [glowBlur, setGlowBlur] = useState(8);
+  const [glowDistance, setGlowDistance] = useState(4);
+  const [highlightTrigger, setHighlightTrigger] = useState<'all' | 'emphasis' | 'emoji' | 'none'>('all');
+  const [textCase, setTextCase] = useState<'default' | 'upper' | 'first-word-larger'>('default');
   const [pop3d, setPop3d] = useState(false);
   const [pop3dColor, setPop3dColor] = useState('#000000');
 
@@ -503,24 +477,24 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
     activeWordScale: 1.0,
     neonGlow: true,
     glowColor: '#FFFFFF',
-    glowBlur: 1,
-    glowDistance: 20
+    glowBlur: 8,
+    glowDistance: 4
   });
   const [highlightStyle, setHighlightStyle] = useState<WordStyle>({
-    fontColor: '#FACC15',
+    fontColor: '#FFFFFF',
     activeWordScale: 1.15,
     neonGlow: true,
-    glowColor: '#FACC15',
-    glowBlur: 1,
-    glowDistance: 20
+    glowColor: '#FFFFFF',
+    glowBlur: 8,
+    glowDistance: 4
   });
   const [emojiStyle, setEmojiStyle] = useState<WordStyle>({
-    fontColor: '#FACC15',
+    fontColor: '#FFFFFF',
     activeWordScale: 1.15,
     neonGlow: true,
-    glowColor: '#FACC15',
-    glowBlur: 1,
-    glowDistance: 20
+    glowColor: '#FFFFFF',
+    glowBlur: 8,
+    glowDistance: 4
   });
   const [styleTab, setStyleTab] = useState<'normal' | 'highlight' | 'emoji'>('normal');
   
@@ -592,9 +566,6 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
   const [fillMode, setFillMode] = useState<'crop' | 'fit'>('crop');
   const [clipTransition, setClipTransition] = useState<string>('none');
   const [transitionDuration, setTransitionDuration] = useState(0.3);
-  const [clipTransitionEasing, setClipTransitionEasing] = useState<string>('out-expo');
-  const [clipTransitionSfx, setClipTransitionSfx] = useState<string>('none');
-  const [seqPattern, setSeqPattern] = useState<string[]>(['slide-left', 'zoom-in', 'fade']);
   const [beatEffects, setBeatEffects] = useState({
     whiteFlash: false, whiteFlashIntensity: 0.6,
     rgbSplit: false, rgbSplitPixels: 6,
@@ -663,6 +634,12 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
         if (state.audioUrl !== undefined) setAudioUrl(state.audioUrl);
         if (state.audioName !== undefined) setAudioName(state.audioName);
         if (state.audioDuration !== undefined) setAudioDuration(state.audioDuration);
+        if (state.muteBgMusic !== undefined) setMuteBgMusic(state.muteBgMusic);
+        if (state.bgMusicVolume !== undefined) setBgMusicVolume(state.bgMusicVolume);
+        if (state.muteVideoAudio !== undefined) setMuteVideoAudio(state.muteVideoAudio);
+        if (state.videoVolume !== undefined) setVideoVolume(state.videoVolume);
+        if (state.muteSfx !== undefined) setMuteSfx(state.muteSfx);
+        if (state.sfxVolume !== undefined) setSfxVolume(state.sfxVolume);
         if (state.selectedVideoClipId !== undefined) setSelectedVideoClipId(state.selectedVideoClipId);
         if (state.syncMode !== undefined) setSyncMode(state.syncMode);
         if (state.threshold !== undefined) setThreshold(state.threshold);
@@ -715,32 +692,33 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
         if (state.glowBlur !== undefined) setGlowBlur(state.glowBlur);
         if (state.glowDistance !== undefined) setGlowDistance(state.glowDistance);
         if (state.highlightTrigger !== undefined) setHighlightTrigger(state.highlightTrigger);
+        if (state.textCase !== undefined) setTextCase(state.textCase);
         if (state.pop3d !== undefined) setPop3d(state.pop3d);
         if (state.pop3dColor !== undefined) setPop3dColor(state.pop3dColor);
 
         const norm = state.normalStyle || {
           fontColor: state.fontColor || '#FFFFFF',
           activeWordScale: 1.0,
-          neonGlow: state.neonGlow !== undefined ? !!state.neonGlow : true,
-          glowColor: state.glowColor || '#FFFFFF',
-          glowBlur: state.glowBlur !== undefined ? state.glowBlur : 1,
-          glowDistance: state.glowDistance !== undefined ? state.glowDistance : 20
+          neonGlow: !!state.neonGlow,
+          glowColor: state.glowColor || '#00FFFF',
+          glowBlur: state.glowBlur !== undefined ? state.glowBlur : 6,
+          glowDistance: state.glowDistance !== undefined ? state.glowDistance : 3
         };
         const high = state.highlightStyle || {
-          fontColor: state.highlightColor || '#FACC15',
+          fontColor: state.highlightColor || '#FFFF00',
           activeWordScale: state.activeWordScale !== undefined ? state.activeWordScale : 1.15,
-          neonGlow: state.neonGlow !== undefined ? !!state.neonGlow : true,
-          glowColor: state.glowColor || '#FACC15',
-          glowBlur: state.glowBlur !== undefined ? state.glowBlur : 1,
-          glowDistance: state.glowDistance !== undefined ? state.glowDistance : 20
+          neonGlow: !!state.neonGlow,
+          glowColor: state.glowColor || '#00FFFF',
+          glowBlur: state.glowBlur !== undefined ? state.glowBlur : 6,
+          glowDistance: state.glowDistance !== undefined ? state.glowDistance : 3
         };
         const emoj = state.emojiStyle || {
-          fontColor: state.highlightColor || '#FACC15',
+          fontColor: state.highlightColor || '#FFFF00',
           activeWordScale: state.activeWordScale !== undefined ? state.activeWordScale : 1.15,
-          neonGlow: state.neonGlow !== undefined ? !!state.neonGlow : true,
-          glowColor: state.glowColor || '#FACC15',
-          glowBlur: state.glowBlur !== undefined ? state.glowBlur : 1,
-          glowDistance: state.glowDistance !== undefined ? state.glowDistance : 20
+          neonGlow: !!state.neonGlow,
+          glowColor: state.glowColor || '#00FFFF',
+          glowBlur: state.glowBlur !== undefined ? state.glowBlur : 6,
+          glowDistance: state.glowDistance !== undefined ? state.glowDistance : 3
         };
         setNormalStyle(norm);
         setHighlightStyle(high);
@@ -795,6 +773,12 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
               scenes,
               miniBeats,
               miniBeatEffect,
+              bgMusicVolume,
+              muteBgMusic,
+              videoVolume,
+              muteVideoAudio,
+              sfxVolume,
+              muteSfx,
               aspectRatio,
               fillMode,
               clipTransition,
@@ -831,6 +815,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
               glowBlur,
               glowDistance,
               highlightTrigger,
+              textCase,
               pop3d,
               pop3dColor,
               normalStyle,
@@ -916,6 +901,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
     glowBlur,
     glowDistance,
     highlightTrigger,
+    textCase,
     pop3d,
     pop3dColor,
     hasLoadedProject,
@@ -1731,114 +1717,48 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
     setScenes(updated);
   };
 
+  const toggleSceneShake = (idx: number, checked: boolean) => {
+    const updated = [...scenes];
+    updated[idx].shake = checked;
+    if (checked) {
+      updated[idx].shakeIntensity = updated[idx].shakeIntensity ?? 15;
+      updated[idx].shakeSpeed = updated[idx].shakeSpeed ?? 20;
+    }
+    setScenes(updated);
+  };
+
+  const updateSceneShakeParam = (idx: number, key: 'shakeIntensity' | 'shakeSpeed', val: number) => {
+    const updated = [...scenes];
+    updated[idx][key] = val;
+    setScenes(updated);
+  };
+
+  const applyShakeToAllScenes = (sourceIdx: number) => {
+    const source = scenes[sourceIdx];
+    const updated = scenes.map(scene => ({
+      ...scene,
+      shake: source.shake,
+      shakeIntensity: source.shakeIntensity ?? 15,
+      shakeSpeed: source.shakeSpeed ?? 20
+    }));
+    setScenes(updated);
+    alert('Applied camera shake settings to all scenes!');
+  };
+
   const updateSceneSfx = (idx: number, sfx: string) => {
     const updated = [...scenes];
     updated[idx].sfx = sfx;
     setScenes(updated);
   };
 
-  const updateSceneTransitionEasing = (idx: number, easing: string) => {
-    setScenes(prev => {
-      const updated = [...prev];
-      updated[idx] = { ...updated[idx], transitionEasing: easing };
-      return updated;
-    });
-  };
-
-  // Apply the sidebar transition + easing + sfx to ALL clips (functional update = no stale closure)
   const handleApplyTransitionsToAll = () => {
-    setScenes(prev => prev.map(scene => ({
+    const updated = scenes.map(scene => ({
       ...scene,
       transition: clipTransition,
-      transitionDuration: transitionDuration,
-      transitionEasing: clipTransitionEasing,
-      sfx: clipTransitionSfx
-    })));
-    setSuccess('✅ Transition + Easing + SFX applied to all scenes!');
-    setTimeout(() => setSuccess(''), 2500);
-  };
-
-  // Apply only the sidebar transition + easing (no SFX change)
-  const handleApplyTransitionOnlyToAll = () => {
-    setScenes(prev => prev.map(scene => ({
-      ...scene,
-      transition: clipTransition,
-      transitionDuration: transitionDuration,
-      transitionEasing: clipTransitionEasing
-    })));
-    setSuccess('✅ Transition & Easing applied to all scenes!');
-    setTimeout(() => setSuccess(''), 2500);
-  };
-
-  // Apply only the sidebar SFX (no transition change)
-  const handleApplySfxOnlyToAll = () => {
-    setScenes(prev => prev.map(scene => ({
-      ...scene,
-      sfx: clipTransitionSfx
-    })));
-    setSuccess('✅ SFX applied to all scenes!');
-    setTimeout(() => setSuccess(''), 2500);
-  };
-
-  const addSeqPatternStep = (trans: string) => {
-    if (!trans || trans === 'none') return;
-    setSeqPattern(prev => [...prev, trans]);
-  };
-
-  const removeSeqPatternStep = (idx: number) => {
-    setSeqPattern(prev => prev.filter((_, i) => i !== idx));
-  };
-
-  const handleApplySequentialPattern = () => {
-    if (seqPattern.length === 0) return;
-    setScenes(prev => prev.map((scene, idx) => {
-      if (idx === prev.length - 1) return { ...scene, transition: 'none' };
-      const stepTrans = seqPattern[idx % seqPattern.length];
-      return {
-        ...scene,
-        transition: stepTrans,
-        transitionDuration: transitionDuration,
-        transitionEasing: clipTransitionEasing
-      };
+      transitionDuration: transitionDuration
     }));
-    setSuccess(`✅ Sequential pattern (${seqPattern.join(' ➔ ')}) applied across all clips with ${clipTransitionEasing} easing!`);
-    setTimeout(() => setSuccess(''), 3000);
-  };
-
-  const applyPresetSequence = (pattern: string[]) => {
-    setSeqPattern(pattern);
-    setScenes(prev => prev.map((scene, idx) => {
-      if (idx === prev.length - 1) return { ...scene, transition: 'none' };
-      return {
-        ...scene,
-        transition: pattern[idx % pattern.length],
-        transitionDuration: transitionDuration,
-        transitionEasing: clipTransitionEasing
-      };
-    }));
-    setSuccess(`✅ Sequential pattern (${pattern.join(' ➔ ')}) applied across all clips with ${clipTransitionEasing} easing!`);
-    setTimeout(() => setSuccess(''), 3000);
-  };
-
-  // Inline helpers — called from per-clip → All buttons
-  const applyTransitionToAll = (transition: string, duration: number, easing?: string) => {
-    setScenes(prev => prev.map(scene => ({
-      ...scene,
-      transition,
-      transitionDuration: duration,
-      transitionEasing: easing || clipTransitionEasing
-    })));
-    setSuccess('✅ Transition & Easing applied to all scenes!');
-    setTimeout(() => setSuccess(''), 2500);
-  };
-
-  const applySfxToAll = (sfx: string) => {
-    setScenes(prev => prev.map(scene => ({
-      ...scene,
-      sfx
-    })));
-    setSuccess('✅ SFX applied to all scenes!');
-    setTimeout(() => setSuccess(''), 2500);
+    setScenes(updated);
+    alert('Applied transition settings to all scenes!');
   };
 
   const handleRecommendTransitionsAndSfx = () => {
@@ -1916,7 +1836,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
         const res = await fetch('/api/match-clips', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ scenes, useAiFallback, excludeBroll: true })
+          body: JSON.stringify({ scenes, useAiFallback })
         });
 
         if (!res.ok) {
@@ -1936,27 +1856,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
         setSuccess('AI Semantic matching complete!');
       } else {
         // Music Beats: Random clip + random segment + random offset within segment for each beat scene
-        const isStockOrBroll = (clip: Clip) => {
-          // 1. Check tags
-          const hasSystemTag = Array.isArray(clip.tags) && clip.tags.some((tag: string) => 
-            tag === 'stock_downloaded' || 
-            tag === 'ai_generated' || 
-            tag === 'fallback' ||
-            tag === 'recreate_fallback'
-          );
-          if (hasSystemTag) return true;
-
-          // 2. Check name prefix
-          if (clip.name) {
-            const lowerName = clip.name.toLowerCase();
-            if (lowerName.startsWith('stock') || lowerName.startsWith('ai -') || lowerName.startsWith('ai_')) {
-              return true;
-            }
-          }
-          return false;
-        };
-
-        const availableClips = clips.filter(c => c.exists !== false && !isStockOrBroll(c));
+        const availableClips = clips.filter(c => c.exists !== false);
         if (availableClips.length === 0 && !useAiFallback) {
           throw new Error('Video Library is empty or all clips are missing on disk. Import clips first, or enable AI Fallback.');
         }
@@ -2223,7 +2123,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
   });
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px max-content', gap: '24px' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 360px 320px', gap: '24px' }}>
       
       {/* LEFT COLUMN: Beat sync timelines and segment editor */}
       <div>
@@ -2536,7 +2436,6 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
                           clips={clips}
                           onGenerateAi={() => openAiGenModal(idx)}
                           showOriginal={false}
-                          excludeBroll={true}
                         />
                       </div>
                       {selectedClip && (() => {
@@ -2755,96 +2654,95 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
                       )}
                     </div>
 
+                    {/* Camera Shake */}
+                    <div style={{ marginTop: '8px', borderTop: '1px solid var(--border-light)', paddingTop: '8px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <input
+                          type="checkbox" id={`shake-enable-${idx}`}
+                          checked={!!scene.shake}
+                          onChange={(e) => toggleSceneShake(idx, e.target.checked)}
+                          style={{ cursor: 'pointer' }}
+                        />
+                        <label htmlFor={`shake-enable-${idx}`} style={{ fontSize: '11px', fontWeight: '500', cursor: 'pointer', color: 'var(--text-white)' }}>
+                          Enable Camera Shake 📳
+                        </label>
+                      </div>
+
+                      {scene.shake && (
+                        <div style={{ padding: '6px', background: 'var(--bg-surface)', borderRadius: '4px', border: '1px solid var(--border-light)', display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '4px' }}>
+                          <div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: 'var(--text-gray)' }}>
+                              <span>Intensity (amplitude)</span>
+                              <span>{scene.shakeIntensity !== undefined ? scene.shakeIntensity : 15}px</span>
+                            </div>
+                            <input
+                              type="range" min={2} max={60} step={1} value={scene.shakeIntensity !== undefined ? scene.shakeIntensity : 15}
+                              onChange={(e) => updateSceneShakeParam(idx, 'shakeIntensity', parseInt(e.target.value))}
+                              style={{ width: '100%' }}
+                            />
+                          </div>
+                          <div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: 'var(--text-gray)' }}>
+                              <span>Speed (frequency)</span>
+                              <span>{scene.shakeSpeed !== undefined ? scene.shakeSpeed : 20} Hz</span>
+                            </div>
+                            <input
+                              type="range" min={5} max={50} step={1} value={scene.shakeSpeed !== undefined ? scene.shakeSpeed : 20}
+                              onChange={(e) => updateSceneShakeParam(idx, 'shakeSpeed', parseInt(e.target.value))}
+                              style={{ width: '100%' }}
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => applyShakeToAllScenes(idx)}
+                            style={{
+                              fontSize: '9px', padding: '2px 6px', height: '20px', background: 'transparent',
+                              border: '1px solid var(--border-medium)', color: 'var(--text-gray)',
+                              cursor: 'pointer', borderRadius: '4px', textAlign: 'center', transition: 'all 0.15s ease'
+                            }}
+                          >
+                            Apply shake to all scenes
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
                     {idx < scenes.length - 1 && (
-                      <div style={{ borderTop: '1px solid var(--border-light)', paddingTop: '10px', marginTop: '4px' }}>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', borderTop: '1px solid var(--border-light)', paddingTop: '10px', marginTop: '4px' }}>
                         <div>
                           <label className="label" style={{ fontSize: '10px', marginBottom: '4px' }}>Transition Out</label>
-                          <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
                           <select
                             className="input-field"
                             value={scene.transition || 'none'}
                             onChange={(e) => updateSceneTransition(idx, e.target.value)}
-                            style={{ margin: 0, fontSize: '11px', height: '28px', padding: '0 8px', flex: 1 }}
+                            style={{ margin: 0, fontSize: '11px', height: '28px', padding: '0 8px' }}
                           >
                             <option value="none">None</option>
                             <option value="fade">Fade</option>
-                            <optgroup label="Slide">
-                              <option value="slide-left">Slide Left</option>
-                              <option value="slide-right">Slide Right</option>
-                              <option value="slide-up">Slide Up</option>
-                              <option value="slide-down">Slide Down</option>
-                            </optgroup>
-                            <optgroup label="Blur Slide">
-                              <option value="blur-slide-left">Blur Slide Left</option>
-                              <option value="blur-slide-right">Blur Slide Right</option>
-                              <option value="blur-slide-up">Blur Slide Up</option>
-                              <option value="blur-slide-down">Blur Slide Down</option>
-                            </optgroup>
-                            <optgroup label="Pan">
-                              <option value="pan-left">Pan Left</option>
-                              <option value="pan-right">Pan Right</option>
-                              <option value="pan-up">Pan Up</option>
-                              <option value="pan-down">Pan Down</option>
-                            </optgroup>
-                            <optgroup label="Zoom">
-                              <option value="zoom-in">Zoom In</option>
-                              <option value="zoom-out">Zoom Out</option>
-                              <option value="blur-zoom-in">Blur Zoom In</option>
-                              <option value="blur-zoom-out">Blur Zoom Out</option>
-                            </optgroup>
-                            <option value="random">Random Mix</option>
+                            <option value="slide-left">Slide Left</option>
+                            <option value="slide-right">Slide Right</option>
+                            <option value="slide-up">Slide Up</option>
+                            <option value="slide-down">Slide Down</option>
+                            <option value="zoom-in">Zoom In</option>
+                            <option value="zoom-out">Zoom Out</option>
+                            <option value="random">Random</option>
                           </select>
-                          <button
-                            type="button"
-                            title="Apply this transition to ALL clips"
-                            onClick={() => applyTransitionToAll(scene.transition || 'none', scene.transitionDuration ?? transitionDuration, scene.transitionEasing ?? clipTransitionEasing)}
-                            style={{
-                              flexShrink: 0, padding: '0 5px', height: '28px', fontSize: '9px', fontWeight: 700,
-                              background: 'var(--border-medium)', border: '1px solid var(--border-light)',
-                              borderRadius: '4px', color: 'var(--text-gray)', cursor: 'pointer', whiteSpace: 'nowrap'
-                            }}
-                          >→ All</button>
-                          </div>
                           {scene.transition && scene.transition !== 'none' && (
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginTop: '6px' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                <label style={{ fontSize: '9px', color: 'var(--text-gray)' }}>Dur:</label>
-                                <input
-                                  type="number"
-                                  min="0.1"
-                                  max="2.0"
-                                  step="0.1"
-                                  className="input-field"
-                                  value={scene.transitionDuration !== undefined ? scene.transitionDuration : transitionDuration}
-                                  onChange={(e) => updateSceneTransitionDuration(idx, parseFloat(e.target.value) || 0.3)}
-                                  style={{ margin: 0, fontSize: '10px', height: '22px', padding: '0 4px', width: '40px', textAlign: 'center' }}
-                                />
-                                <span style={{ fontSize: '9px', color: 'var(--text-muted)' }}>s</span>
-                              </div>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                <label style={{ fontSize: '9px', color: 'var(--text-gray)' }}>Ease:</label>
-                                <select
-                                  className="input-field"
-                                  value={scene.transitionEasing || clipTransitionEasing}
-                                  onChange={(e) => updateSceneTransitionEasing(idx, e.target.value)}
-                                  style={{ margin: 0, fontSize: '9px', height: '22px', padding: '0 2px', flex: 1, minWidth: 0 }}
-                                >
-                                  <option value="out-expo">Exponential Out (DOTween)</option>
-                                  <option value="in-out-expo">Exponential InOut</option>
-                                  <option value="in-expo">Exponential In</option>
-                                  <option value="out-back">Back / Overshoot Out</option>
-                                  <option value="in-out-back">Back InOut</option>
-                                  <option value="out-bounce">Bounce Out</option>
-                                  <option value="out-elastic">Elastic / Spring Out</option>
-                                  <option value="out-cubic">Cubic Out</option>
-                                  <option value="out-quad">Quad Out</option>
-                                  <option value="linear">Linear</option>
-                                </select>
-                              </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '6px' }}>
+                              <label style={{ fontSize: '9px', color: 'var(--text-gray)' }}>Duration:</label>
+                              <input
+                                type="number"
+                                min="0.1"
+                                max="2.0"
+                                step="0.1"
+                                className="input-field"
+                                value={scene.transitionDuration !== undefined ? scene.transitionDuration : transitionDuration}
+                                onChange={(e) => updateSceneTransitionDuration(idx, parseFloat(e.target.value) || 0.3)}
+                                style={{ margin: 0, fontSize: '10px', height: '22px', padding: '0 4px', width: '45px', textAlign: 'center' }}
+                              />
+                              <span style={{ fontSize: '9px', color: 'var(--text-muted)' }}>s</span>
                             </div>
                           )}
-                        </div>
                         </div>
                         <div>
                           <label className="label" style={{ fontSize: '10px', marginBottom: '4px' }}>Transition SFX</label>
@@ -2877,16 +2775,6 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
                                 <option key={sfx.id} value={sfx.id}>{sfx.name}</option>
                               ))}
                             </select>
-                            <button
-                              type="button"
-                              title="Apply this SFX to ALL clips"
-                              onClick={() => applySfxToAll(scene.sfx || 'none')}
-                              style={{
-                                flexShrink: 0, padding: '0 5px', height: '28px', fontSize: '9px', fontWeight: 700,
-                                background: 'var(--border-medium)', border: '1px solid var(--border-light)',
-                                borderRadius: '4px', color: 'var(--text-gray)', cursor: 'pointer', whiteSpace: 'nowrap'
-                              }}
-                            >→ All</button>
                             {scene.sfx && scene.sfx !== 'none' && (
                               <button
                                 type="button"
@@ -2923,6 +2811,60 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
       {/* RIGHT COLUMN: Aesthetics & Compilation Controls */}
       <div style={{ borderLeft: '1px solid var(--border-light)', paddingLeft: '32px' }}>
         <div style={{ position: 'sticky', top: '0px', maxHeight: 'calc(100vh - 80px)', overflowY: 'auto', paddingRight: '12px' }}>
+          
+          {/* Real-time Video Preview Player */}
+          {scenes.length > 0 && (
+            <div style={{ marginBottom: '24px' }}>
+              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-white)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Play size={14} style={{ color: 'var(--accent-purple)' }} />
+                Real-Time Video Preview
+              </div>
+              <div style={{ 
+                width: '100%', 
+                aspectRatio: aspectRatio === '9:16' ? '9/16' : aspectRatio === '1:1' ? '1/1' : '16/9', 
+                borderRadius: '12px', 
+                overflow: 'hidden', 
+                background: '#000000',
+                border: '1px solid var(--border-medium)',
+                position: 'relative'
+              }}>
+                <Player
+                  component={VideoReel as React.ComponentType<any>}
+                  inputProps={{
+                    scenes: scenes.map(s => ({
+                      ...s,
+                      clipUrl: s.clipId ? `/api/clips/${s.clipId}/video` : null
+                    })),
+                    voiceoverUrl: undefined, // BeatSync only has BGM
+                    bgMusicUrl: audioPath || undefined,
+                    bgMusicVolume: 1.0, // treat BGM as main track
+                    subtitleMode,
+                    fontName,
+                    fontSize,
+                    bold,
+                    italic,
+                    shadow,
+                    activeWordScale,
+                    normalStyle,
+                    highlightStyle,
+                    emojiStyle,
+                    aspectRatio,
+                    fillMode,
+                    maxWordsPerLine: 3
+                  }}
+                  durationInFrames={Math.max(1, Math.round((scenes[scenes.length - 1]?.end_time || 30) * 30))}
+                  fps={30}
+                  compositionWidth={aspectRatio === '16:9' ? 1920 : 1080}
+                  compositionHeight={aspectRatio === '9:16' ? 1920 : 1080}
+                  style={{
+                    width: '100%',
+                    height: '100%'
+                  }}
+                  controls
+                />
+              </div>
+            </div>
+          )}
           
           {/* Tab Selector Headers */}
           <div style={{ display: 'flex', borderBottom: '1px solid rgba(255, 255, 255, 0.1)', marginBottom: '20px' }}>
@@ -3136,7 +3078,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
                       </div>
                       <input
                         type="range"
-                        min={0.8}
+                        min={1.1}
                         max={2.0}
                         step={0.05}
                         value={threshold}
@@ -3380,175 +3322,14 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
               </div>
             )}
 
-            {clipTransition !== 'none' && (
-              <div style={{ marginTop: '10px' }}>
-                <label className="label">Transition Easing Curve (DOTween)</label>
-                <select
-                  className="input-field"
-                  value={clipTransitionEasing}
-                  onChange={(e) => setClipTransitionEasing(e.target.value)}
-                  style={{ height: '34px', fontSize: '12px' }}
-                >
-                  <option value="out-expo">Exponential Out (DOTween default)</option>
-                  <option value="in-out-expo">Exponential In-Out (Smooth S-Curve)</option>
-                  <option value="in-expo">Exponential In (Rapid Acceleration)</option>
-                  <option value="out-back">Back / Overshoot Out (Snappy Pop)</option>
-                  <option value="in-out-back">Back In-Out (Anticipation + Overshoot)</option>
-                  <option value="out-bounce">Bounce Out (Rubber Ball Bounce)</option>
-                  <option value="out-elastic">Elastic / Spring Out (Rubber Band Spring)</option>
-                  <option value="out-cubic">Cubic Out (Smooth Medium)</option>
-                  <option value="out-quad">Quad Out (Soft Ease)</option>
-                  <option value="linear">Linear (Constant Speed)</option>
-                </select>
-              </div>
-            )}
-
-            {clipTransition !== 'none' && (
-              <div style={{ marginTop: '10px' }}>
-                <label className="label">Default Transition SFX</label>
-                <select
-                  className="input-field"
-                  value={clipTransitionSfx}
-                  onChange={(e) => setClipTransitionSfx(e.target.value)}
-                  style={{ height: '34px', fontSize: '12px' }}
-                >
-                  <option value="none">None</option>
-                  {(sfxList.length > 0 ? sfxList : [
-                    { id: 'trans_swoosh_fast', name: 'Snappy Swoosh' },
-                    { id: 'trans_swoosh_deep', name: 'Cinematic Whoosh' },
-                    { id: 'trans_glitch_digital', name: 'Glitch / Static' },
-                    { id: 'trans_shutter_click', name: 'Shutter & Flash' },
-                    { id: 'trans_vhs_rewind', name: 'Tape Rewind' },
-                    { id: 'trans_paper_slide', name: 'Page Slide' },
-                    { id: 'reveal_pop_bubble', name: 'Bubble Pop' },
-                    { id: 'reveal_kb_click', name: 'Keyboard Tap' },
-                    { id: 'reveal_ding_bell', name: 'Snappy Ding' },
-                    { id: 'reveal_swoosh_zip', name: 'Micro Zip' },
-                    { id: 'reveal_chime_sweet', name: 'Synth Chime' },
-                    { id: 'hook_bass_drop', name: 'Sub Bass Rumble' },
-                    { id: 'hook_vinyl_scratch', name: 'Record Scratch' },
-                    { id: 'hook_metal_hit', name: 'Cinematic Metal Hit' },
-                    { id: 'hook_woosh_hit', name: 'Whoosh To Hit' },
-                    { id: 'hook_cymbal_swell', name: 'Reversed Cymbal' }
-                  ]).map(sfx => (
-                    <option key={sfx.id} value={sfx.id}>{sfx.name}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            <div style={{ marginTop: '14px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={handleApplyTransitionOnlyToAll}
-                style={{ fontSize: '11px', width: '100%', justifyContent: 'center', padding: '6px' }}
-              >
-                Apply Transition to All Clips
-              </button>
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={handleApplySfxOnlyToAll}
-                style={{ fontSize: '11px', width: '100%', justifyContent: 'center', padding: '6px' }}
-              >
-                Apply SFX to All Clips
-              </button>
+            <div style={{ marginTop: '10px' }}>
               <button
                 type="button"
                 className="btn-secondary"
                 onClick={handleApplyTransitionsToAll}
-                style={{ fontSize: '11px', width: '100%', justifyContent: 'center', padding: '6px', opacity: 0.7 }}
+                style={{ fontSize: '11px', width: '100%', justifyContent: 'center', padding: '6px' }}
               >
-                Apply Both to All Clips
-              </button>
-            </div>
-
-            {/* Sequential Transition Pattern (A ➔ B ➔ C) */}
-            <div style={{ marginTop: '16px', borderTop: '1px solid var(--border-light)', paddingTop: '14px' }}>
-              <label className="label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span>🔄 Sequential Pattern (A ➔ B ➔ C)</span>
-                <span style={{ fontSize: '10px', color: 'var(--text-gray)' }}>{seqPattern.length} steps</span>
-              </label>
-              <p style={{ fontSize: '10px', color: 'var(--text-muted)', margin: '2px 0 8px' }}>
-                Loops through selected transitions sequentially across clips (e.g. Slide Left ➔ Zoom In ➔ Fade).
-              </p>
-
-              {/* Active pattern chips */}
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '8px' }}>
-                {seqPattern.map((trans, i) => (
-                  <span key={i} style={{
-                    display: 'inline-flex', alignItems: 'center', gap: '4px',
-                    padding: '3px 8px', borderRadius: '12px', background: 'var(--border-medium)',
-                    color: 'var(--text-white)', fontSize: '10px', fontWeight: 600
-                  }}>
-                    {i + 1}. {trans}
-                    {seqPattern.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => removeSeqPatternStep(i)}
-                        style={{ background: 'none', border: 'none', color: 'var(--text-gray)', cursor: 'pointer', padding: 0, fontSize: '11px', lineHeight: 1 }}
-                      >×</button>
-                    )}
-                  </span>
-                ))}
-              </div>
-
-              {/* Add step select */}
-              <div style={{ display: 'flex', gap: '6px', marginBottom: '8px' }}>
-                <select
-                  className="input-field"
-                  defaultValue=""
-                  onChange={(e) => {
-                    if (e.target.value) {
-                      addSeqPatternStep(e.target.value);
-                      e.target.value = '';
-                    }
-                  }}
-                  style={{ height: '28px', fontSize: '11px', flex: 1, padding: '0 6px' }}
-                >
-                  <option value="" disabled>+ Add step to sequence...</option>
-                  <option value="fade">Fade</option>
-                  <option value="slide-left">Slide Left</option>
-                  <option value="slide-right">Slide Right</option>
-                  <option value="slide-up">Slide Up</option>
-                  <option value="slide-down">Slide Down</option>
-                  <option value="blur-slide-left">Blur Slide Left</option>
-                  <option value="blur-slide-right">Blur Slide Right</option>
-                  <option value="pan-left">Pan Left</option>
-                  <option value="pan-right">Pan Right</option>
-                  <option value="zoom-in">Zoom In</option>
-                  <option value="zoom-out">Zoom Out</option>
-                  <option value="blur-zoom-in">Blur Zoom In</option>
-                </select>
-              </div>
-
-              {/* Quick Presets */}
-              <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginBottom: '10px' }}>
-                <button
-                  type="button"
-                  onClick={() => applyPresetSequence(['slide-left', 'slide-right'])}
-                  style={{ fontSize: '9px', padding: '2px 6px', borderRadius: '4px', background: 'var(--border-light)', border: '1px solid var(--border)', color: 'var(--text-gray)', cursor: 'pointer' }}
-                >⚡ Slide ⇄ Alternating</button>
-                <button
-                  type="button"
-                  onClick={() => applyPresetSequence(['zoom-in', 'blur-slide-left', 'fade'])}
-                  style={{ fontSize: '9px', padding: '2px 6px', borderRadius: '4px', background: 'var(--border-light)', border: '1px solid var(--border)', color: 'var(--text-gray)', cursor: 'pointer' }}
-                >🎬 Cinematic Trio</button>
-                <button
-                  type="button"
-                  onClick={() => applyPresetSequence(['pan-left', 'pan-right', 'slide-up', 'slide-down'])}
-                  style={{ fontSize: '9px', padding: '2px 6px', borderRadius: '4px', background: 'var(--border-light)', border: '1px solid var(--border)', color: 'var(--text-gray)', cursor: 'pointer' }}
-                >🚀 4-Way Motion</button>
-              </div>
-
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={handleApplySequentialPattern}
-                style={{ fontSize: '11px', width: '100%', justifyContent: 'center', padding: '7px', background: 'var(--primary)', color: 'var(--primary-foreground)', fontWeight: 600 }}
-              >
-                Apply Sequential Pattern (A ➔ B ➔ C) to All
+                Apply Current to All Scenes
               </button>
             </div>
 
@@ -5143,86 +4924,6 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
               </>
             );
           })()}
-        </div>
-      </div>
-
-      {/* RIGHT COLUMN: Live Video Preview */}
-      <div style={{ borderLeft: '1px solid var(--border-light)', paddingLeft: '20px' }}>
-        <div style={{ position: 'sticky', top: '0px', height: 'calc(100vh - 80px)', display: 'flex', flexDirection: 'column' }}>
-          {scenes.length > 0 && (
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-white)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <Play size={14} style={{ color: 'var(--primary)' }} />
-                Real-Time Video Preview
-              </div>
-              <div style={{ 
-                height: 'calc(100vh - 120px)',
-                maxHeight: 'calc(100vh - 120px)',
-                aspectRatio: aspectRatio === '9:16' ? '9/16' : aspectRatio === '1:1' ? '1/1' : '16/9', 
-                maxWidth: aspectRatio === '16:9' ? '450px' : 'none',
-                borderRadius: '12px', 
-                overflow: 'hidden', 
-                background: '#000000',
-                border: '1px solid var(--border-medium)',
-                position: 'relative'
-              }}>
-                <PlayerErrorBoundary componentName="BeatSync-RemotionPlayer">
-                  <Player
-                    component={VideoReel as React.ComponentType<any>}
-                    inputProps={{
-                      scenes: scenes.map(s => ({
-                        ...s,
-                        clipUrl: s.clipId ? `/api/clips/${s.clipId}/video` : null
-                      })),
-                      voiceoverUrl: audioUrl || (audioPath ? `/api/serve-local-file?path=${encodeURIComponent(audioPath)}` : ''),
-                      voiceoverVolume: 1.0,
-                      bgMusicUrl: undefined,
-                      bgMusicVolume: 0.0,
-                      videoVolume: 0.0,
-                      sfxVolume: 1.0,
-                      subtitleMode,
-                      fontName,
-                      fontSize,
-                      bold,
-                      italic,
-                      shadow,
-                      activeWordScale,
-                      normalStyle,
-                      highlightStyle,
-                      emojiStyle,
-                      aspectRatio,
-                      fillMode,
-                      textPositionX,
-                      textPositionY,
-                      maxWordsPerLine,
-                      highlightTrigger,
-                      autoEmphasis,
-                      pop3d,
-                      pop3dColor,
-                      neonGlow,
-                      glowColor,
-                      glowBlur,
-                      glowDistance,
-                      backgroundPattern: 'none',
-                      backgroundColor: '#000000',
-                      baseUrl: window.location.port ? window.location.origin.replace(window.location.port, '8000') : window.location.origin,
-                    }}
-                    durationInFrames={Math.max(1, Math.round((scenes[scenes.length - 1]?.end_time || 30) * 30))}
-                    fps={30}
-                    compositionWidth={aspectRatio === '16:9' ? 1920 : 1080}
-                    compositionHeight={aspectRatio === '9:16' ? 1920 : 1080}
-                    style={{
-                      width: '100%',
-                      height: '100%',
-                      maxHeight: '100%'
-                    }}
-                    controls
-                    numberOfSharedAudioTags={4}
-                  />
-                </PlayerErrorBoundary>
-              </div>
-            </div>
-          )}
         </div>
       </div>
 
