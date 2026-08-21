@@ -220,6 +220,49 @@ const uploadAvatar = multer({ storage: avatarStorage });
 // Active jobs tracking
 const activeJobs = new Map();
 
+// Render Queue to prevent concurrent chromium tasks exceeding memory limits (SaaS stability)
+const renderQueue = [];
+let isRenderingActive = false;
+
+function enqueueVideoCompilation(jobId, options) {
+  console.log(`[Render Queue] Enqueuing render job: ${jobId}. Queue length: ${renderQueue.length + 1}`);
+  renderQueue.push({ jobId, options });
+  
+  // Set job status to queued if not immediately processed
+  if (isRenderingActive) {
+    const job = activeJobs.get(jobId);
+    if (job) {
+      job.status = 'Queued (waiting for other render tasks to finish)...';
+      dbService.updateRenderJob(jobId, {
+        status: 'queued',
+        updatedAt: new Date().toISOString()
+      }).catch(() => {});
+    }
+  }
+
+  processNextRenderJob();
+}
+
+async function processNextRenderJob() {
+  if (isRenderingActive) return;
+  if (renderQueue.length === 0) return;
+
+  isRenderingActive = true;
+  const { jobId, options } = renderQueue.shift();
+  console.log(`[Render Queue] Starting render job: ${jobId}`);
+
+  try {
+    await runVideoCompilation(jobId, options);
+  } catch (err) {
+    console.error(`[Render Queue Error] Render job ${jobId} failed:`, err);
+  } finally {
+    isRenderingActive = false;
+    console.log(`[Render Queue] Completed/Finished render job: ${jobId}. Checking next...`);
+    // Process next job after a short cooling-off period (500ms) to allow child processes to fully clean up
+    setTimeout(processNextRenderJob, 500);
+  }
+}
+
 // ==========================================
 // SaaS Auth & Billing Mock APIs
 // ==========================================
@@ -1177,40 +1220,53 @@ app.post('/api/clips/init-upload', async (req, res) => {
   try {
     const clipId = uuidv4();
     const ext = path.extname(fileName) || '.mp4';
-    const tempFilePath = path.join(CLIPS_DIR, `${clipId}${ext}`);
+    
+    if (gcsService.isGcsEnabled()) {
+      const gcsPath = `uploads/temp/${clipId}${ext}`;
+      console.log(`[Upload] Generating GCS Signed URL for direct upload of "${fileName}"...`);
+      const gcsUrl = await gcsService.getSignedUrl(gcsPath, contentType || 'video/mp4');
+      
+      const session = {
+        clipId,
+        gcsPath,
+        fileName,
+        ext,
+        totalSize: fileSize || 0,
+        isGcs: true,
+        createdAt: new Date().toISOString()
+      };
+      await dbService.saveUploadSession(clipId, session);
+      
+      res.json({ clipId, ext, gcsUrl });
+    } else {
+      const tempFilePath = path.join(CLIPS_DIR, `${clipId}${ext}`);
+      // Create empty file
+      await fs.writeFile(tempFilePath, Buffer.alloc(0));
 
-    // Create empty file
-    await fs.writeFile(tempFilePath, Buffer.alloc(0));
-
-    // Track upload session
-    activeUploads.set(clipId, {
-      filePath: tempFilePath,
-      fileName,
-      ext,
-      receivedBytes: 0,
-      totalSize: fileSize || 0
-    });
-
-    // Auto-cleanup after 30 minutes if upload stalls
-    setTimeout(() => {
-      if (activeUploads.has(clipId)) {
-        activeUploads.delete(clipId);
-        fs.unlink(tempFilePath).catch(() => {});
-      }
-    }, 30 * 60 * 1000);
-
-    res.json({ clipId, ext });
+      const session = {
+        clipId,
+        filePath: tempFilePath,
+        fileName,
+        ext,
+        totalSize: fileSize || 0,
+        isGcs: false,
+        createdAt: new Date().toISOString()
+      };
+      await dbService.saveUploadSession(clipId, session);
+      
+      res.json({ clipId, ext });
+    }
   } catch (error) {
     console.error('[Upload Init Error]', error.message);
     res.status(500).json({ error: `Failed to initialize upload: ${error.message}` });
   }
 });
 
-// Step 2: Client sends file chunks (each under 8MB)
+// Step 2: Client sends file chunks (each under 8MB) - Used as fallback when GCS is disabled (local mode)
 const chunkUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 app.post('/api/clips/upload-chunk/:clipId', chunkUpload.single('chunk'), async (req, res) => {
   const { clipId } = req.params;
-  const session = activeUploads.get(clipId);
+  const session = await dbService.getUploadSession(clipId);
 
   if (!session) {
     return res.status(404).json({ error: 'Upload session not found or expired.' });
@@ -1221,9 +1277,15 @@ app.post('/api/clips/upload-chunk/:clipId', chunkUpload.single('chunk'), async (
   }
 
   try {
-    // Append chunk to file
+    if (session.isGcs) {
+      return res.status(400).json({ error: 'Chunked uploads are not supported for GCS direct uploads.' });
+    }
+    // Append chunk to local file
     await fs.appendFile(session.filePath, req.file.buffer);
+    if (session.receivedBytes === undefined) session.receivedBytes = 0;
     session.receivedBytes += req.file.buffer.length;
+
+    await dbService.saveUploadSession(clipId, session);
 
     res.json({
       received: session.receivedBytes,
@@ -1242,25 +1304,36 @@ app.post('/api/clips/finalize-upload', async (req, res) => {
     return res.status(400).json({ error: 'clipId is required.' });
   }
 
-  const session = activeUploads.get(clipId);
+  const session = await dbService.getUploadSession(clipId);
   if (!session) {
     return res.status(404).json({ error: 'Upload session not found or expired.' });
   }
 
-  activeUploads.delete(clipId);
+  // Remove session from database immediately
+  await dbService.deleteUploadSession(clipId);
 
   const userId = getUserId(req);
   try {
     const settings = await dbService.getSettings();
     const apiKey = process.env.GEMINI_API_KEY || settings.geminiApiKey;
 
-    let localTempPath = session.filePath;
+    let localTempPath;
+    
+    if (session.isGcs) {
+      localTempPath = path.join(CLIPS_DIR, `temp_${clipId}${session.ext}`);
+      console.log(`[Finalize Upload] Downloading direct GCS upload from "${session.gcsPath}" to local disk for processing...`);
+      await gcsService.downloadFile(session.gcsPath, localTempPath);
+      // Clean up the temporary GCS raw file asynchronously
+      gcsService.deleteFile(session.gcsPath).catch(() => {});
+    } else {
+      localTempPath = session.filePath;
+    }
 
     // Transcode video to 30 fps CFR H.264 to prevent seeking/jitter issues
     const transcodedFilename = `${clipId}_cfr.mp4`;
     const transcodedPath = path.join(CLIPS_DIR, transcodedFilename);
     try {
-      console.log(`[Finalize Upload] Transcoding chunked file ${localTempPath} to CFR 30fps H.264...`);
+      console.log(`[Finalize Upload] Transcoding file ${localTempPath} to CFR 30fps H.264...`);
       await runFFmpeg([
         '-i', localTempPath,
         '-vf', "fps=30,scale='if(gt(iw,ih),min(1920,iw),-2)':'if(gt(iw,ih),-2,min(1920,ih))',scale=trunc(iw/2)*2:trunc(ih/2)*2",
@@ -1276,7 +1349,7 @@ app.post('/api/clips/finalize-upload', async (req, res) => {
       }
       localTempPath = transcodedPath;
     } catch (transcodeErr) {
-      console.error(`Failed to transcode chunked file to CFR:`, transcodeErr);
+      console.error(`Failed to transcode file to CFR:`, transcodeErr);
     }
 
     // Generate thumbnail
@@ -1413,10 +1486,63 @@ app.post('/api/clips/add-folder', async (req, res) => {
 });
 
 // Serve arbitrary local file (for local development assets outside project dir)
-app.get('/api/serve-local-file', (req, res) => {
+app.get('/api/serve-local-file', async (req, res) => {
   const filePath = req.query.path;
   if (!filePath) {
     return res.status(400).json({ error: 'Path parameter is required' });
+  }
+
+  // If GCS is enabled and filePath is a GCS HTTP URL, proxy it with HTTP Range support!
+  if (gcsService.isGcsEnabled() && (filePath.startsWith('http://') || filePath.startsWith('https://'))) {
+    try {
+      const objectName = gcsService.parseObjectName(filePath);
+      const metadata = await gcsService.getMetadata(objectName);
+      const fileSize = parseInt(metadata.size, 10);
+      
+      res.setHeader('Access-Control-Expose-Headers', 'Accept-Ranges, Content-Range, Content-Length, Content-Type');
+      const range = req.headers.range;
+
+      if (range) {
+        const parts = range.replace(/bytes=/, "").split("-");
+        const start = parseInt(parts[0], 10);
+        const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+
+        if (start >= fileSize || end >= fileSize) {
+          res.status(416)
+            .set("Content-Range", `bytes */${fileSize}`)
+            .set("Connection", "close")
+            .send();
+          return;
+        }
+
+        const chunksize = (end - start) + 1;
+        const stream = gcsService.createReadStream(objectName, { start, end });
+        const head = {
+          'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+          'Accept-Ranges': 'bytes',
+          'Content-Length': chunksize,
+          'Content-Type': filePath.endsWith('.wav') ? 'audio/wav' : (filePath.endsWith('.mp3') ? 'audio/mpeg' : 'video/mp4'),
+          'Connection': 'close'
+        };
+
+        res.writeHead(206, head);
+        stream.pipe(res);
+      } else {
+        const head = {
+          'Content-Length': fileSize,
+          'Content-Type': filePath.endsWith('.wav') ? 'audio/wav' : (filePath.endsWith('.mp3') ? 'audio/mpeg' : 'video/mp4'),
+          'Accept-Ranges': 'bytes',
+          'Connection': 'close'
+        };
+        res.writeHead(200, head);
+        gcsService.createReadStream(objectName).pipe(res);
+      }
+      return;
+    } catch (err) {
+      console.error('[Storage Stream Error]', err);
+      // Fallback: redirect if GCS metadata or proxy stream fails
+      return res.redirect(filePath);
+    }
   }
   
   // Security check: only allow absolute paths on the local machine
@@ -1504,8 +1630,55 @@ app.get('/api/clips/:id/video', async (req, res) => {
     }
 
     if (gcsService.isGcsEnabled() && clip.path.startsWith('http')) {
-      // Redirect browser to GCS signed URL
-      return res.redirect(clip.path);
+      try {
+        const objectName = gcsService.parseObjectName(clip.path);
+        const metadata = await gcsService.getMetadata(objectName);
+        const fileSize = parseInt(metadata.size, 10);
+        
+        res.setHeader('Access-Control-Expose-Headers', 'Accept-Ranges, Content-Range, Content-Length, Content-Type');
+        const range = req.headers.range;
+
+        if (range) {
+          const parts = range.replace(/bytes=/, "").split("-");
+          const start = parseInt(parts[0], 10);
+          const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+
+          if (start >= fileSize || end >= fileSize) {
+            res.status(416)
+              .set("Content-Range", `bytes */${fileSize}`)
+              .set("Connection", "close")
+              .send();
+            return;
+          }
+
+          const chunksize = (end - start) + 1;
+          const stream = gcsService.createReadStream(objectName, { start, end });
+          const head = {
+            'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+            'Accept-Ranges': 'bytes',
+            'Content-Length': chunksize,
+            'Content-Type': 'video/mp4',
+            'Connection': 'close'
+          };
+
+          res.writeHead(206, head);
+          stream.pipe(res);
+        } else {
+          const head = {
+            'Content-Length': fileSize,
+            'Content-Type': 'video/mp4',
+            'Accept-Ranges': 'bytes',
+            'Connection': 'close'
+          };
+          res.writeHead(200, head);
+          gcsService.createReadStream(objectName).pipe(res);
+        }
+        return;
+      } catch (err) {
+        console.error('[Storage Stream Error - Clips Video]', err);
+        // Fallback: redirect if GCS metadata or proxy stream fails
+        return res.redirect(clip.path);
+      }
     }
 
     const resolved = resolvePath(clip.path);
@@ -2074,6 +2247,72 @@ app.post('/api/upload-bg', bgImageUpload.single('image'), async (req, res) => {
   } catch (err) {
     logErrorToFile('/api/upload-bg', err);
     return res.status(500).json({ error: `Failed to upload background: ${err.message}` });
+  }
+});
+
+// Endpoint to extract audio from Instagram Reel link
+app.post('/api/extract-reel-audio', async (req, res) => {
+  const { url } = req.body;
+  if (!url) {
+    return res.status(400).json({ error: 'Reel URL is required.' });
+  }
+
+  const userId = getUserId(req);
+  console.log(`[Extract Reel Audio] Downloading Reel from URL: ${url}`);
+  
+  const newRecreateId = uuidv4();
+  const videoFilename = `reel_temp_${newRecreateId}.mp4`;
+  const videoPath = path.join(RECREATE_DIR, videoFilename);
+  const audioFilename = `voiceover_${newRecreateId}.mp3`;
+  const audioOutputPath = path.join(GENERATED_DIR, audioFilename);
+
+  try {
+    // 1. Download Reel Video to RECREATE_DIR
+    await runDownloadReel(url, RECREATE_DIR, videoFilename, ffmpegPath);
+
+    if (!existsSync(videoPath)) {
+      throw new Error('Downloaded video file not found on disk.');
+    }
+
+    // 2. Extract Audio from Video to GENERATED_DIR
+    console.log(`[Extract Reel Audio] Extracting audio: ${videoPath} -> ${audioOutputPath}`);
+    await extractAudioFromVideo(videoPath, audioOutputPath);
+
+    // Clean up temporary downloaded video to save disk space
+    await fs.unlink(videoPath).catch(() => {});
+
+    if (!existsSync(audioOutputPath)) {
+      throw new Error('Extracted audio file not found on disk.');
+    }
+
+    let finalAudioPath = audioOutputPath;
+    let finalAudioUrl = `/uploads/generated/${audioFilename}`;
+
+    if (gcsService.isGcsEnabled()) {
+      finalAudioPath = await gcsService.uploadFile(audioOutputPath, `generated/${audioFilename}`);
+      finalAudioUrl = finalAudioPath;
+      try {
+        await fs.unlink(audioOutputPath);
+      } catch (_) {}
+    }
+
+    res.json({
+      success: true,
+      audioPath: finalAudioPath,
+      audioUrl: finalAudioUrl
+    });
+  } catch (err) {
+    console.error('[Extract Reel Audio Error]', err);
+    // clean up temp files if failed
+    try {
+      if (existsSync(videoPath)) await fs.unlink(videoPath);
+    } catch (_) {}
+    try {
+      if (existsSync(audioOutputPath)) await fs.unlink(audioOutputPath);
+    } catch (_) {}
+    
+    logErrorToFile('/api/extract-reel-audio', err);
+    return res.status(500).json({ error: `Failed to download or extract audio from Reel: ${err.message}` });
   }
 });
 
@@ -3150,7 +3389,7 @@ app.post('/api/generate-video', async (req, res) => {
     const clips = await dbService.getClips(userId);
 
     // Trigger video compilation in background
-    runVideoCompilation(jobId, {
+    enqueueVideoCompilation(jobId, {
       projectId,
       userId,
       estimatedCredits,
@@ -4152,7 +4391,7 @@ app.post('/api/generate-viral-video', async (req, res) => {
       }).catch(e => console.error('[Render History] Failed to save job:', e.message));
 
       const dbClips = await dbService.getClips(userId);
-      runVideoCompilation(jobId, {
+      enqueueVideoCompilation(jobId, {
         projectId: newProject.id,
         userId,
         estimatedCredits: Math.max(1, Math.ceil(audioDuration)),
@@ -4321,7 +4560,7 @@ app.post('/api/generate-viral-video', async (req, res) => {
       }).catch(e => console.error('[Render History] Failed to save job:', e.message));
 
       const dbClips = await dbService.getClips(userId);
-      runVideoCompilation(jobId, {
+      enqueueVideoCompilation(jobId, {
         projectId: newProject.id,
         userId,
         estimatedCredits: Math.max(1, Math.ceil(audioDuration)),
@@ -4485,7 +4724,7 @@ app.post('/api/generate-viral-video', async (req, res) => {
       }).catch(e => console.error('[Render History] Failed to save job:', e.message));
 
       const dbClips = await dbService.getClips(userId);
-      runVideoCompilation(jobId, {
+      enqueueVideoCompilation(jobId, {
         projectId: newProject.id,
         userId,
         estimatedCredits: Math.max(1, Math.ceil(currentTime)),

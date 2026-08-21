@@ -47,6 +47,29 @@ export const gcsService = {
   },
 
   /**
+   * Generates a signed URL for direct browser uploads to GCS
+   */
+  async getSignedUrl(destinationName, contentType) {
+    if (useLocalFiles) {
+      return null;
+    }
+    try {
+      const bucket = storage.bucket(BUCKET_NAME);
+      const destination = destinationName.replace(/\\/g, '/'); // Normalize slashes for GCS
+      const [url] = await bucket.file(destination).getSignedUrl({
+        version: 'v4',
+        action: 'write',
+        expires: Date.now() + 15 * 60 * 1000, // 15 minutes
+        contentType: contentType || 'video/mp4'
+      });
+      return url;
+    } catch (err) {
+      console.error('[Storage Error] Failed to generate signed URL:', err.message);
+      throw err;
+    }
+  },
+
+  /**
    * Uploads a file to Cloud Storage (or keeps it local if GCS is disabled)
    * @param {string} localFilePath - Path to the file on local disk
    * @param {string} destinationName - Folder/filename in the GCS bucket (e.g., 'clips/clip-1.mp4')
@@ -185,5 +208,42 @@ export const gcsService = {
       console.error(`[Storage Error] Failed to delete file ${gcsUrlOrPath}:`, err.message);
       throw err;
     }
+  },
+
+  createReadStream(objectName, options) {
+    if (useLocalFiles) {
+      return null;
+    }
+    return storage.bucket(BUCKET_NAME).file(objectName).createReadStream(options);
+  },
+
+  async getMetadata(objectName) {
+    if (useLocalFiles) {
+      return null;
+    }
+    const [metadata] = await storage.bucket(BUCKET_NAME).file(objectName).getMetadata();
+    return metadata;
+  },
+
+  parseObjectName(gcsUrlOrPath) {
+    let objectName = gcsUrlOrPath;
+    if (gcsUrlOrPath.startsWith('gs://')) {
+      objectName = gcsUrlOrPath.replace(`gs://${BUCKET_NAME}/`, '');
+    } else if (gcsUrlOrPath.includes('storage.googleapis.com')) {
+      const parts = gcsUrlOrPath.split(`${BUCKET_NAME}/`);
+      if (parts.length > 1) {
+        objectName = parts[1].split('?')[0];
+      }
+    } else if (gcsUrlOrPath.startsWith('http')) {
+      try {
+        const urlObj = new URL(gcsUrlOrPath);
+        const pathDecoded = decodeURIComponent(urlObj.pathname);
+        const bucketMatchIndex = pathDecoded.indexOf(`/${BUCKET_NAME}/`);
+        if (bucketMatchIndex !== -1) {
+          objectName = pathDecoded.substring(bucketMatchIndex + BUCKET_NAME.length + 2);
+        }
+      } catch (_) {}
+    }
+    return objectName;
   }
 };

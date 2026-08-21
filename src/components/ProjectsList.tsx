@@ -178,7 +178,7 @@ export default function ProjectsList({ onOpenProject }: ProjectsListProps) {
   };
 
   const filteredProjects = projects.filter(p => {
-    const matchesSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesSearch = (p.name || '').toLowerCase().includes(searchQuery.toLowerCase());
     const matchesType = typeFilter === 'all' || p.type === typeFilter;
     return matchesSearch && matchesType;
   });

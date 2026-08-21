@@ -320,6 +320,7 @@ export const dbService = {
     if (!clip.id) {
       throw new Error('Clip must have a unique ID.');
     }
+    clip.createdAt = clip.createdAt || new Date().toISOString();
     if (useLocalDb) {
       const db = getLocalDb();
       db.clips = db.clips || [];
@@ -359,6 +360,57 @@ export const dbService = {
     } catch (err) {
       console.error('[Database Error] Failed to delete clip:', err.message);
       throw err;
+    }
+  },
+
+  // --- Upload Session APIs ---
+  async saveUploadSession(clipId, session) {
+    if (useLocalDb) {
+      const db = getLocalDb();
+      db.uploadSessions = db.uploadSessions || {};
+      db.uploadSessions[clipId] = session;
+      saveLocalDb(db);
+      return session;
+    }
+    try {
+      await firestore.collection('uploadSessions').doc(clipId).set(session);
+      return session;
+    } catch (err) {
+      console.error('[Database Error] Failed to save upload session:', err.message);
+      throw err;
+    }
+  },
+
+  async getUploadSession(clipId) {
+    if (useLocalDb) {
+      const db = getLocalDb();
+      return (db.uploadSessions && db.uploadSessions[clipId]) || null;
+    }
+    try {
+      const doc = await firestore.collection('uploadSessions').doc(clipId).get();
+      if (!doc.exists) return null;
+      return doc.data();
+    } catch (err) {
+      console.error('[Database Error] Failed to get upload session:', err.message);
+      return null;
+    }
+  },
+
+  async deleteUploadSession(clipId) {
+    if (useLocalDb) {
+      const db = getLocalDb();
+      if (db.uploadSessions) {
+        delete db.uploadSessions[clipId];
+        saveLocalDb(db);
+      }
+      return true;
+    }
+    try {
+      await firestore.collection('uploadSessions').doc(clipId).delete();
+      return true;
+    } catch (err) {
+      console.error('[Database Error] Failed to delete upload session:', err.message);
+      return false;
     }
   },
 

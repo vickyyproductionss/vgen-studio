@@ -404,7 +404,7 @@ export default function YoutubeCreator({ projectId, onStartRender, onOpenProject
   const [brollStyle, setBrollStyle] = useState('clean minimal');
 
   // Subtitle States
-  const [subtitleMode, setSubtitleMode] = useState<'classic' | 'pop' | 'smart-highlight' | 'centered-word'>('classic');
+  const [subtitleMode, setSubtitleMode] = useState<'classic' | 'pop' | 'smart-highlight' | 'centered-word' | 'simple'>('classic');
   const [entities, setEntities] = useState<any[]>([]);
   const [graphEvents, setGraphEvents] = useState<any[]>([]);
   const [graphSettings, setGraphSettings] = useState<{

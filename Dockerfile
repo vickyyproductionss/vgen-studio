@@ -45,6 +45,7 @@ RUN npm install --production=false
 # This avoids a 92MB download at render time which would block the instance.
 RUN npx remotion browser ensure
 RUN cd backend && npm install --production
+RUN cd backend && npx remotion browser ensure
 
 # --- Application code layer ---
 COPY . .

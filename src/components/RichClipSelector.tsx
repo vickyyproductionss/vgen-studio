@@ -38,6 +38,7 @@ export default function RichClipSelector({
   const [selectorTab, setSelectorTab] = useState<'uploads' | 'broll'>('uploads');
   const [zoom, setZoom] = useState(160); // Column width in pixels (Finder-like slider)
   const [previewClip, setPreviewClip] = useState<Clip | null>(null);
+  const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'name-asc' | 'name-desc'>('newest');
   
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -98,7 +99,7 @@ export default function RichClipSelector({
   const searchMatchedClips = clips.filter(c => {
     if (c.exists === false) return false;
     if (excludeBroll && isStockOrBroll(c)) return false;
-    return c.name.toLowerCase().includes(search.toLowerCase());
+    return (c.name || '').toLowerCase().includes(search.toLowerCase());
   });
 
   const uploadsCount = searchMatchedClips.filter(c => !isStockOrBroll(c)).length;
@@ -108,6 +109,26 @@ export default function RichClipSelector({
     if (excludeBroll) return true;
     const isBroll = isStockOrBroll(c);
     return selectorTab === 'broll' ? isBroll : !isBroll;
+  });
+
+  const sortedClips = [...filteredClips].sort((a, b) => {
+    if (sortBy === 'newest') {
+      const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return timeB - timeA;
+    }
+    if (sortBy === 'oldest') {
+      const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return timeA - timeB;
+    }
+    if (sortBy === 'name-asc') {
+      return (a.name || '').localeCompare(b.name || '');
+    }
+    if (sortBy === 'name-desc') {
+      return (b.name || '').localeCompare(a.name || '');
+    }
+    return 0;
   });
 
   // Find currently selected clip for the trigger button
@@ -290,28 +311,50 @@ export default function RichClipSelector({
                 </h3>
               </div>
 
-              {/* Search Field */}
-              <div style={{ position: 'relative', width: '340px' }}>
-                <Search size={14} style={{ position: 'absolute', left: '11px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-gray)' }} />
-                <input
-                  type="text"
-                  placeholder="Search library clips by name..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
+              {/* Search & Sort Fields */}
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <div style={{ position: 'relative', width: '240px' }}>
+                  <Search size={14} style={{ position: 'absolute', left: '11px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-gray)' }} />
+                  <input
+                    type="text"
+                    placeholder="Search library clips by name..."
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    style={{
+                      width: '100%',
+                      height: '32px',
+                      paddingLeft: '32px',
+                      paddingRight: '12px',
+                      fontSize: '12.5px',
+                      background: 'var(--bg-surface)',
+                      border: '1px solid var(--border-medium)',
+                      borderRadius: '6px',
+                      color: 'var(--text-white)',
+                      outline: 'none'
+                    }}
+                    autoFocus
+                  />
+                </div>
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value as any)}
                   style={{
-                    width: '100%',
                     height: '32px',
-                    paddingLeft: '32px',
-                    paddingRight: '12px',
-                    fontSize: '12.5px',
+                    fontSize: '11.5px',
                     background: 'var(--bg-surface)',
                     border: '1px solid var(--border-medium)',
                     borderRadius: '6px',
                     color: 'var(--text-white)',
-                    outline: 'none'
+                    outline: 'none',
+                    padding: '0 8px',
+                    cursor: 'pointer'
                   }}
-                  autoFocus
-                />
+                >
+                  <option value="newest">Newest</option>
+                  <option value="oldest">Oldest</option>
+                  <option value="name-asc">A-Z</option>
+                  <option value="name-desc">Z-A</option>
+                </select>
               </div>
 
               {/* Header Right Actions */}
@@ -506,13 +549,13 @@ export default function RichClipSelector({
                   </div>
                 )}
 
-                {filteredClips.length > 0 ? (
+                {sortedClips.length > 0 ? (
                   <div style={{
                     display: 'grid',
                     gridTemplateColumns: `repeat(auto-fill, minmax(${zoom}px, 1fr))`,
                     gap: '16px'
                   }}>
-                    {filteredClips.map(clip => {
+                    {sortedClips.map(clip => {
                       const isPreviewed = previewClip?.id === clip.id;
                       const isAssigned = value === clip.id;
                       return (

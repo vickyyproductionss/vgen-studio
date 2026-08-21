@@ -649,6 +649,81 @@ export function getLocalWordTimings(words, sceneStartTime, duration) {
   return adjustedWords;
 }
 
+function getAnimationTags(animation, duration) {
+  if (!animation || animation === 'none') return '';
+
+  const durMs = Math.round(duration * 1000);
+  switch (animation) {
+    case 'bounce':
+      const popInMs = Math.min(200, Math.round(durMs * 0.3));
+      const settleMs = Math.min(350, Math.round(durMs * 0.5));
+      return `\\fscx30\\fscy30\\t(0,${popInMs},\\fscx115\\fscy115)\\t(${popInMs},${settleMs},\\fscx100\\fscy100)`;
+
+    case 'flicker':
+      if (durMs < 100) return '';
+      let flickerTags = '';
+      const step = Math.min(150, Math.round(durMs / 6));
+      for (let t = 0; t < durMs; t += step * 2) {
+        const t1 = t;
+        const t2 = Math.min(durMs, t + step);
+        const t3 = Math.min(durMs, t + step * 2);
+        if (t2 > t1) {
+          flickerTags += `\\t(${t1},${t2},\\alpha&HAA&)`;
+        }
+        if (t3 > t2) {
+          flickerTags += `\\t(${t2},${t3},\\alpha&H00&)`;
+        }
+      }
+      return flickerTags;
+
+    case 'glitch':
+      if (durMs < 200) return '';
+      let glitchTags = '';
+      const gStep = Math.min(200, Math.round(durMs / 5));
+      for (let t = 0; t < durMs - 50; t += gStep) {
+        const t1 = t;
+        const t2 = Math.min(durMs, t + 40);
+        const t3 = Math.min(durMs, t + 80);
+        glitchTags += `\\t(${t1},${t2},\\fax-0.15)\\t(${t2},${t3},\\fax0.15)`;
+      }
+      glitchTags += `\\t(${durMs - 50},${durMs},\\fax0)`;
+      return glitchTags;
+
+    default:
+      return '';
+  }
+}
+
+function applyTypewriterKaraoke(text, duration) {
+  const cleanText = text.replace(/\{[^}]*\}/g, '');
+  if (cleanText.length === 0) return text;
+
+  const totalCentiseconds = Math.round(duration * 100);
+  const charsCount = cleanText.length;
+  const revealDuration = Math.round(totalCentiseconds * 0.7);
+  const charDuration = Math.max(1, Math.round(revealDuration / charsCount));
+
+  let result = '';
+  for (let i = 0; i < cleanText.length; i++) {
+    result += `{\\k${charDuration}}${cleanText[i]}`;
+  }
+  return result;
+}
+
+function getBackgroundBoxText(boxStyle, boxW, boxH, boxRounding, boxColor, outlineSize) {
+  const boxShape = drawCenteredRoundedRect(boxW, boxH, boxRounding);
+  const tagBoxColor = toTagColor(hexToAssColor(boxColor || '#8A4BF3'));
+  let boxTags = '';
+  if (boxStyle === 'rounded-box') {
+    boxTags = `\\c${tagBoxColor}\\3c${tagBoxColor}\\bord0\\1a&H00&\\3a&HFF&`;
+  } else if (boxStyle === 'semi-transparent') {
+    boxTags = `\\c${tagBoxColor}\\3c${tagBoxColor}\\bord0\\1a&H66&\\3a&HFF&`;
+  } else if (boxStyle === 'outline-badge') {
+    boxTags = `\\c${tagBoxColor}\\3c${tagBoxColor}\\bord${outlineSize}\\1a&HFF&\\3a&H00&`;
+  }
+  return `{\\p1}${boxTags}${boxShape}{\\p0}`;
+}
+
 /**
  * Generates an ASS subtitle file content
  */
@@ -711,6 +786,39 @@ export function createAssFileContent(originalScene, duration, style, width, heig
     const motion = style.textMotion || 'none';
     const tagCol = col ? toTagColor(col) : '';
 
+    let processedText = cleanText;
+    if (style.textAnimation === 'typewriter') {
+      processedText = applyTypewriterKaraoke(cleanText, duration);
+    }
+
+    const animTags = getAnimationTags(style.textAnimation, duration);
+
+    let bgBoxText = '';
+    if (style.textBackgroundStyle && style.textBackgroundStyle !== 'none' && !text.includes('\\p1')) {
+      const cleanTextForSize = cleanText.replace(/\{[^}]*\}/g, '');
+      if (cleanTextForSize.trim().length > 0) {
+        let charWidthFactor = 0.52;
+        if (fontName === 'Anton') charWidthFactor = 0.42;
+        else if (fontName === 'Bangers') charWidthFactor = 0.48;
+        else if (fontName === 'Impact') charWidthFactor = 0.52;
+        else if (fontName === 'Kalam') charWidthFactor = 0.50;
+
+        const textW = cleanTextForSize.length * charWidthFactor * fontSize;
+        const textH = fontSize * 1.35;
+
+        const boxRounding = Math.max(2, Math.round(8 * (height / 640)));
+        const boxPadding = style.boxPadding !== undefined ? parseInt(style.boxPadding, 10) : 8;
+        const scaledPaddingX = Math.round(boxPadding * 1.5 * (height / 640));
+        const scaledPaddingY = Math.round(boxPadding * 0.8 * (height / 640));
+        const boxW = textW + scaledPaddingX * 2;
+        const boxH = textH + scaledPaddingY * 2;
+        const outlineSize = style.outlineSize !== undefined ? parseInt(style.outlineSize, 10) : 3;
+        const scaledOutline = Math.max(1, Math.round(outlineSize * (height / 640)));
+
+        bgBoxText = getBackgroundBoxText(style.textBackgroundStyle, boxW, boxH, boxRounding, style.boxColor, scaledOutline);
+      }
+    }
+
     // If duration is too short (< 0.15s) or transition is none, fallback to simple pos/move with optional fade
     if (transition === 'none' || duration < 0.15) {
       let moveTag = `\\pos(${X},${Y})`;
@@ -722,7 +830,13 @@ export function createAssFileContent(originalScene, duration, style, width, heig
       if (style.textFade !== false) {
         fadeTag = '\\fad(150,150)';
       }
-      return `Dialogue: ${layer},${formatTime(start)},${formatTime(end)},Default,,0,0,0,,{\\an5${moveTag}${fadeTag}${extraTags}${tagCol ? `\\c${tagCol}` : ''}}${cleanText}\n`;
+
+      if (bgBoxText) {
+        let bgLine = `Dialogue: ${layer},${formatTime(start)},${formatTime(end)},Default,,0,0,0,,{\\an5${moveTag}${fadeTag}}${bgBoxText}\n`;
+        return bgLine + `Dialogue: ${layer + 1},${formatTime(start)},${formatTime(end)},Default,,0,0,0,,{\\an5${moveTag}${fadeTag}${animTags}${extraTags}${tagCol ? `\\c${tagCol}` : ''}}${processedText}\n`;
+      } else {
+        return `Dialogue: ${layer},${formatTime(start)},${formatTime(end)},Default,,0,0,0,,{\\an5${moveTag}${fadeTag}${animTags}${extraTags}${tagCol ? `\\c${tagCol}` : ''}}${processedText}\n`;
+      }
     }
 
     // Proportional transition time calculation: 
@@ -825,10 +939,20 @@ export function createAssFileContent(originalScene, duration, style, width, heig
       fadeTagOut = `\\fad(0,${animMs})`;
     }
 
-    let result = `Dialogue: ${layer},${formatTime(start)},${formatTime(t1)},Default,,0,0,0,,{\\an5${inMove}${inAnim}${fadeTag}${extraTags}${tagCol ? `\\c${tagCol}` : ''}}${cleanText}\n`;
-    result += `Dialogue: ${layer},${formatTime(t1)},${formatTime(t2)},Default,,0,0,0,,{\\an5${midMove}${extraTags}${tagCol ? `\\c${tagCol}` : ''}}${cleanText}\n`;
-    result += `Dialogue: ${layer},${formatTime(t2)},${formatTime(end)},Default,,0,0,0,,{\\an5${outMove}${outAnim}${fadeTagOut}${extraTags}${tagCol ? `\\c${tagCol}` : ''}}${cleanText}\n`;
-    return result;
+    if (bgBoxText) {
+      let result = `Dialogue: ${layer},${formatTime(start)},${formatTime(t1)},Default,,0,0,0,,{\\an5${inMove}${inAnim}${fadeTag}}${bgBoxText}\n`;
+      result += `Dialogue: ${layer + 1},${formatTime(start)},${formatTime(t1)},Default,,0,0,0,,{\\an5${inMove}${inAnim}${fadeTag}${animTags}${extraTags}${tagCol ? `\\c${tagCol}` : ''}}${processedText}\n`;
+      result += `Dialogue: ${layer},${formatTime(t1)},${formatTime(t2)},Default,,0,0,0,,{\\an5${midMove}}${bgBoxText}\n`;
+      result += `Dialogue: ${layer + 1},${formatTime(t1)},${formatTime(t2)},Default,,0,0,0,,{\\an5${midMove}${animTags}${extraTags}${tagCol ? `\\c${tagCol}` : ''}}${processedText}\n`;
+      result += `Dialogue: ${layer},${formatTime(t2)},${formatTime(end)},Default,,0,0,0,,{\\an5${outMove}${outAnim}${fadeTagOut}}${bgBoxText}\n`;
+      result += `Dialogue: ${layer + 1},${formatTime(t2)},${formatTime(end)},Default,,0,0,0,,{\\an5${outMove}${outAnim}${fadeTagOut}${animTags}${extraTags}${tagCol ? `\\c${tagCol}` : ''}}${processedText}\n`;
+      return result;
+    } else {
+      let result = `Dialogue: ${layer},${formatTime(start)},${formatTime(t1)},Default,,0,0,0,,{\\an5${inMove}${inAnim}${fadeTag}${animTags}${extraTags}${tagCol ? `\\c${tagCol}` : ''}}${processedText}\n`;
+      result += `Dialogue: ${layer},${formatTime(t1)},${formatTime(t2)},Default,,0,0,0,,{\\an5${midMove}${animTags}${extraTags}${tagCol ? `\\c${tagCol}` : ''}}${processedText}\n`;
+      result += `Dialogue: ${layer},${formatTime(t2)},${formatTime(end)},Default,,0,0,0,,{\\an5${outMove}${outAnim}${fadeTagOut}${animTags}${extraTags}${tagCol ? `\\c${tagCol}` : ''}}${processedText}\n`;
+      return result;
+    }
   };
 
   const marginV = 20;
@@ -1144,7 +1268,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,${fontName},${fontSize},${primaryColor},&H000000FF,${outlineColor},${shadowColor},${isBold ? -1 : 0},${style.italic ? -1 : 0},0,0,100,100,0,0,1,${outlineSize},${shadowDepth},${alignment},20,20,${marginV},1
+Style: Default,${fontName},${fontSize},${primaryColor},${style.textAnimation === 'typewriter' ? '&HFF0000FF' : '&H000000FF'},${outlineColor},${shadowColor},${isBold ? -1 : 0},${style.italic ? -1 : 0},0,0,100,100,0,0,1,${outlineSize},${shadowDepth},${alignment},20,20,${marginV},1
 ${headingStyleLine}${timerStyleLine}${brandingStyleLine}
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -1237,8 +1361,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
   }));
 
   const boxAssColor = hexToAssColor(style.boxColor || '#8A4BF3');
-  const showBox = style.showHighlightBox !== false;
-  const boxRounding = parseInt(style.boxRounding, 10) || 8;
+  const showBox = style.showHighlightBox !== false || (style.textBackgroundStyle && style.textBackgroundStyle !== 'none');
+  const boxRounding = Math.max(2, Math.round((parseInt(style.boxRounding, 10) || 8) * (height / 640)));
 
   let events = '';
 
@@ -1248,9 +1372,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
   else if (fontName === 'Bangers') charWidthFactor = 0.48;
   else if (fontName === 'Impact') charWidthFactor = 0.52;
   else if (fontName === 'Kalam') charWidthFactor = 0.50;
-
-  const padX = fontSize * 0.3;
-  const boxHeight = fontSize * 1.3;
 
   const startLayer = showBox ? 1 : 0;
 
@@ -1286,7 +1407,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
       // Background Box for single word
       if (showBox) {
         const wordW = wordText.length * charWidthFactor * fontSize;
-        const boxW = wordW + padX * 2;
+        const boxPadding = style.boxPadding !== undefined ? parseInt(style.boxPadding, 10) : 8;
+        const scaledPaddingX = Math.round(boxPadding * 1.5 * (height / 640));
+        const scaledPaddingY = Math.round(boxPadding * 0.8 * (height / 640));
+        const boxW = wordW + scaledPaddingX * 2;
+        const boxH = fontSize * 1.35 + scaledPaddingY * 2;
         
         let boxScaleTag = '';
         if (activeWordScale > 1.0) {
@@ -1295,7 +1420,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
           boxScaleTag = `\\fscx${bScaleStart}\\fscy${bScaleStart}\\t(0,60,\\fscx${bScaleEnd}\\fscy${bScaleEnd})`;
         }
         
-        events += createDialogueLines(0, w.start, w.end, rx, ry, `{\\p1}${drawCenteredRoundedRect(boxW, boxHeight, boxRounding)}{\\p0}`, boxAssColor, boxScaleTag);
+        const outlineSize = style.outlineSize !== undefined ? parseInt(style.outlineSize, 10) : 3;
+        const scaledOutline = Math.max(1, Math.round(outlineSize * (height / 640)));
+
+        const bgBoxText = getBackgroundBoxText(style.textBackgroundStyle || 'rounded-box', boxW, boxH, boxRounding, style.boxColor, scaledOutline);
+        events += createDialogueLines(0, w.start, w.end, rx, ry, bgBoxText, "", boxScaleTag);
       }
       
       const glowTagsOuter = getWordTags(wordStyle, true, 'glowOuter', outlineColor, outlineSize, fontSize, style, category);
@@ -1449,8 +1578,45 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
           return Y_pos + 4 - progress * 8;
         };
 
+        const startLayer = (style.textBackgroundStyle && style.textBackgroundStyle !== 'none') ? 1 : 0;
+
         const writeChunkDialogueLines = (layer, text) => {
           let chunkEvents = '';
+          const animTags = getAnimationTags(style.textAnimation, segmentDuration);
+
+          let bgBoxText = '';
+          if (style.textBackgroundStyle && style.textBackgroundStyle !== 'none' && !text.includes('\\p1')) {
+            const cleanTextForSize = text.replace(/\{[^}]*\}/g, '');
+            if (cleanTextForSize.trim().length > 0) {
+              let charWidthFactor = 0.52;
+              if (fontName === 'Anton') charWidthFactor = 0.42;
+              else if (fontName === 'Bangers') charWidthFactor = 0.48;
+              else if (fontName === 'Impact') charWidthFactor = 0.52;
+              else if (fontName === 'Kalam') charWidthFactor = 0.50;
+
+              const textW = cleanTextForSize.length * charWidthFactor * fontSize;
+              const textH = fontSize * 1.35;
+
+              const boxRounding = Math.max(2, Math.round(8 * (height / 640)));
+              const boxPadding = style.boxPadding !== undefined ? parseInt(style.boxPadding, 10) : 8;
+              const scaledPaddingX = Math.round(boxPadding * 1.5 * (height / 640));
+              const scaledPaddingY = Math.round(boxPadding * 0.8 * (height / 640));
+              const boxW = textW + scaledPaddingX * 2;
+              const boxH = textH + scaledPaddingY * 2;
+              const outlineSize = style.outlineSize !== undefined ? parseInt(style.outlineSize, 10) : 3;
+              const scaledOutline = Math.max(1, Math.round(outlineSize * (height / 640)));
+
+              bgBoxText = getBackgroundBoxText(style.textBackgroundStyle, boxW, boxH, boxRounding, style.boxColor, scaledOutline);
+            }
+          }
+
+          const writeBgLine = (s, e, tags) => {
+            if (bgBoxText && layer === startLayer) {
+              return `Dialogue: 0,${formatTime(s)},${formatTime(e)},Default,,0,0,0,,{\\an5${tags}}${bgBoxText}\n`;
+            }
+            return '';
+          };
+
           if (transition === 'none' || chunkDuration < 0.15 || segmentDuration < 0.10) {
             const yStart = Math.round(getYForTime(start));
             const yEnd = Math.round(getYForTime(end));
@@ -1465,7 +1631,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
               else if (isFirst) fadeTag = '\\fad(150,0)';
               else if (isLast) fadeTag = '\\fad(0,150)';
             }
-            chunkEvents += `Dialogue: ${layer},${formatTime(start)},${formatTime(end)},Default,,0,0,0,,{\\an5${moveTag}${fadeTag}}${text}\n`;
+            chunkEvents += writeBgLine(start, end, `${moveTag}${fadeTag}`);
+            chunkEvents += `Dialogue: ${layer},${formatTime(start)},${formatTime(end)},Default,,0,0,0,,{\\an5${moveTag}${fadeTag}${animTags}}${text}\n`;
           } else {
             // Complex slide/zoom transitions
             let animTime = 0.15;
@@ -1567,9 +1734,13 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 midMove = `\\move(${X_pos},${y1},${X_pos},${y2})`;
               }
 
-              chunkEvents += `Dialogue: ${layer},${formatTime(start)},${formatTime(mid1)},Default,,0,0,0,,{\\an5${inMove}${inAnim}${fadeTagIn}}${text}\n`;
-              chunkEvents += `Dialogue: ${layer},${formatTime(mid1)},${formatTime(mid2)},Default,,0,0,0,,{\\an5${midMove}}${text}\n`;
-              chunkEvents += `Dialogue: ${layer},${formatTime(mid2)},${formatTime(end)},Default,,0,0,0,,{\\an5${outMove}${outAnim}${fadeTagOut}}${text}\n`;
+              chunkEvents += writeBgLine(start, mid1, `${inMove}${inAnim}${fadeTagIn}`);
+              chunkEvents += writeBgLine(mid1, mid2, `${midMove}`);
+              chunkEvents += writeBgLine(mid2, end, `${outMove}${outAnim}${fadeTagOut}`);
+
+              chunkEvents += `Dialogue: ${layer},${formatTime(start)},${formatTime(mid1)},Default,,0,0,0,,{\\an5${inMove}${inAnim}${fadeTagIn}${animTags}}${text}\n`;
+              chunkEvents += `Dialogue: ${layer},${formatTime(mid1)},${formatTime(mid2)},Default,,0,0,0,,{\\an5${midMove}${animTags}}${text}\n`;
+              chunkEvents += `Dialogue: ${layer},${formatTime(mid2)},${formatTime(end)},Default,,0,0,0,,{\\an5${outMove}${outAnim}${fadeTagOut}${animTags}}${text}\n`;
             } else if (isFirst) {
               const mid = start + animTime;
               const y1 = Math.round(getYForTime(mid));
@@ -1579,8 +1750,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 midMove = `\\move(${X_pos},${y1},${X_pos},${y2})`;
               }
 
-              chunkEvents += `Dialogue: ${layer},${formatTime(start)},${formatTime(mid)},Default,,0,0,0,,{\\an5${inMove}${inAnim}${fadeTagIn}}${text}\n`;
-              chunkEvents += `Dialogue: ${layer},${formatTime(mid)},${formatTime(end)},Default,,0,0,0,,{\\an5${midMove}}${text}\n`;
+              chunkEvents += writeBgLine(start, mid, `${inMove}${inAnim}${fadeTagIn}`);
+              chunkEvents += writeBgLine(mid, end, `${midMove}`);
+
+              chunkEvents += `Dialogue: ${layer},${formatTime(start)},${formatTime(mid)},Default,,0,0,0,,{\\an5${inMove}${inAnim}${fadeTagIn}${animTags}}${text}\n`;
+              chunkEvents += `Dialogue: ${layer},${formatTime(mid)},${formatTime(end)},Default,,0,0,0,,{\\an5${midMove}${animTags}}${text}\n`;
             } else if (isLast) {
               const mid = end - animTime;
               const y1 = Math.round(getYForTime(start));
@@ -1590,8 +1764,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 midMove = `\\move(${X_pos},${y1},${X_pos},${y2})`;
               }
 
-              chunkEvents += `Dialogue: ${layer},${formatTime(start)},${formatTime(mid)},Default,,0,0,0,,{\\an5${midMove}}${text}\n`;
-              chunkEvents += `Dialogue: ${layer},${formatTime(mid)},${formatTime(end)},Default,,0,0,0,,{\\an5${outMove}${outAnim}${fadeTagOut}}${text}\n`;
+              chunkEvents += writeBgLine(start, mid, `${midMove}`);
+              chunkEvents += writeBgLine(mid, end, `${outMove}${outAnim}${fadeTagOut}`);
+
+              chunkEvents += `Dialogue: ${layer},${formatTime(start)},${formatTime(mid)},Default,,0,0,0,,{\\an5${midMove}${animTags}}${text}\n`;
+              chunkEvents += `Dialogue: ${layer},${formatTime(mid)},${formatTime(end)},Default,,0,0,0,,{\\an5${outMove}${outAnim}${fadeTagOut}${animTags}}${text}\n`;
             } else {
               const y1 = Math.round(getYForTime(start));
               const y2 = Math.round(getYForTime(end));
@@ -1599,19 +1776,21 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
               if (motion === 'float') {
                 midMove = `\\move(${X_pos},${y1},${X_pos},${y2})`;
               }
-              chunkEvents += `Dialogue: ${layer},${formatTime(start)},${formatTime(end)},Default,,0,0,0,,{\\an5${midMove}}${text}\n`;
+              
+              chunkEvents += writeBgLine(start, end, `${midMove}`);
+              chunkEvents += `Dialogue: ${layer},${formatTime(start)},${formatTime(end)},Default,,0,0,0,,{\\an5${midMove}${animTags}}${text}\n`;
             }
           }
           return chunkEvents;
         };
 
         if (anyNeonGlow) {
-          events += writeChunkDialogueLines(0, glowTextOuter);
-          events += writeChunkDialogueLines(1, glowTextMedium);
-          events += writeChunkDialogueLines(2, glowTextInner);
-          events += writeChunkDialogueLines(3, coreText);
+          events += writeChunkDialogueLines(startLayer, glowTextOuter);
+          events += writeChunkDialogueLines(startLayer + 1, glowTextMedium);
+          events += writeChunkDialogueLines(startLayer + 2, glowTextInner);
+          events += writeChunkDialogueLines(startLayer + 3, coreText);
         } else {
-          events += writeChunkDialogueLines(0, coreText);
+          events += writeChunkDialogueLines(startLayer, coreText);
         }
       }
     }
@@ -2844,10 +3023,11 @@ export async function assembleVideo(options, onProgress) {
       const inputLabel = finalComposedLabel;
       const blurredLabel = `v_glow_blur_${i}`;
       const outputLabel = `v_glow_out_${i}`;
+      const downscaledRadius = Math.max(1, Math.round(radius / 4));
       
-      // Extract highlights and blur, then screen blend back
+      // Extract highlights, downscale by 4x, blur at low-res, scale back up, and blend screen mode
       filterComplex += `;[${inputLabel}]split=2[glow_orig_${i}][glow_src_${i}]`;
-      filterComplex += `;[glow_src_${i}]lutyuv=y='if(gt(val,${threshold}),(val-${threshold})*255/(255-${threshold}),0)':u=128:v=128,boxblur=lr=${radius}:lp=2[${blurredLabel}]`;
+      filterComplex += `;[glow_src_${i}]scale=2*trunc(iw/8):2*trunc(ih/8),lutyuv=y='if(gt(val,${threshold}),(val-${threshold})*255/(255-${threshold}),0)':u=128:v=128,boxblur=lr=${downscaledRadius}:lp=2,scale=${targetWidth}:${targetHeight}[${blurredLabel}]`;
       filterComplex += `;[glow_orig_${i}][${blurredLabel}]blend=c0_mode=screen:c0_opacity=${opacity}[${outputLabel}]`;
       
       finalComposedLabel = outputLabel;

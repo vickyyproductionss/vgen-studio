@@ -143,7 +143,7 @@ export default function TimelineEditor({ onStartRender, onBack }: TimelineEditor
   const [zoomAnimation, setZoomAnimation] = useState(true);
 
   // Subtitle Style States
-  const [subtitleMode, setSubtitleMode] = useState<'classic' | 'pop' | 'smart-highlight' | 'centered-word'>('classic');
+  const [subtitleMode, setSubtitleMode] = useState<'classic' | 'pop' | 'smart-highlight' | 'centered-word' | 'simple'>('classic');
   const [fontName, setFontName] = useState('Arial');
   const [fontSize, setFontSize] = useState(24);
   const [fontColor, setFontColor] = useState('#FFFFFF');

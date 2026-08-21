@@ -18,8 +18,8 @@ export interface WordTiming {
 }
 
 interface SubtitleStyleEditorProps {
-  subtitleMode: 'classic' | 'pop' | 'smart-highlight' | 'centered-word';
-  setSubtitleMode: (val: 'classic' | 'pop' | 'smart-highlight' | 'centered-word') => void;
+  subtitleMode: 'classic' | 'pop' | 'smart-highlight' | 'centered-word' | 'simple';
+  setSubtitleMode: (val: 'classic' | 'pop' | 'smart-highlight' | 'centered-word' | 'simple') => void;
   fontName: string;
   setFontName: (val: string) => void;
   fontSize: number;
@@ -166,6 +166,16 @@ interface SubtitleStyleEditorProps {
   setShowLayoutCards: (val: boolean) => void;
   applyHUDToAll?: boolean;
   setApplyHUDToAll?: (val: boolean) => void;
+
+  // Text Background & Animation Customization
+  textBackgroundStyle: 'none' | 'rounded-box' | 'outline-badge' | 'semi-transparent';
+  setTextBackgroundStyle: (val: 'none' | 'rounded-box' | 'outline-badge' | 'semi-transparent') => void;
+  textAnimation: 'none' | 'typewriter' | 'bounce' | 'flicker' | 'slide' | 'wave' | 'glitch';
+  setTextAnimation: (val: 'none' | 'typewriter' | 'bounce' | 'flicker' | 'slide' | 'wave' | 'glitch') => void;
+  boxPadding: string;
+  setBoxPadding: (val: string) => void;
+  outlineSize: number;
+  setOutlineSize: (val: number) => void;
 }
 
 const emojiMap: Record<string, string> = {
@@ -496,8 +506,16 @@ export const SubtitleStyleEditor: React.FC<SubtitleStyleEditorProps> = ({
   setShowLayoutCards,
   applyHUDToAll = true,
   setApplyHUDToAll,
+  textBackgroundStyle,
+  setTextBackgroundStyle,
+  textAnimation,
+  setTextAnimation,
+  boxPadding,
+  setBoxPadding,
+  outlineSize,
+  setOutlineSize,
 }) => {
-  const [activeAccordion, setActiveAccordion] = useState<'layout' | 'typography' | 'words' | 'branding' | 'cards' | null>('layout');
+  const [activeAccordion, setActiveAccordion] = useState<'layout' | 'typography' | 'words' | 'branding' | 'cards' | 'effects' | null>('layout');
   const [fontSelectorOpen, setFontSelectorOpen] = useState(false);
   const [fontSearchQuery, setFontSearchQuery] = useState('');
   const [fontLoading, setFontLoading] = useState(false);
@@ -680,6 +698,7 @@ export const SubtitleStyleEditor: React.FC<SubtitleStyleEditorProps> = ({
                 <option value="smart-highlight">Smart Highlight</option>
                 <option value="centered-word">Snappy Single Word</option>
                 <option value="pop">Floating Pop</option>
+                <option value="simple">Simple Text</option>
               </select>
             </div>
 
@@ -778,7 +797,7 @@ export const SubtitleStyleEditor: React.FC<SubtitleStyleEditorProps> = ({
                     <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{maxWordsPerLine}</span>
                   </div>
                   <input
-                    type="range" min={1} max={5} step={1} value={maxWordsPerLine}
+                    type="range" min={1} max={15} step={1} value={maxWordsPerLine}
                     onChange={(e) => {
                       const val = parseInt(e.target.value, 10);
                       setMaxWordsPerLine(val);
@@ -1251,6 +1270,132 @@ export const SubtitleStyleEditor: React.FC<SubtitleStyleEditorProps> = ({
                 <option value="first-word-larger">First Letter Larger, All Caps</option>
               </select>
             </div>
+          </div>
+        )}
+      </div>
+
+      {/* ACCORDION 2.5: TEXT EFFECTS & ANIMATIONS */}
+      <div className="inspector-card" style={{ padding: 0, overflow: 'hidden' }}>
+        <div 
+          onClick={() => setActiveAccordion(activeAccordion === 'effects' ? null : 'effects')}
+          style={{
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            padding: '12px 16px', background: 'rgba(255, 255, 255, 0.02)', cursor: 'pointer',
+            borderBottom: activeAccordion === 'effects' ? '1px solid var(--border-light)' : 'none',
+            transition: 'all 0.2s'
+          }}
+        >
+          <span style={{ fontSize: '12.5px', fontWeight: 700, color: 'var(--text-white)', display: 'flex', alignItems: 'center', gap: '6px' }}>🎬 Text Effects & Animations</span>
+          <span style={{ fontSize: '9px', color: 'var(--text-gray)' }}>{activeAccordion === 'effects' ? '▲' : '▼'}</span>
+        </div>
+
+        {activeAccordion === 'effects' && (
+          <div style={{ padding: '16px', animation: 'fadeIn 0.2s ease-out', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            {/* Background Style Select */}
+            <div>
+              <label className="label">Background Style</label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                {[
+                  { id: 'none', label: 'None' },
+                  { id: 'rounded-box', label: 'Rounded Box' },
+                  { id: 'outline-badge', label: 'Outline Badge' },
+                  { id: 'semi-transparent', label: 'Semi-Transparent' }
+                ].map(style => (
+                  <button
+                    key={style.id} type="button" 
+                    onClick={() => {
+                      setTextBackgroundStyle(style.id as any);
+                      if (onSaveFields) onSaveFields({ textBackgroundStyle: style.id });
+                    }}
+                    style={{
+                      padding: '8px',
+                      borderRadius: '8px',
+                      background: textBackgroundStyle === style.id ? 'rgba(var(--scrollbar-thumb), 0.1)' : 'transparent',
+                      border: textBackgroundStyle === style.id ? '1px solid var(--primary)' : '1px solid var(--border-light)',
+                      color: textBackgroundStyle === style.id ? 'var(--text-white)' : 'var(--text-gray)',
+                      textAlign: 'center',
+                      cursor: 'pointer',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      transition: 'all 0.2s ease'
+                    }}
+                  >
+                    {style.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Animation Selector */}
+            <div>
+              <label className="label">Text Animation</label>
+              <select
+                className="input-field"
+                value={textAnimation}
+                onChange={(e) => {
+                  const val = e.target.value as any;
+                  setTextAnimation(val);
+                  if (onSaveFields) onSaveFields({ textAnimation: val });
+                }}
+                style={{ height: '34px', fontSize: '12px', background: 'var(--bg-darker)' }}
+              >
+                <option value="none">None (Static)</option>
+                <option value="typewriter">Typewriter (Reveal)</option>
+                <option value="bounce">Bounce (Spring Pop)</option>
+                <option value="flicker">Flicker (Neon Pulse)</option>
+                <option value="slide">Slide (Glide Up/Down)</option>
+                <option value="wave">Wave (Letter Bobbing)</option>
+                <option value="glitch">Glitch (Skews)</option>
+              </select>
+            </div>
+
+            {/* Optional controls when background style is not none */}
+            {textBackgroundStyle !== 'none' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', background: 'rgba(0,0,0,0.15)', padding: '12px', borderRadius: '6px', border: '1px solid var(--border-medium)' }}>
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                    <label className="label" style={{ margin: 0, fontSize: '11px' }}>Box Padding</label>
+                    <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{boxPadding}</span>
+                  </div>
+                  <select
+                    className="input-field"
+                    value={boxPadding}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setBoxPadding(val);
+                      if (onSaveFields) onSaveFields({ boxPadding: val });
+                    }}
+                    style={{ height: '28px', padding: '2px 6px', fontSize: '11px', background: 'var(--bg-darker)' }}
+                  >
+                    <option value="2px 4px">Extra Tight</option>
+                    <option value="4px 8px">Tight</option>
+                    <option value="6px 12px">Standard</option>
+                    <option value="8px 16px">Loose</option>
+                    <option value="12px 24px">Extra Loose</option>
+                  </select>
+                </div>
+
+                {textBackgroundStyle === 'outline-badge' && (
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                      <label className="label" style={{ margin: 0, fontSize: '11px' }}>Outline Weight</label>
+                      <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{outlineSize}px</span>
+                    </div>
+                    <input
+                      type="range" min={1} max={10} value={outlineSize}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value, 10);
+                        setOutlineSize(val);
+                      }}
+                      onMouseUp={() => {
+                        if (onSaveFields) onSaveFields({ outlineSize });
+                      }}
+                      style={{ width: '100%', accentColor: 'var(--primary)' }}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>

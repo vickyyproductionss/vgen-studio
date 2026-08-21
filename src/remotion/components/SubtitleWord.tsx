@@ -36,6 +36,10 @@ interface SubtitleWordProps {
   emojiStyle?: WordStyle;
   textCase?: 'default' | 'upper' | 'first-word-larger';
   isFirst?: boolean;
+  customColor?: string;
+  customSize?: number;
+  customBold?: boolean;
+  customItalic?: boolean;
 }
 
 // Convert a 3- or 6-char hex string to rgba()
@@ -75,6 +79,10 @@ export const SubtitleWord: React.FC<SubtitleWordProps> = ({
   highlightStyle,
   emojiStyle,
   textCase = 'default',
+  customColor,
+  customSize,
+  customBold,
+  customItalic,
 }) => {
   // Determine if this is an emoji word to apply emoji style
   const isEmoji = /[\uD800-\uDFFF\u2600-\u27BF]/.test(word);
@@ -132,10 +140,10 @@ export const SubtitleWord: React.FC<SubtitleWordProps> = ({
   const styleObj: React.CSSProperties = {
     display: 'inline-block',
     fontFamily: fontName,
-    fontSize: `${fontSize}px`,
-    fontWeight: bold ? 'bold' : 'normal',
-    fontStyle: italic ? 'italic' : 'normal',
-    color: currentStyle.fontColor,
+    fontSize: customSize ? `${customSize}px` : `${fontSize}px`,
+    fontWeight: customBold !== undefined ? (customBold ? 'bold' : 'normal') : (bold ? 'bold' : 'normal'),
+    fontStyle: customItalic !== undefined ? (customItalic ? 'italic' : 'normal') : (italic ? 'italic' : 'normal'),
+    color: customColor || currentStyle.fontColor,
     transform: `scale(${scale})`,
     transition: 'transform 0.08s ease-out, color 0.08s ease-out',
     margin: `0 ${4 + wordSpacing}px`,

@@ -74,7 +74,6 @@ interface WordStyle {
   glowDistance: number;
 }
 
-/*
 const emojiMap: Record<string, string> = {
   // Fitness
   'gym': '🏋️‍♂️', 'workout': '🏋️‍♂️', 'fitness': '💪', 'strong': '💪', 'training': '🏋️‍♂️', 'athlete': '🏃‍♂️', 'exercise': '🏋️‍♂️',
@@ -107,7 +106,6 @@ function getWordEmoji(word: string) {
   const clean = word.toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g, "");
   return emojiMap[clean] || '';
 }
-*/
 
 interface VideoPreviewProps {
   clipId: string;
@@ -368,7 +366,27 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
   const [exportFps, setExportFps] = useState<24 | 30 | 60>(30);
   const [bgms, setBgms] = useState<any[]>([]);
   const [bgmSource, setBgmSource] = useState<'library' | 'custom'>('library');
-  const [subtitleMode, setSubtitleMode] = useState<'classic' | 'pop' | 'smart-highlight' | 'centered-word'>('classic');
+  const [subtitleMode, setSubtitleMode] = useState<'classic' | 'pop' | 'smart-highlight' | 'centered-word' | 'simple'>('classic');
+  const [selectedWord, setSelectedWord] = useState<{ sceneIdx: number; wordIdx: number } | null>(null);
+
+  const updateWordStyle = (sceneIdx: number, wordIdx: number, style: { color?: string; size?: number; bold?: boolean; italic?: boolean }) => {
+    const updated = [...scenes];
+    if (updated[sceneIdx] && updated[sceneIdx].words && updated[sceneIdx].words![wordIdx]) {
+      updated[sceneIdx].words![wordIdx] = {
+        ...updated[sceneIdx].words![wordIdx],
+        ...style
+      };
+      
+      // Update Hindi/Hinglish arrays as well to keep them in sync
+      if (activeLang === 'hindi') {
+        updated[sceneIdx].words_hindi = updated[sceneIdx].words;
+      } else {
+        updated[sceneIdx].words_hinglish = updated[sceneIdx].words;
+      }
+      
+      setScenes(updated);
+    }
+  };
   // const [activeAccordion, setActiveAccordion] = useState<'layout' | 'typography' | 'words' | 'branding'>('layout');
   const [fontName, setFontName] = useState('Bangers');
   const [fontSelectorOpen, setFontSelectorOpen] = useState(false);
@@ -395,6 +413,11 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
   const [showHighlightBox, setShowHighlightBox] = useState(false);
   const [boxColor, setBoxColor] = useState('#8A4BF3');
   const [boxRounding, setBoxRounding] = useState(8);
+  const [textBackgroundStyle, setTextBackgroundStyle] = useState<'none' | 'rounded-box' | 'outline-badge' | 'semi-transparent'>('none');
+  const [textAnimation, setTextAnimation] = useState<'none' | 'typewriter' | 'bounce' | 'flicker' | 'slide' | 'wave' | 'glitch'>('none');
+  const [previewText, setPreviewText] = useState('Creative');
+  const [boxPadding, setBoxPadding] = useState('6px 12px');
+  const [outlineSize, setOutlineSize] = useState(3);
   const [textFade, setTextFade] = useState(true);
   const [textMotion, setTextMotion] = useState<string>('none');
   const [textTransition, setTextTransition] = useState<string>('none');
@@ -426,8 +449,6 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
   const [shadowDistance, setShadowDistance] = useState(2);
   const [shadowAngle, setShadowAngle] = useState(45);
   const [shadowOpacity, setShadowOpacity] = useState(0.6);
-  const [textAnimation, setTextAnimation] = useState('none');
-
   // Heading / Hook state variables
 /*
   const applyCaptionPreset = (preset: typeof CAPTION_PRESETS[0]) => {
@@ -514,7 +535,7 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
     glowBlur: 1,
     glowDistance: 20
   });
-  // const [styleTab, setStyleTab] = useState<'normal' | 'highlight' | 'emoji'>('normal');
+  const [styleTab, setStyleTab] = useState<'normal' | 'highlight' | 'emoji'>('normal');
   const [sfxList, setSfxList] = useState<{ id: string; name: string }[]>([]);
   const [previewingSfx, setPreviewingSfx] = useState<string | null>(null);
   const sfxAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -759,7 +780,8 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
             showHighlightBox, boxColor, boxRounding, textFade, textTransition, textMotion,
             activeWordScale, wordDisplayTime, maxWordsPerLine, textPositionX, textPositionY, exportResolution,
             exportFps, showEmojis, autoEmphasis, emphasisColor, neonGlow, glowColor, glowBlur, glowDistance, highlightTrigger, textCase, pop3d, pop3dColor,
-            pop3dDepth, letterSpacing, wordSpacing, shadowColor, shadowBlur, shadowDistance, shadowAngle, shadowOpacity, textAnimation,
+            pop3dDepth, letterSpacing, wordSpacing, shadowColor, shadowBlur, shadowDistance, shadowAngle, shadowOpacity,
+            textBackgroundStyle, textAnimation, boxPadding, outlineSize,
             normalStyle, highlightStyle, emojiStyle, elevenLabsModel, enhanceWithThoughtfulTags, originalScriptText,
             headingTitle, headingFontName, headingFontSize, headingFontColor, headingBoxColor, headingPadding, showTimer, headingTopOffset, headingLeftOffset,
             headingBoxOpacity, headingTextOpacity,
@@ -780,7 +802,8 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
           showHighlightBox, boxColor, boxRounding, textFade, textTransition, textMotion,
           activeWordScale, wordDisplayTime, maxWordsPerLine, textPositionX, textPositionY, exportResolution,
           exportFps, showEmojis, autoEmphasis, emphasisColor, neonGlow, glowColor, glowBlur, glowDistance, highlightTrigger, textCase, pop3d, pop3dColor,
-          pop3dDepth, letterSpacing, wordSpacing, shadowColor, shadowBlur, shadowDistance, shadowAngle, shadowOpacity, textAnimation,
+          pop3dDepth, letterSpacing, wordSpacing, shadowColor, shadowBlur, shadowDistance, shadowAngle, shadowOpacity,
+          textBackgroundStyle, textAnimation, boxPadding, outlineSize,
           normalStyle, highlightStyle, emojiStyle, elevenLabsModel, enhanceWithThoughtfulTags, originalScriptText,
           headingTitle, headingFontName, headingFontSize, headingFontColor, headingBoxColor, headingPadding, showTimer, headingTopOffset, headingLeftOffset,
           headingBoxOpacity, headingTextOpacity,
@@ -818,6 +841,7 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
     exportResolution, exportFps, showEmojis, autoEmphasis, emphasisColor, neonGlow, glowColor,
     glowBlur, glowDistance, highlightTrigger, textCase, pop3d, pop3dColor, pop3dDepth, letterSpacing, wordSpacing,
     shadowColor, shadowBlur, shadowDistance, shadowAngle, shadowOpacity, textAnimation,
+    textBackgroundStyle, boxPadding, outlineSize,
     normalStyle, highlightStyle, emojiStyle,
     elevenLabsModel, enhanceWithThoughtfulTags, originalScriptText, hasLoadedProject, projectId,
     headingTitle, headingFontName, headingFontSize, headingFontColor, headingBoxColor, headingPadding, showTimer, headingTopOffset, headingLeftOffset,
@@ -884,6 +908,10 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
         if (project.showHighlightBox !== undefined) setShowHighlightBox(project.showHighlightBox);
         if (project.boxColor !== undefined) setBoxColor(project.boxColor);
         if (project.boxRounding !== undefined) setBoxRounding(project.boxRounding);
+        if (project.textBackgroundStyle !== undefined) setTextBackgroundStyle(project.textBackgroundStyle);
+        if (project.textAnimation !== undefined) setTextAnimation(project.textAnimation);
+        if (project.boxPadding !== undefined) setBoxPadding(project.boxPadding);
+        if (project.outlineSize !== undefined) setOutlineSize(project.outlineSize);
         if (project.textFade !== undefined) setTextFade(project.textFade);
         if (project.textTransition !== undefined) setTextTransition(project.textTransition);
         if (project.textMotion !== undefined) setTextMotion(project.textMotion);
@@ -1376,7 +1404,18 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
       updated[idx].text_hinglish = text;
     }
     
-    const wordsList = text.split(/\s+/).filter(Boolean);
+    const lines = text.split('\n');
+    let wordsList: { word: string; newline: boolean }[] = [];
+    lines.forEach((line, lineIdx) => {
+      const lineWords = line.split(/\s+/).filter(Boolean);
+      lineWords.forEach((word, wordIdx) => {
+        wordsList.push({
+          word,
+          newline: lineIdx > 0 && wordIdx === 0
+        });
+      });
+    });
+
     const start = updated[idx].start_time;
     const end = updated[idx].end_time;
     const duration = end - start;
@@ -1386,12 +1425,14 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
     if (wordsList.length === existingWords.length) {
       updatedWords = existingWords.map((w, i) => ({
         ...w,
-        word: wordsList[i]
+        word: wordsList[i].word,
+        newline: wordsList[i].newline
       }));
     } else if (wordsList.length > 0 && duration > 0) {
       const wordDur = duration / wordsList.length;
-      updatedWords = wordsList.map((word, i) => ({
-        word,
+      updatedWords = wordsList.map((wItem, i) => ({
+        word: wItem.word,
+        newline: wItem.newline,
         start_time: Number((start + i * wordDur).toFixed(3)),
         end_time: Number((start + (i + 1) * wordDur).toFixed(3))
       }));
@@ -1782,7 +1823,8 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
             highlightColor, showHighlightBox, boxColor, boxRounding, textFade, textTransition,
             textMotion, activeWordScale, wordDisplayTime, maxWordsPerLine, textPositionX, textPositionY, showEmojis,
             autoEmphasis, emphasisColor, neonGlow, glowColor, glowBlur, glowDistance, highlightTrigger, textCase, pop3d, pop3dColor,
-            pop3dDepth, letterSpacing, wordSpacing, shadowColor, shadowBlur, shadowDistance, shadowAngle, shadowOpacity, textAnimation,
+            pop3dDepth, letterSpacing, wordSpacing, shadowColor, shadowBlur, shadowDistance, shadowAngle, shadowOpacity,
+            textBackgroundStyle, textAnimation, boxPadding, outlineSize,
             normalStyle, highlightStyle, emojiStyle,
             headingTitle, headingFontName, headingFontSize, headingFontColor, headingBoxColor, headingPadding,
             showTimer, headingTopOffset, headingLeftOffset,
@@ -2513,6 +2555,163 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                             }}
                           />
                         </div>
+
+                        {/* Double-clickable per-word styling interface */}
+                        {scene.words && scene.words.length > 0 && (
+                          <div style={{ marginTop: '4px' }}>
+                            <label className="label" style={{ fontSize: '10px', marginBottom: '4px' }}>
+                              Words Styling (Double-click a word to style it)
+                            </label>
+                            <div style={{ 
+                              display: 'flex', 
+                              flexWrap: 'wrap', 
+                              gap: '6px', 
+                              padding: '8px', 
+                              background: 'var(--bg-darker)', 
+                              borderRadius: '6px', 
+                              border: '1px solid var(--border-medium)',
+                              minHeight: '34px'
+                            }}>
+                              {scene.words.map((wordObj, wordIdx) => {
+                                const isWordSelected = selectedWord && selectedWord.sceneIdx === idx && selectedWord.wordIdx === wordIdx;
+                                return (
+                                  <span 
+                                    key={wordIdx} 
+                                    onDoubleClick={() => setSelectedWord({ sceneIdx: idx, wordIdx })}
+                                    style={{
+                                      padding: '2px 6px',
+                                      borderRadius: '4px',
+                                      cursor: 'pointer',
+                                      fontSize: wordObj.size ? `${wordObj.size}px` : '12px',
+                                      color: wordObj.color || 'var(--text-white)',
+                                      fontWeight: wordObj.bold ? 'bold' : 'normal',
+                                      fontStyle: wordObj.italic ? 'italic' : 'normal',
+                                      border: isWordSelected ? '1px solid var(--primary)' : '1px solid transparent',
+                                      background: isWordSelected ? 'rgba(100, 100, 255, 0.25)' : 'rgba(255,255,255,0.03)',
+                                      transition: 'all 0.15s',
+                                      userSelect: 'none'
+                                    }}
+                                    title="Double-click to style this word"
+                                  >
+                                    {wordObj.word}
+                                  </span>
+                                );
+                              })}
+                            </div>
+
+                            {selectedWord && selectedWord.sceneIdx === idx && scene.words[selectedWord.wordIdx] && (
+                              <div style={{ 
+                                marginTop: '8px', 
+                                padding: '10px', 
+                                background: 'var(--bg-medium)', 
+                                border: '1px solid var(--border-medium)', 
+                                borderRadius: '6px',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: '8px',
+                                animation: 'fadeIn 0.15s ease-out'
+                              }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <span style={{ fontSize: '11px', color: 'var(--primary)', fontWeight: 'bold' }}>
+                                    Styling word: "{scene.words[selectedWord.wordIdx].word}"
+                                  </span>
+                                  <button 
+                                    type="button" 
+                                    className="btn-secondary" 
+                                    onClick={() => setSelectedWord(null)}
+                                    style={{ fontSize: '9px', padding: '2px 6px', height: 'auto', margin: 0 }}
+                                  >
+                                    Done
+                                  </button>
+                                </div>
+                                <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
+                                  {/* 1. Color Picker */}
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                    <span style={{ fontSize: '10.5px', color: 'var(--text-gray)' }}>Color:</span>
+                                    <input 
+                                      type="color" 
+                                      value={scene.words[selectedWord.wordIdx].color || '#ffffff'}
+                                      onChange={(e) => updateWordStyle(idx, selectedWord.wordIdx, { color: e.target.value })}
+                                      style={{ width: '22px', height: '22px', padding: 0, border: 'none', background: 'none', cursor: 'pointer' }}
+                                    />
+                                    {scene.words[selectedWord.wordIdx].color && (
+                                      <button 
+                                        type="button" 
+                                        onClick={() => updateWordStyle(idx, selectedWord.wordIdx, { color: undefined })}
+                                        style={{ fontSize: '9px', background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '0 2px' }}
+                                      >
+                                        Reset
+                                      </button>
+                                    )}
+                                  </div>
+
+                                  {/* 2. Font Size Offset */}
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                    <span style={{ fontSize: '10.5px', color: 'var(--text-gray)' }}>Size:</span>
+                                    <input 
+                                      type="number" 
+                                      min={8} 
+                                      max={120} 
+                                      value={scene.words[selectedWord.wordIdx].size || 24}
+                                      onChange={(e) => {
+                                        const val = parseInt(e.target.value, 10);
+                                        updateWordStyle(idx, selectedWord.wordIdx, { size: isNaN(val) ? undefined : val });
+                                      }}
+                                      style={{ width: '48px', fontSize: '11px', background: 'var(--bg-darker)', color: 'var(--text-white)', border: '1px solid var(--border-light)', borderRadius: '4px', padding: '2px 4px' }}
+                                    />
+                                    {scene.words[selectedWord.wordIdx].size && (
+                                      <button 
+                                        type="button" 
+                                        onClick={() => updateWordStyle(idx, selectedWord.wordIdx, { size: undefined })}
+                                        style={{ fontSize: '9px', background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '0 2px' }}
+                                      >
+                                        Reset
+                                      </button>
+                                    )}
+                                  </div>
+
+                                  {/* 3. Bold toggle */}
+                                  <button 
+                                    type="button"
+                                    onClick={() => updateWordStyle(idx, selectedWord.wordIdx, { bold: !scene.words[selectedWord.wordIdx].bold })}
+                                    style={{ 
+                                      fontSize: '11px', 
+                                      fontWeight: 'bold',
+                                      padding: '4px 8px', 
+                                      height: 'auto',
+                                      background: scene.words[selectedWord.wordIdx].bold ? 'var(--primary)' : 'var(--bg-darker)',
+                                      color: 'var(--text-white)',
+                                      border: '1px solid var(--border-medium)',
+                                      borderRadius: '4px',
+                                      cursor: 'pointer'
+                                    }}
+                                  >
+                                    B
+                                  </button>
+
+                                  {/* 4. Italic toggle */}
+                                  <button 
+                                    type="button"
+                                    onClick={() => updateWordStyle(idx, selectedWord.wordIdx, { italic: !scene.words[selectedWord.wordIdx].italic })}
+                                    style={{ 
+                                      fontSize: '11px', 
+                                      fontStyle: 'italic',
+                                      padding: '4px 8px', 
+                                      height: 'auto',
+                                      background: scene.words[selectedWord.wordIdx].italic ? 'var(--primary)' : 'var(--bg-darker)',
+                                      color: 'var(--text-white)',
+                                      border: '1px solid var(--border-medium)',
+                                      borderRadius: '4px',
+                                      cursor: 'pointer'
+                                    }}
+                                  >
+                                    I
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
 
                         {/* HUD layout Selector */}
                         <div style={{ marginTop: '4px' }}>
@@ -3301,6 +3500,97 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
           {/* TAB 1: SUBTITLES */}
           {sidebarTab === 'subtitles' && (
             <div style={{ animation: 'fadeIn 0.2s ease-out', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {/* Sticky Real-Time Preview Panel */}
+              <div className="sticky-preview-container" style={{
+                position: 'sticky',
+                top: 0,
+                zIndex: 50,
+                background: 'var(--bg-darker)',
+                borderBottom: '1px solid var(--border-medium)',
+                padding: '16px',
+                marginBottom: '16px'
+              }}>
+                <div className="preview-canvas" style={{
+                  // Pass design tokens to CSS variables
+                  ['--preview-box-color' as any]: boxColor,
+                  ['--preview-text-color' as any]: fontColor,
+                  ['--preview-box-padding' as any]: boxPadding,
+                  ['--preview-box-radius' as any]: `${boxRounding}px`,
+                  ['--preview-box-color-alpha' as any]: (() => {
+                    const hex = boxColor || '#8A4BF3';
+                    let r = 138, g = 75, b = 243;
+                    if (hex.length === 4) {
+                      r = parseInt(hex[1] + hex[1], 16);
+                      g = parseInt(hex[2] + hex[2], 16);
+                      b = parseInt(hex[3] + hex[3], 16);
+                    } else if (hex.length === 7) {
+                      r = parseInt(hex.slice(1, 3), 16);
+                      g = parseInt(hex.slice(3, 5), 16);
+                      b = parseInt(hex.slice(5, 7), 16);
+                    }
+                    return `rgba(${r}, ${g}, ${b}, 0.65)`;
+                  })(),
+                  ['--preview-glow-color' as any]: glowColor,
+                  ['--preview-outline-size' as any]: `${outlineSize}px`
+                } as any}>
+                  <div 
+                    className={`preview-text-element preview-bg-${textBackgroundStyle} ${textAnimation !== 'none' ? `preview-anim-${textAnimation}` : ''}`}
+                    style={{
+                      fontFamily: fontName,
+                      fontSize: `${Math.min(32, fontSize)}px`,
+                      fontWeight: bold ? 'bold' : 'normal',
+                      fontStyle: italic ? 'italic' : 'normal',
+                      color: fontColor,
+                      WebkitTextStroke: outlineSize > 0 ? `${outlineColor} ${outlineSize}px` : 'none',
+                      textShadow: pop3d 
+                        ? `${outlineSize + 1}px ${outlineSize + 1}px 0px ${pop3dColor}` 
+                        : (shadow ? '2px 2px 4px rgba(0,0,0,0.5)' : 'none')
+                    }}
+                  >
+                    {textAnimation === 'wave' ? (
+                      previewText.split('').map((char, index) => (
+                        <span 
+                          key={index} 
+                          className="preview-anim-wave-char" 
+                          style={{ animationDelay: `${index * 0.08}s` }}
+                        >
+                          {char === ' ' ? '\u00A0' : char}
+                        </span>
+                      ))
+                    ) : textAnimation === 'typewriter' ? (
+                      <span className="preview-anim-typewriter-container">
+                        <span 
+                          className="preview-anim-typewriter" 
+                          style={{ animationDuration: `${Math.max(1, previewText.length * 0.08)}s` }}
+                        >
+                          {previewText}
+                        </span>
+                      </span>
+                    ) : (
+                      previewText
+                    )}
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '12px' }}>
+                  <input
+                    type="text"
+                    className="input-field"
+                    placeholder="Type custom preview word..."
+                    value={previewText}
+                    onChange={(e) => setPreviewText(e.target.value)}
+                    style={{ flex: 1, height: '32px', fontSize: '12px', margin: 0 }}
+                  />
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() => setPreviewText('Creative')}
+                    style={{ height: '32px', fontSize: '11px', padding: '0 8px', flexShrink: 0 }}
+                  >
+                    Reset
+                  </button>
+                </div>
+              </div>
               <SubtitleStyleEditor
                 subtitleMode={subtitleMode}
                 setSubtitleMode={setSubtitleMode}
@@ -3437,7 +3727,502 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                 setShowLayoutCards={setShowLayoutCards}
                 applyHUDToAll={applyHUDToAll}
                 setApplyHUDToAll={setApplyHUDToAll}
+                textBackgroundStyle={textBackgroundStyle}
+                setTextBackgroundStyle={setTextBackgroundStyle}
+                textAnimation={textAnimation}
+                setTextAnimation={setTextAnimation}
+                boxPadding={boxPadding}
+                setBoxPadding={setBoxPadding}
+                outlineSize={outlineSize}
               />
+
+              {/* Word-Specific Styles Section */}
+              <div className="inspector-card" style={{ background: 'var(--bg-darker)', border: '1px solid var(--border-medium)', borderRadius: '8px', padding: '12px', marginBottom: '14px' }}>
+                <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-white)', marginBottom: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span>Word Styling (Normal, Highlight, Emoji)</span>
+                </div>
+                
+                {/* Tab Headers */}
+                <div style={{ display: 'flex', gap: '4px', background: 'rgba(0,0,0,0.2)', padding: '4px', borderRadius: '6px', marginBottom: '12px' }}>
+                  {(['normal', 'highlight', 'emoji'] as const).map(tab => (
+                    <button
+                      key={tab}
+                      type="button"
+                      onClick={() => setStyleTab(tab)}
+                      style={{
+                        flex: 1, padding: '6px 0', borderRadius: '4px', border: 'none',
+                        fontSize: '11px', fontWeight: 600, textTransform: 'capitalize', cursor: 'pointer',
+                        background: styleTab === tab ? 'var(--primary)' : 'transparent',
+                        color: styleTab === tab ? 'var(--text-white)' : 'var(--text-gray)',
+                        transition: 'all 0.2s'
+                      }}
+                    >
+                      {tab}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Copy-sync buttons */}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '12px', borderBottom: '1px solid var(--border-light)', paddingBottom: '10px' }}>
+                  <button type="button" className="btn-secondary"
+                    onClick={() => { setHighlightStyle({ ...normalStyle }); setEmojiStyle({ ...normalStyle }); }}
+                    style={{ fontSize: '10px', padding: '4px 8px', height: 'auto' }}
+                  >Copy Normal to All</button>
+                  <button type="button" className="btn-secondary"
+                    onClick={() => { setEmojiStyle({ ...highlightStyle }); }}
+                    style={{ fontSize: '10px', padding: '4px 8px', height: 'auto' }}
+                  >Copy Highlight to Emoji</button>
+                </div>
+
+                {/* Tab Contents */}
+                <div>
+                  {/* 1. Text Color */}
+                  <div style={{ marginBottom: '12px' }}>
+                    <label className="label" style={{ marginBottom: '4px', fontSize: '11px' }}>Text Color</label>
+                    <div style={{ background: 'rgba(0,0,0,0.15)', border: '1px solid var(--border-medium)', borderRadius: '4px', padding: '4px 8px', display: 'flex', alignItems: 'center', gap: '6px', height: '34px' }}>
+                      <div style={{ position: 'relative', width: '20px', height: '20px', borderRadius: '4px', overflow: 'hidden', border: '1px solid var(--border-medium)', cursor: 'pointer' }}>
+                        <input 
+                          type="color" 
+                          value={styleTab === 'normal' ? normalStyle.fontColor : styleTab === 'highlight' ? highlightStyle.fontColor : emojiStyle.fontColor} 
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (styleTab === 'normal') { setNormalStyle({ ...normalStyle, fontColor: val }); setFontColor(val); }
+                            else if (styleTab === 'highlight') { setHighlightStyle({ ...highlightStyle, fontColor: val }); setHighlightColor(val); }
+                            else { setEmojiStyle({ ...emojiStyle, fontColor: val }); }
+                          }} 
+                          style={{ position: 'absolute', top: '-4px', left: '-4px', width: '28px', height: '28px', padding: 0, border: 'none', background: 'none', cursor: 'pointer' }} 
+                        />
+                      </div>
+                      <input 
+                        type="text" 
+                        value={(styleTab === 'normal' ? normalStyle.fontColor : styleTab === 'highlight' ? highlightStyle.fontColor : emojiStyle.fontColor).toUpperCase()} 
+                        onChange={(e) => {
+                          let val = e.target.value;
+                          if (!val.startsWith('#') && val.length > 0) val = '#' + val;
+                          if (styleTab === 'normal') { setNormalStyle({ ...normalStyle, fontColor: val }); setFontColor(val); }
+                          else if (styleTab === 'highlight') { setHighlightStyle({ ...highlightStyle, fontColor: val }); setHighlightColor(val); }
+                          else { setEmojiStyle({ ...emojiStyle, fontColor: val }); }
+                        }} 
+                        style={{ background: 'none', border: 'none', color: 'var(--text-white)', fontFamily: 'monospace', fontSize: '11px', width: '100%', outline: 'none', padding: 0 }} 
+                        placeholder="#FFFFFF"
+                      />
+                    </div>
+                  </div>
+
+                  {/* 2. Active Word Scale */}
+                  <div style={{ marginBottom: '12px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                      <label className="label" style={{ margin: 0, fontSize: '11px' }}>Active Scale Zoom</label>
+                      <span style={{ fontSize: '10px', fontFamily: 'monospace' }}>
+                        {(styleTab === 'normal' ? normalStyle.activeWordScale : styleTab === 'highlight' ? highlightStyle.activeWordScale : emojiStyle.activeWordScale).toFixed(2)}x
+                      </span>
+                    </div>
+                    <input 
+                      type="range" min={1.00} max={1.60} step={0.05} 
+                      value={styleTab === 'normal' ? normalStyle.activeWordScale : styleTab === 'highlight' ? highlightStyle.activeWordScale : emojiStyle.activeWordScale}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value);
+                        if (styleTab === 'normal') { setNormalStyle({ ...normalStyle, activeWordScale: val }); }
+                        else if (styleTab === 'highlight') { setHighlightStyle({ ...highlightStyle, activeWordScale: val }); setActiveWordScale(val); }
+                        else { setEmojiStyle({ ...emojiStyle, activeWordScale: val }); }
+                      }}
+                      style={{ width: '100%', accentColor: 'var(--primary)', cursor: 'pointer' }}
+                    />
+                  </div>
+
+                  {/* 3. Neon Glow */}
+                  <div style={{ borderTop: '1px solid var(--border-light)', paddingTop: '10px', marginTop: '10px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span>💡</span>
+                        <span style={{ fontSize: '11px', fontWeight: 500 }}>Glow Enabled</span>
+                      </div>
+                      <div 
+                        className={`stitch-switch ${(styleTab === 'normal' ? normalStyle.neonGlow : styleTab === 'highlight' ? highlightStyle.neonGlow : emojiStyle.neonGlow) ? 'active' : ''}`} 
+                        onClick={() => {
+                          if (styleTab === 'normal') { const t = !normalStyle.neonGlow; setNormalStyle({ ...normalStyle, neonGlow: t }); setNeonGlow(t); }
+                          else if (styleTab === 'highlight') { const t = !highlightStyle.neonGlow; setHighlightStyle({ ...highlightStyle, neonGlow: t }); }
+                          else { const t = !emojiStyle.neonGlow; setEmojiStyle({ ...emojiStyle, neonGlow: t }); }
+                        }}
+                      >
+                        <div className="stitch-switch-handle" />
+                      </div>
+                    </div>
+
+                    {(styleTab === 'normal' ? normalStyle.neonGlow : styleTab === 'highlight' ? highlightStyle.neonGlow : emojiStyle.neonGlow) && (
+                      <div style={{ padding: '8px', background: 'rgba(0,0,0,0.2)', borderRadius: '6px', border: '1px solid var(--border-medium)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        {/* Glow Color */}
+                        <div>
+                          <label className="label" style={{ marginBottom: '2px', fontSize: '10px' }}>Glow Color</label>
+                          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                            <div style={{ position: 'relative', width: '18px', height: '18px', borderRadius: '4px', overflow: 'hidden', border: '1px solid var(--border-medium)', cursor: 'pointer' }}>
+                              <input 
+                                type="color" 
+                                value={styleTab === 'normal' ? normalStyle.glowColor : styleTab === 'highlight' ? highlightStyle.glowColor : emojiStyle.glowColor} 
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  if (styleTab === 'normal') { setNormalStyle({ ...normalStyle, glowColor: val }); setGlowColor(val); }
+                                  else if (styleTab === 'highlight') { setHighlightStyle({ ...highlightStyle, glowColor: val }); }
+                                  else { setEmojiStyle({ ...emojiStyle, glowColor: val }); }
+                                }} 
+                                style={{ position: 'absolute', top: '-4px', left: '-4px', width: '26px', height: '26px', padding: 0, border: 'none', background: 'none', cursor: 'pointer' }} 
+                              />
+                            </div>
+                            <input 
+                              type="text" 
+                              value={(styleTab === 'normal' ? normalStyle.glowColor : styleTab === 'highlight' ? highlightStyle.glowColor : emojiStyle.glowColor).toUpperCase()} 
+                              onChange={(e) => {
+                                let hex = e.target.value;
+                                if (!hex.startsWith('#') && hex.length > 0) hex = '#' + hex;
+                                if (styleTab === 'normal') { setNormalStyle({ ...normalStyle, glowColor: hex }); setGlowColor(hex); }
+                                else if (styleTab === 'highlight') { setHighlightStyle({ ...highlightStyle, glowColor: hex }); }
+                                else { setEmojiStyle({ ...emojiStyle, glowColor: hex }); }
+                              }}
+                              className="input-field"
+                              style={{ flex: 1, height: '24px', padding: '2px 6px', fontSize: '10px', fontFamily: 'monospace' }}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Glow Blur */}
+                        <div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1px' }}>
+                            <label className="label" style={{ fontSize: '10px', margin: 0 }}>Glow Strength (Blur)</label>
+                            <span style={{ fontSize: '9px', color: 'var(--text-muted)' }}>
+                              {styleTab === 'normal' ? normalStyle.glowBlur : styleTab === 'highlight' ? highlightStyle.glowBlur : emojiStyle.glowBlur}px
+                            </span>
+                          </div>
+                          <input 
+                            type="range" min={1} max={15} step={1} 
+                            value={styleTab === 'normal' ? normalStyle.glowBlur : styleTab === 'highlight' ? highlightStyle.glowBlur : emojiStyle.glowBlur} 
+                            onChange={(e) => {
+                              const val = parseInt(e.target.value, 10);
+                              if (styleTab === 'normal') { setNormalStyle({ ...normalStyle, glowBlur: val }); setGlowBlur(val); }
+                              else if (styleTab === 'highlight') { setHighlightStyle({ ...highlightStyle, glowBlur: val }); }
+                              else { setEmojiStyle({ ...emojiStyle, glowBlur: val }); }
+                            }}
+                            style={{ width: '100%', accentColor: 'var(--primary)', cursor: 'pointer' }}
+                          />
+                        </div>
+
+                        {/* Glow Distance */}
+                        <div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1px' }}>
+                            <label className="label" style={{ fontSize: '10px', margin: 0 }}>Glow Distance</label>
+                            <span style={{ fontSize: '9px', color: 'var(--text-muted)' }}>
+                              {styleTab === 'normal' ? normalStyle.glowDistance : styleTab === 'highlight' ? highlightStyle.glowDistance : emojiStyle.glowDistance}px
+                            </span>
+                          </div>
+                          <input 
+                            type="range" min={1} max={20} step={1} 
+                            value={styleTab === 'normal' ? normalStyle.glowDistance : styleTab === 'highlight' ? highlightStyle.glowDistance : emojiStyle.glowDistance} 
+                            onChange={(e) => {
+                              const val = parseInt(e.target.value, 10);
+                              if (styleTab === 'normal') { setNormalStyle({ ...normalStyle, glowDistance: val }); setGlowDistance(val); }
+                              else if (styleTab === 'highlight') { setHighlightStyle({ ...highlightStyle, glowDistance: val }); }
+                              else { setEmojiStyle({ ...emojiStyle, glowDistance: val }); }
+                            }}
+                            style={{ width: '100%', accentColor: 'var(--primary)', cursor: 'pointer' }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Highlight Style Card (Conditional) */}
+              {(subtitleMode === 'pop' || subtitleMode === 'centered-word' || subtitleMode === 'smart-highlight') && (
+                <div className="inspector-card">
+                  <div className="inspector-sub-title">Highlight Word Style</div>
+
+                  <div style={{ marginBottom: '10px' }}>
+                    <label className="label">Highlight Trigger Mode</label>
+                    <select
+                      value={highlightTrigger}
+                      onChange={(e) => setHighlightTrigger(e.target.value as any)}
+                      className="input-field"
+                      style={{ width: '100%', height: '34px', fontSize: '12px', background: 'var(--bg-surface)' }}
+                    >
+                      <option value="all">Highlight Every Word (Standard)</option>
+                      <option value="emphasis">Highlight Emphasis/Highlight Words Only</option>
+                      <option value="emoji">Highlight Emoji Words Only</option>
+                    </select>
+                  </div>
+                  
+                  <div style={{ marginBottom: '12px' }}>
+                    <label className="label">Highlight Word Color</label>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      <input type="color" value={highlightColor} onChange={(e) => setHighlightColor(e.target.value)} />
+                      <input 
+                        type="text" value={highlightColor.toUpperCase()} 
+                        onChange={(e) => {
+                          let val = e.target.value;
+                          if (val.startsWith('#') && val.length <= 7) setHighlightColor(val);
+                          else if (val.length <= 6 && !val.startsWith('#')) setHighlightColor('#' + val);
+                        }}
+                        className="input-field"
+                        style={{ width: '90px', height: '28px', padding: '2px 6px', fontSize: '11px', fontFamily: 'monospace', textAlign: 'center' }}
+                      />
+                    </div>
+                  </div>
+
+                  {(subtitleMode === 'pop' || subtitleMode === 'centered-word') && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
+                      <input 
+                        type="checkbox" id="show-bg-box" checked={showHighlightBox} 
+                        onChange={(e) => setShowHighlightBox(e.target.checked)} 
+                      />
+                      <label htmlFor="show-bg-box" style={{ fontSize: '12px', cursor: 'pointer', userSelect: 'none' }}>
+                        Show Word Background Box
+                      </label>
+                    </div>
+                  )}
+
+                  {(subtitleMode === 'pop' || subtitleMode === 'centered-word') && showHighlightBox && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', borderTop: '1px solid var(--border-light)', paddingTop: '16px', marginTop: '8px' }}>
+                      <div>
+                        <label className="label">Background Box Color</label>
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          <input type="color" value={boxColor} onChange={(e) => setBoxColor(e.target.value)} />
+                          <input 
+                            type="text" value={boxColor.toUpperCase()} 
+                            onChange={(e) => {
+                              let val = e.target.value;
+                              if (val.startsWith('#') && val.length <= 7) setBoxColor(val);
+                              else if (val.length <= 6 && !val.startsWith('#')) setBoxColor('#' + val);
+                            }}
+                            className="input-field"
+                            style={{ width: '90px', height: '28px', padding: '2px 6px', fontSize: '11px', fontFamily: 'monospace', textAlign: 'center' }}
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                          <label className="label" style={{ margin: 0 }}>Box Corner Rounding</label>
+                          <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{boxRounding}px</span>
+                        </div>
+                        <input
+                          type="range" min={0} max={24} value={boxRounding}
+                          onChange={(e) => setBoxRounding(parseInt(e.target.value, 10))}
+                          style={{ width: '100%' }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Text Animations Card */}
+              <div className="inspector-card">
+                <div className="inspector-sub-title">Text Animations & Effects</div>
+                
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                  <input 
+                    type="checkbox" id="fade-transition" checked={textFade} 
+                    onChange={(e) => setTextFade(e.target.checked)} 
+                  />
+                  <label htmlFor="fade-transition" style={{ fontSize: '12px', cursor: 'pointer', userSelect: 'none' }}>
+                    In/Out Fade (150ms)
+                  </label>
+                </div>
+
+                <div style={{ marginBottom: '12px' }}>
+                  <label className="label">In/Out Transition</label>
+                  <select className="input-field" value={textTransition} onChange={(e) => setTextTransition(e.target.value)}>
+                    <option value="none">None (Stationary Entrance/Exit)</option>
+                    <option value="slide-up">Slide Up (No Fade)</option>
+                    <option value="slide-up-fade">Slide Up & Fade</option>
+                    <option value="slide-down">Slide Down (No Fade)</option>
+                    <option value="slide-down-fade">Slide Down & Fade</option>
+                    <option value="slide-left">Slide Left (No Fade)</option>
+                    <option value="slide-left-fade">Slide Left & Fade</option>
+                    <option value="slide-right">Slide Right (No Fade)</option>
+                    <option value="slide-right-fade">Slide Right & Fade</option>
+                    <option value="slide-up-blur">Slide Up with Blur (No Fade)</option>
+                    <option value="slide-up-blur-fade">Slide Up with Blur & Fade</option>
+                    <option value="slide-down-blur">Slide Down with Blur (No Fade)</option>
+                    <option value="slide-down-blur-fade">Slide Down with Blur & Fade</option>
+                    <option value="slide-left-blur">Slide Left with Blur (No Fade)</option>
+                    <option value="slide-left-blur-fade">Slide Left with Blur & Fade</option>
+                    <option value="slide-right-blur">Slide Right with Blur (No Fade)</option>
+                    <option value="slide-right-blur-fade">Slide Right with Blur & Fade</option>
+                    <option value="zoom-in-out">Snappy Zoom In / Zoom Out (No Fade)</option>
+                    <option value="zoom-in-out-fade">Snappy Zoom In / Zoom Out & Fade</option>
+                    <option value="zoom-in-out-blur">Zoom In / Zoom Out with Blur (No Fade)</option>
+                    <option value="zoom-in-out-blur-fade">Zoom In / Zoom Out with Blur & Fade</option>
+                  </select>
+                </div>
+
+                <div style={{ marginBottom: '12px' }}>
+                  <label className="label">Stay Animation (Motion)</label>
+                  <select className="input-field" value={textMotion} onChange={(e) => setTextMotion(e.target.value)}>
+                    <option value="none">None (Stationary)</option>
+                    <option value="float">Floating Text (Slow Rise)</option>
+                  </select>
+                </div>
+
+                {(subtitleMode === 'pop' || subtitleMode === 'centered-word' || subtitleMode === 'smart-highlight') && (
+                  <div style={{ marginBottom: '12px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                      <label className="label" style={{ margin: 0 }}>Active Word Zoom Bump</label>
+                      <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{activeWordScale.toFixed(2)}x</span>
+                    </div>
+                    <input
+                      type="range" min={1.00} max={1.40} step={0.05} value={activeWordScale}
+                      onChange={(e) => setActiveWordScale(parseFloat(e.target.value))}
+                      style={{ width: '100%' }}
+                    />
+                  </div>
+                )}
+
+                {subtitleMode === 'smart-highlight' && (
+                  <div style={{ marginBottom: '12px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                      <label className="label" style={{ margin: 0 }}>Max Words Per Line</label>
+                      <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{maxWordsPerLine} words</span>
+                    </div>
+                    <input
+                      type="range" min={1} max={15} step={1} value={maxWordsPerLine}
+                      onChange={(e) => setMaxWordsPerLine(parseInt(e.target.value, 10))}
+                      style={{ width: '100%' }}
+                    />
+                  </div>
+                )}
+
+                {subtitleMode === 'pop' && (
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                      <label className="label" style={{ margin: 0 }}>Word Display Time</label>
+                      <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{wordDisplayTime.toFixed(1)}s</span>
+                    </div>
+                    <input
+                      type="range" min={0.3} max={3.0} step={0.1} value={wordDisplayTime}
+                      onChange={(e) => setWordDisplayTime(parseFloat(e.target.value))}
+                      style={{ width: '100%' }}
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Engagement Cards (Retention Styles) */}
+              <div className="inspector-card">
+                <div className="inspector-sub-title">Retention Features</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span>😊</span>
+                      <span style={{ fontSize: '13px', fontWeight: 500, fontFamily: 'Inter' }}>Emoji Pop</span>
+                    </div>
+                    <div className={`stitch-switch ${showEmojis ? 'active' : ''}`} onClick={() => setShowEmojis(!showEmojis)}>
+                      <div className="stitch-switch-handle" />
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span>🧱</span>
+                      <span style={{ fontSize: '13px', fontWeight: 500, fontFamily: 'Inter' }}>3D Extrusion</span>
+                    </div>
+                    <div className={`stitch-switch ${pop3d ? 'active' : ''}`} onClick={() => setPop3d(!pop3d)}>
+                      <div className="stitch-switch-handle" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Emoji Word SFX Mappings */}
+              {(() => {
+                const emojiWordsList: {
+                  sceneIdx: number;
+                  wordIdx: number;
+                  wordObj: WordTiming;
+                  emoji: string;
+                }[] = [];
+                scenes.forEach((scene, sceneIdx) => {
+                  if (scene.words && Array.isArray(scene.words)) {
+                    scene.words.forEach((wordObj, wordIdx) => {
+                      const emoji = getWordEmoji(wordObj.word);
+                      if (emoji) {
+                        emojiWordsList.push({
+                          sceneIdx,
+                          wordIdx,
+                          wordObj,
+                          emoji
+                        });
+                      }
+                    });
+                  }
+                });
+
+                const handleUpdateWordSfx = (sIdx: number, wIdx: number, sfxId: string) => {
+                  const updatedScenes = [...scenes];
+                  if (updatedScenes[sIdx] && updatedScenes[sIdx].words && updatedScenes[sIdx].words![wIdx]) {
+                    updatedScenes[sIdx].words![wIdx].sfx = sfxId;
+                    setScenes(updatedScenes);
+                  }
+                };
+
+                if (!showEmojis || emojiWordsList.length === 0) return null;
+
+                return (
+                  <div className="inspector-card" style={{ marginTop: '16px', background: 'var(--bg-card)', border: '1px solid var(--border-medium)' }}>
+                    <div className="inspector-sub-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span>🎵 Emoji Word SFX Mappings</span>
+                      <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: 'normal' }}>{emojiWordsList.length} detected</span>
+                    </div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-gray)', marginBottom: '10px' }}>
+                      Play sound effects exactly when these key emoji words are spoken.
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '220px', overflowY: 'auto', paddingRight: '4px' }}>
+                      {emojiWordsList.map(({ sceneIdx, wordIdx, wordObj, emoji }) => {
+                        const displayWord = wordObj.word;
+                        const selectedSfx = wordObj.sfx || 'none';
+                        return (
+                          <div key={`${sceneIdx}_${wordIdx}`} style={{ 
+                            display: 'flex', flexDirection: 'column', gap: '4px',
+                            background: 'var(--bg-darker)', border: '1px solid var(--border-medium)', 
+                            borderRadius: '4px', padding: '8px 10px'
+                          }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', fontWeight: 500 }}>
+                              <span>"{displayWord}" {emoji}</span>
+                              <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Scene {sceneIdx + 1} at {wordObj.start_time.toFixed(1)}s</span>
+                            </div>
+                            <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginTop: '2px' }}>
+                              <select
+                                value={selectedSfx}
+                                onChange={(e) => handleUpdateWordSfx(sceneIdx, wordIdx, e.target.value)}
+                                className="input-field"
+                                style={{ flex: 1, height: '28px', fontSize: '11px', padding: '0 6px', background: 'var(--bg-medium)' }}
+                              >
+                                <option value="none">No Sound Effect</option>
+                                {sfxList.map(s => (
+                                  <option key={s.id} value={s.id}>{s.name}</option>
+                                ))}
+                              </select>
+                              {selectedSfx !== 'none' && (
+                                <button
+                                  type="button"
+                                  onClick={() => handlePlaySfx(selectedSfx)}
+                                  style={{
+                                    background: 'var(--bg-medium)', border: 'none', 
+                                    color: 'var(--text-white)', width: '28px', height: '28px',
+                                    borderRadius: '4px', display: 'flex', alignItems: 'center',
+                                    justifyContent: 'center', cursor: 'pointer', padding: 0
+                                  }}
+                                >
+                                  {previewingSfx === selectedSfx ? '⏹' : '▶'}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           )}
 

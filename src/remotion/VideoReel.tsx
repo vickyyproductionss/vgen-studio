@@ -1,5 +1,5 @@
 import React from 'react';
-import { delayRender, continueRender, Sequence, Audio, AbsoluteFill, useCurrentFrame, useVideoConfig, spring, prefetch, OffthreadVideo, interpolate, Easing } from 'remotion';
+import { delayRender, continueRender, Sequence, Audio, AbsoluteFill, useCurrentFrame, useVideoConfig, spring, prefetch, OffthreadVideo, Video, interpolate, Easing } from 'remotion';
 import { SubtitleWord } from './components/SubtitleWord';
 import type { WordStyle } from './components/SubtitleWord';
 import { StoryGraphCanvas } from './components/StoryGraphCanvas';
@@ -71,7 +71,7 @@ export interface VideoReelProps {
   bgMusicVolume?: number;
   videoVolume?: number;
   sfxVolume?: number;
-  subtitleMode: 'classic' | 'pop' | 'smart-highlight' | 'centered-word';
+  subtitleMode: 'classic' | 'pop' | 'smart-highlight' | 'centered-word' | 'simple';
   fontName: string;
   fontSize: number;
   bold: boolean;
@@ -176,6 +176,14 @@ const useGoogleFont = (fontName: string) => {
 
 const resolveAssetUrl = (url: string, baseUrl?: string, isRendering?: boolean) => {
   if (!url) return '';
+  
+  // If it's a GCS URL, route it through the Express proxy to support native seeking / range requests
+  const isGcsUrl = url.includes('storage.googleapis.com') || url.includes('_cloudbuild') || url.includes('-renders');
+  if (isGcsUrl) {
+    const backendBase = isRendering ? 'http://localhost:8000' : (baseUrl || '');
+    return `${backendBase}/api/serve-local-file?path=${encodeURIComponent(url)}`;
+  }
+
   if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) return url;
   
   // Handle absolute local paths (macOS/Linux)
@@ -845,7 +853,57 @@ export const VideoReel: React.FC<VideoReelProps> = ({
                   emojiStyle={emojiStyle}
                   textCase={textCase}
                   isFirst={false}
+                  customColor={activeWord.color}
+                  customSize={activeWord.size}
+                  customBold={activeWord.bold}
+                  customItalic={activeWord.italic}
                 />
+              </div>
+            );
+          }
+
+          // Simple mode: Render all words of the scene at once, preserving newlines
+          if (effectiveSubtitleMode === 'simple') {
+            return (
+              <div style={subtitleContainerStyle}>
+                {words.map((w, wIdx) => {
+                  return (
+                    <React.Fragment key={wIdx}>
+                      {w.newline && <div style={{ width: '100%', height: 0 }} />}
+                      <SubtitleWord
+                        word={w.word}
+                        isActive={false}
+                        fontName={fontName}
+                        fontSize={fontSize}
+                        bold={bold}
+                        italic={italic}
+                        shadow={shadow}
+                        shadowColor={shadowColor}
+                        shadowBlur={shadowBlur}
+                        shadowDistance={shadowDistance}
+                        shadowAngle={shadowAngle}
+                        shadowOpacity={shadowOpacity}
+                        outlineColor={outlineColor}
+                        outlineThickness={outlineThickness}
+                        letterSpacing={letterSpacing}
+                        wordSpacing={wordSpacing}
+                        neonGlow={neonGlow}
+                        glowColor={glowColor}
+                        glowBlur={glowBlurProp}
+                        glowDistance={glowDistanceProp}
+                        normalStyle={normalStyle}
+                        highlightStyle={highlightStyle}
+                        emojiStyle={emojiStyle}
+                        textCase={textCase}
+                        isFirst={wIdx === 0}
+                        customColor={w.color}
+                        customSize={w.size}
+                        customBold={w.bold}
+                        customItalic={w.italic}
+                      />
+                    </React.Fragment>
+                  );
+                })}
               </div>
             );
           }
@@ -921,6 +979,10 @@ export const VideoReel: React.FC<VideoReelProps> = ({
                     emojiStyle={emojiStyle}
                     textCase={textCase}
                     isFirst={wIdx === 0}
+                    customColor={w.color}
+                    customSize={w.size}
+                    customBold={w.bold}
+                    customItalic={w.italic}
                   />
                 );
               })}
@@ -980,36 +1042,69 @@ export const VideoReel: React.FC<VideoReelProps> = ({
                       opacity: 1.0,
                     }}
                   >
-                    <OffthreadVideo
-                      src={resolveAssetUrl(clipUrl, baseUrl, isRendering)}
-                      startFrom={Math.round(((scene.clipId === 'original' && (!scene.clipStart || scene.clipStart === 0)) ? (scene.start_time || 0) : (scene.clipStart || 0)) * fps)}
-                      volume={subtitlesOnly ? 1.0 : videoVolume}
-                      crossOrigin="anonymous"
-                      pauseWhenBuffering={true}
-                      style={{
-                        width: '100%',
-                        height: '100%',
-                        objectFit: fillMode === 'crop' ? 'cover' : 'contain',
-                      }}
-                      onError={(error) => {
-                        console.error("Remotion Video Error:", error);
-                        const targetPort = 8000;
-                        const backendUrl = window.location.port 
-                          ? `${window.location.protocol}//${window.location.hostname}:${targetPort}`
-                          : window.location.origin;
-                        fetch(`${backendUrl}/api/log-client-error`, {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({
-                            error: error?.toString() || 'HTML5 Video Error',
-                            message: `Failed to load video clip ${scene.clipId} for Scene ${idx} (URL: ${resolveAssetUrl(clipUrl || '', baseUrl)})`,
-                            stack: error?.stack || new Error().stack,
-                            component: 'VideoReel-VideoComponent'
-                          })
-                        }).catch(err => console.error("Failed to report video error to backend:", err));
-                        return 'fallback';
-                      }}
-                    />
+                    {isRendering ? (
+                      <OffthreadVideo
+                        src={resolveAssetUrl(clipUrl, baseUrl, isRendering)}
+                        startFrom={Math.round(((scene.clipId === 'original' && (!scene.clipStart || scene.clipStart === 0)) ? (scene.start_time || 0) : (scene.clipStart || 0)) * fps)}
+                        volume={subtitlesOnly ? 1.0 : videoVolume}
+                        crossOrigin="anonymous"
+                        pauseWhenBuffering={true}
+                        style={{
+                          width: '100%',
+                          height: '100%',
+                          objectFit: fillMode === 'crop' ? 'cover' : 'contain',
+                        }}
+                        onError={(error) => {
+                          console.error("Remotion Video Error:", error);
+                          const targetPort = 8000;
+                          const backendUrl = window.location.port 
+                            ? `${window.location.protocol}//${window.location.hostname}:${targetPort}`
+                            : window.location.origin;
+                          fetch(`${backendUrl}/api/log-client-error`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              error: error?.toString() || 'HTML5 Video Error',
+                              message: `Failed to load video clip ${scene.clipId} for Scene ${idx} (URL: ${resolveAssetUrl(clipUrl || '', baseUrl)})`,
+                              stack: error?.stack || new Error().stack,
+                              component: 'VideoReel-VideoComponent'
+                            })
+                          }).catch(err => console.error("Failed to report video error to backend:", err));
+                          return 'fallback';
+                        }}
+                      />
+                    ) : (
+                      <Video
+                        src={resolveAssetUrl(clipUrl, baseUrl, isRendering)}
+                        startFrom={Math.round(((scene.clipId === 'original' && (!scene.clipStart || scene.clipStart === 0)) ? (scene.start_time || 0) : (scene.clipStart || 0)) * fps)}
+                        volume={subtitlesOnly ? 1.0 : videoVolume}
+                        crossOrigin="anonymous"
+                        pauseWhenBuffering={true}
+                        style={{
+                          width: '100%',
+                          height: '100%',
+                          objectFit: fillMode === 'crop' ? 'cover' : 'contain',
+                        }}
+                        onError={(error) => {
+                          console.error("Remotion Video Error (Video Component):", error);
+                          const targetPort = 8000;
+                          const backendUrl = window.location.port 
+                            ? `${window.location.protocol}//${window.location.hostname}:${targetPort}`
+                            : window.location.origin;
+                          fetch(`${backendUrl}/api/log-client-error`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              error: error?.toString() || 'HTML5 Video Error',
+                              message: `Failed to load video clip ${scene.clipId} for Scene ${idx} (URL: ${resolveAssetUrl(clipUrl || '', baseUrl)})`,
+                              stack: error?.stack || new Error().stack,
+                              component: 'VideoReel-VideoComponent'
+                            })
+                          }).catch(err => console.error("Failed to report video error to backend:", err));
+                          return 'fallback';
+                        }}
+                      />
+                    )}
                   </div>
                 )}
 

@@ -11,6 +11,7 @@ interface Clip {
   tags: string[];
   status: 'ready' | 'analyzing' | 'failed';
   exists?: boolean;
+  createdAt?: string;
 }
 
 interface UploadProgress {
@@ -30,6 +31,7 @@ export default function ClipsLibrary() {
   const [uploadQueue, setUploadQueue] = useState<UploadProgress[]>([]);
   const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState<'uploads' | 'broll'>('uploads');
+  const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'name-asc' | 'name-desc'>('newest');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -102,6 +104,36 @@ export default function ClipsLibrary() {
 
   const CHUNK_SIZE = 8 * 1024 * 1024; // 8MB chunks (well under Cloud Run's 32MB limit)
 
+  const uploadFileDirectlyToGcs = (
+    file: File,
+    gcsUrl: string,
+    onProgress: (pct: number) => void
+  ): Promise<void> => {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('PUT', gcsUrl);
+      xhr.setRequestHeader('Content-Type', file.type || 'video/mp4');
+
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) {
+          const pct = Math.round((event.loaded / event.total) * 100);
+          onProgress(pct);
+        }
+      };
+
+      xhr.onload = () => {
+        if (xhr.status === 200 || xhr.status === 201) {
+          resolve();
+        } else {
+          reject(new Error(`Direct GCS upload failed with status ${xhr.status}`));
+        }
+      };
+
+      xhr.onerror = () => reject(new Error('Direct GCS upload connection error'));
+      xhr.send(file);
+    });
+  };
+
   const uploadFileInChunks = async (
     file: File,
     clipId: string,
@@ -151,64 +183,85 @@ export default function ClipsLibrary() {
     const uploadedClips: Clip[] = [];
 
     try {
-      for (let i = 0; i < fileList.length; i++) {
-        const file = fileList[i];
+      const uploadPromises = fileList.map(async (file, i) => {
+        try {
+          // Step 1: Request upload session from server
+          const initRes = await fetch('/api/clips/init-upload', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              fileName: file.name,
+              contentType: file.type || 'video/mp4',
+              fileSize: file.size
+            })
+          });
 
-        // Step 1: Request upload session from server
-        const initRes = await fetch('/api/clips/init-upload', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            fileName: file.name,
-            contentType: file.type || 'video/mp4',
-            fileSize: file.size
-          })
-        });
+          if (!initRes.ok) {
+            const err = await initRes.json();
+            throw new Error(err.error || 'Failed to initialize upload');
+          }
 
-        if (!initRes.ok) {
-          const err = await initRes.json();
-          throw new Error(err.error || 'Failed to initialize upload');
-        }
+          const { clipId, gcsUrl } = await initRes.json();
 
-        const { clipId } = await initRes.json();
+          // Step 2: Upload file (directly to GCS if signed URL is provided, otherwise fall back to server chunks)
+          if (gcsUrl) {
+            await uploadFileDirectlyToGcs(file, gcsUrl, (pct) => {
+              setUploadQueue(prev => prev.map((item, idx) =>
+                idx === i ? { ...item, progress: pct, status: 'uploading' as const } : item
+              ));
+            });
+          } else {
+            await uploadFileInChunks(file, clipId, (pct) => {
+              setUploadQueue(prev => prev.map((item, idx) =>
+                idx === i ? { ...item, progress: pct, status: 'uploading' as const } : item
+              ));
+            });
+          }
 
-        // Step 2: Upload file in 8MB chunks
-        await uploadFileInChunks(file, clipId, (pct) => {
+          // Mark as processing (server is generating thumbnail + uploading to GCS)
           setUploadQueue(prev => prev.map((item, idx) =>
-            idx === i ? { ...item, progress: pct, status: 'uploading' as const } : item
+            idx === i ? { ...item, progress: 100, status: 'processing' as const } : item
           ));
-        });
 
-        // Mark as processing (server is generating thumbnail + uploading to GCS)
-        setUploadQueue(prev => prev.map((item, idx) =>
-          idx === i ? { ...item, progress: 100, status: 'processing' as const } : item
-        ));
+          // Step 3: Finalize — server processes the complete file
+          const finalRes = await fetch('/api/clips/finalize-upload', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              clipId,
+              fileName: file.name
+            })
+          });
 
-        // Step 3: Finalize — server processes the complete file
-        const finalRes = await fetch('/api/clips/finalize-upload', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            clipId,
-            fileName: file.name
-          })
-        });
+          if (!finalRes.ok) {
+            const err = await finalRes.json();
+            throw new Error(err.error || 'Failed to finalize upload');
+          }
 
-        if (!finalRes.ok) {
-          const err = await finalRes.json();
-          throw new Error(err.error || 'Failed to finalize upload');
+          const newClip = await finalRes.json();
+
+          // Mark as done
+          setUploadQueue(prev => prev.map((item, idx) =>
+            idx === i ? { ...item, progress: 100, status: 'done' as const } : item
+          ));
+
+          return newClip;
+        } catch (err: any) {
+          setUploadQueue(prev => prev.map((item, idx) =>
+            idx === i ? { ...item, status: 'error' as const, error: err.message } : item
+          ));
+          console.error(`Upload failed for ${file.name}:`, err.message);
+          return null; // Return null on failure so other uploads can continue
         }
+      });
 
-        const newClip = await finalRes.json();
-        uploadedClips.push(newClip);
+      const results = await Promise.all(uploadPromises);
+      const successfulClips = results.filter((c): c is Clip => c !== null);
+      uploadedClips.push(...successfulClips);
 
-        // Mark as done
-        setUploadQueue(prev => prev.map((item, idx) =>
-          idx === i ? { ...item, progress: 100, status: 'done' as const } : item
-        ));
+      if (uploadedClips.length > 0) {
+        setClips(prev => [...uploadedClips, ...prev]);
       }
-
-      setClips(prev => [...uploadedClips, ...prev]);
 
       // Clear progress after a short delay
       setTimeout(() => {
@@ -216,14 +269,6 @@ export default function ClipsLibrary() {
       }, 2000);
     } catch (err: any) {
       setError(err.message);
-      setUploadQueue(prev => prev.map(item =>
-        item.status !== 'done'
-          ? { ...item, status: 'error' as const, error: err.message }
-          : item
-      ));
-      if (uploadedClips.length > 0) {
-        setClips(prev => [...uploadedClips, ...prev]);
-      }
       setTimeout(() => {
         setUploadQueue([]);
       }, 5000);
@@ -312,10 +357,30 @@ export default function ClipsLibrary() {
 
     const query = search.toLowerCase();
     return (
-      clip.name.toLowerCase().includes(query) ||
-      clip.description.toLowerCase().includes(query) ||
-      (Array.isArray(clip.tags) && clip.tags.some(tag => tag.toLowerCase().includes(query)))
+      (clip.name || '').toLowerCase().includes(query) ||
+      (clip.description || '').toLowerCase().includes(query) ||
+      (Array.isArray(clip.tags) && clip.tags.some(tag => (tag || '').toLowerCase().includes(query)))
     );
+  });
+
+  const sortedClips = [...filteredClips].sort((a, b) => {
+    if (sortBy === 'newest') {
+      const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return timeB - timeA;
+    }
+    if (sortBy === 'oldest') {
+      const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return timeA - timeB;
+    }
+    if (sortBy === 'name-asc') {
+      return (a.name || '').localeCompare(b.name || '');
+    }
+    if (sortBy === 'name-desc') {
+      return (b.name || '').localeCompare(a.name || '');
+    }
+    return 0;
   });
 
   return (
@@ -550,13 +615,27 @@ export default function ClipsLibrary() {
           />
         </div>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <span style={{ fontSize: '12px', color: 'var(--text-gray)' }}>Sort By:</span>
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as any)}
+            className="input-field"
+            style={{ width: '130px', height: '38px', fontSize: '12px', margin: 0, background: 'var(--bg-darker)' }}
+          >
+            <option value="newest">Newest First</option>
+            <option value="oldest">Oldest First</option>
+            <option value="name-asc">Name (A-Z)</option>
+            <option value="name-desc">Name (Z-A)</option>
+          </select>
+        </div>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
           <span className="badge-tag">Total Clips: {clips.length}</span>
           <span className="badge-tag" style={{ color: 'var(--accent-indigo)', borderColor: 'var(--border-light)' }}>Ready: {clips.filter(c => c.status === 'ready').length}</span>
         </div>
       </div>
 
       {/* Clips Grid */}
-      {filteredClips.length === 0 ? (
+      {sortedClips.length === 0 ? (
         <div className="glass-panel" style={{ padding: '60px 20px', textAlign: 'center', color: 'var(--text-gray)' }}>
           <Video size={48} style={{ color: 'var(--text-muted)', marginBottom: '16px' }} />
           <h3>No clips found</h3>
@@ -570,7 +649,7 @@ export default function ClipsLibrary() {
           gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
           gap: '24px'
         }}>
-          {filteredClips.map((clip) => (
+          {sortedClips.map((clip) => (
             <div
               key={clip.id}
               className="glass-panel glass-panel-interactive"

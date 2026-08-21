@@ -6,6 +6,7 @@ interface BGM {
   path: string;
   name: string;
   duration: number;
+  createdAt?: string;
 }
 
 export default function MusicLibrary() {
@@ -16,6 +17,7 @@ export default function MusicLibrary() {
   const [importing, setImporting] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
+  const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'name-asc' | 'name-desc'>('newest');
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   // Audio playback state
@@ -177,9 +179,29 @@ export default function MusicLibrary() {
   };
 
   const filteredBgms = bgms.filter(bgm =>
-    bgm.name.toLowerCase().includes(search.toLowerCase()) ||
-    bgm.path.toLowerCase().includes(search.toLowerCase())
+    (bgm.name || '').toLowerCase().includes(search.toLowerCase()) ||
+    (bgm.path || '').toLowerCase().includes(search.toLowerCase())
   );
+
+  const sortedBgms = [...filteredBgms].sort((a, b) => {
+    if (sortBy === 'newest') {
+      const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return timeB - timeA;
+    }
+    if (sortBy === 'oldest') {
+      const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return timeA - timeB;
+    }
+    if (sortBy === 'name-asc') {
+      return (a.name || '').localeCompare(b.name || '');
+    }
+    if (sortBy === 'name-desc') {
+      return (b.name || '').localeCompare(a.name || '');
+    }
+    return 0;
+  });
 
   return (
     <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
@@ -301,9 +323,23 @@ export default function MusicLibrary() {
                 style={{ paddingLeft: '40px' }}
               />
             </div>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <span style={{ fontSize: '12px', color: 'var(--text-gray)' }}>Sort By:</span>
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as any)}
+                className="input-field"
+                style={{ width: '130px', height: '38px', fontSize: '12px', margin: 0, background: 'var(--bg-darker)' }}
+              >
+                <option value="newest">Newest First</option>
+                <option value="oldest">Oldest First</option>
+                <option value="name-asc">Name (A-Z)</option>
+                <option value="name-desc">Name (Z-A)</option>
+              </select>
+            </div>
           </div>
 
-          {filteredBgms.length === 0 ? (
+          {sortedBgms.length === 0 ? (
             <div style={{ padding: '48px 0', textAlign: 'center', color: 'var(--text-muted)' }}>
               <FileAudio size={48} style={{ strokeWidth: 1, marginBottom: '16px', opacity: 0.5 }} />
               <p style={{ fontSize: '14px' }}>No music files found in library.</p>
@@ -311,7 +347,7 @@ export default function MusicLibrary() {
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {filteredBgms.map(bgm => (
+              {sortedBgms.map(bgm => (
                 <div
                   key={bgm.id}
                   style={{

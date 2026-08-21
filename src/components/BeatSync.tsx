@@ -332,7 +332,9 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
   const [sidebarTab, setSidebarTab] = useState<'subtitles' | 'video' | 'audio'>('audio');
   
   // Selected Audio Track state
-  const [audioSource, setAudioSource] = useState<'upload' | 'music_library' | 'video_library'>('upload');
+  const [audioSource, setAudioSource] = useState<'upload' | 'music_library' | 'video_library' | 'reel'>('upload');
+  const [reelUrl, setReelUrl] = useState('');
+  const [downloadingReel, setDownloadingReel] = useState(false);
   const [audioPath, setAudioPath] = useState('');
   const [audioUrl, setAudioUrl] = useState('');
   const [audioName, setAudioName] = useState('');
@@ -437,7 +439,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
   const [miniBeatEffect, setMiniBeatEffect] = useState<'none' | 'blink' | 'shake' | 'both'>('none');
   
   // Subtitle styling states
-  const [subtitleMode, setSubtitleMode] = useState<'classic' | 'pop' | 'smart-highlight' | 'centered-word'>('smart-highlight');
+  const [subtitleMode, setSubtitleMode] = useState<'classic' | 'pop' | 'smart-highlight' | 'centered-word' | 'simple'>('smart-highlight');
   const [fontName, setFontName] = useState('Bangers');
   const [fontSelectorOpen, setFontSelectorOpen] = useState(false);
   const [fontSearchQuery, setFontSearchQuery] = useState('');
@@ -462,6 +464,11 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
   const [showHighlightBox, setShowHighlightBox] = useState(false);
   const [boxColor, setBoxColor] = useState('#8A4BF3');
   const [boxRounding, setBoxRounding] = useState(8);
+  const [textBackgroundStyle, setTextBackgroundStyle] = useState<'none' | 'rounded-box' | 'outline-badge' | 'semi-transparent'>('none');
+  const [textAnimation, setTextAnimation] = useState<'none' | 'typewriter' | 'bounce' | 'flicker' | 'slide' | 'wave' | 'glitch'>('none');
+  const [previewText, setPreviewText] = useState('Creative');
+  const [boxPadding, setBoxPadding] = useState('6px 12px');
+  const [outlineSize, setOutlineSize] = useState(3);
   const [textFade, setTextFade] = useState(true);
   const [textMotion, setTextMotion] = useState<string>('none');
   const [textTransition, setTextTransition] = useState<string>('none');
@@ -699,6 +706,10 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
         if (state.showHighlightBox !== undefined) setShowHighlightBox(state.showHighlightBox);
         if (state.boxColor !== undefined) setBoxColor(state.boxColor);
         if (state.boxRounding !== undefined) setBoxRounding(state.boxRounding);
+        if (state.textBackgroundStyle !== undefined) setTextBackgroundStyle(state.textBackgroundStyle);
+        if (state.textAnimation !== undefined) setTextAnimation(state.textAnimation);
+        if (state.boxPadding !== undefined) setBoxPadding(state.boxPadding);
+        if (state.outlineSize !== undefined) setOutlineSize(state.outlineSize);
         if (state.textFade !== undefined) setTextFade(state.textFade);
         if (state.textTransition !== undefined) setTextTransition(state.textTransition);
         if (state.textMotion !== undefined) setTextMotion(state.textMotion);
@@ -833,6 +844,10 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
               highlightTrigger,
               pop3d,
               pop3dColor,
+              textBackgroundStyle,
+              textAnimation,
+              boxPadding,
+              outlineSize,
               normalStyle,
               highlightStyle,
               emojiStyle,
@@ -1207,6 +1222,56 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
       setError(err.message);
     } finally {
       setUploading(false);
+    }
+  };
+
+  // Extract audio from Instagram Reel
+  const handleExtractReelAudio = async () => {
+    if (!reelUrl) {
+      setError('Please provide an Instagram Reel URL.');
+      return;
+    }
+
+    setError('');
+    setSuccess('');
+    setIsPlaying(false);
+    setDownloadingReel(true);
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+
+    try {
+      const res = await fetch('/api/extract-reel-audio', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: reelUrl })
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to extract audio from Instagram Reel.');
+      }
+
+      const data = await res.json();
+      setAudioPath(data.audioPath);
+      setAudioUrl(data.audioUrl);
+      setAudioName('Instagram Reel Audio');
+
+      // Fetch duration of the extracted audio track
+      const durRes = await fetch(`/api/bgms/duration?path=${encodeURIComponent(data.audioPath)}`);
+      if (durRes.ok) {
+        const durData = await durRes.json();
+        setAudioDuration(durData.duration || 15.0);
+      } else {
+        setAudioDuration(15.0);
+      }
+
+      setSuccess('Audio successfully extracted from Instagram Reel!');
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setDownloadingReel(false);
     }
   };
 
@@ -1997,6 +2062,37 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
         const usedClips = new Set<string>();
         const usedSegments = new Set<string>(); // Format: "clipId_segmentIndex"
 
+        const pickWeightedRandomClip = (clipsArray: any[]) => {
+          if (clipsArray.length === 0) return null;
+          if (clipsArray.length === 1) return clipsArray[0];
+
+          // 1. Sort clipsArray newest-first
+          const sorted = [...clipsArray].sort((a, b) => {
+            const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+            const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+            return timeB - timeA;
+          });
+
+          // 2. Assign weights: w_i = (N - i) + N / 3
+          const N = sorted.length;
+          const weights: number[] = [];
+          let totalWeight = 0;
+          for (let i = 0; i < N; i++) {
+            const w = (N - i) + N / 3.0;
+            weights.push(w);
+            totalWeight += w;
+          }
+
+          let randomVal = Math.random() * totalWeight;
+          for (let i = 0; i < N; i++) {
+            randomVal -= weights[i];
+            if (randomVal <= 0) {
+              return sorted[i];
+            }
+          }
+          return sorted[N - 1];
+        };
+
         updated.forEach((scene, sceneIdx) => {
           const sceneDuration = scene.end_time - scene.start_time;
           let selectedClip: any = null;
@@ -2006,7 +2102,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
           // 1. Try to find a completely unused clip first
           const unusedClips = availableClips.filter(c => !usedClips.has(c.id));
           if (unusedClips.length > 0) {
-            selectedClip = unusedClips[Math.floor(Math.random() * unusedClips.length)];
+            selectedClip = pickWeightedRandomClip(unusedClips);
             const segments = selectedClip.segments || [];
             if (segments.length > 0) {
               selectedSegIdx = Math.floor(Math.random() * segments.length);
@@ -2024,7 +2120,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
             });
 
             if (clipsWithUnusedSegments.length > 0) {
-              selectedClip = clipsWithUnusedSegments[Math.floor(Math.random() * clipsWithUnusedSegments.length)];
+              selectedClip = pickWeightedRandomClip(clipsWithUnusedSegments);
               const segments = selectedClip.segments || [];
               if (segments.length > 0) {
                 const unusedIndices = segments
@@ -2045,7 +2141,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
                 : availableClips;
               const pool = allowedClips.length > 0 ? allowedClips : availableClips;
               
-              selectedClip = pool[Math.floor(Math.random() * pool.length)];
+              selectedClip = pickWeightedRandomClip(pool);
               const segments = selectedClip.segments || [];
               if (segments.length > 0) {
                 selectedSegIdx = Math.floor(Math.random() * segments.length);
@@ -2177,6 +2273,10 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
             highlightTrigger,
             pop3d,
             pop3dColor,
+            textBackgroundStyle,
+            textAnimation,
+            boxPadding,
+            outlineSize,
             normalStyle,
             highlightStyle,
             emojiStyle,
@@ -2969,7 +3069,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
                   Choose Audio Track
                 </h4>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px', marginBottom: '14px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '6px', marginBottom: '14px' }}>
                   <button
                     className={audioSource === 'upload' ? 'btn-primary' : 'btn-secondary'}
                     onClick={() => { setAudioSource('upload'); setError(''); setSuccess(''); }}
@@ -2990,6 +3090,13 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
                     style={{ fontSize: '10px', padding: '6px 2px', justifyContent: 'center' }}
                   >
                     Video Lib
+                  </button>
+                  <button
+                    className={audioSource === 'reel' ? 'btn-primary' : 'btn-secondary'}
+                    onClick={() => { setAudioSource('reel'); setError(''); setSuccess(''); }}
+                    style={{ fontSize: '10px', padding: '6px 2px', justifyContent: 'center' }}
+                  >
+                    Insta Reel
                   </button>
                 </div>
 
@@ -3057,6 +3164,31 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
                         </option>
                       ))}
                     </select>
+                  </div>
+                )}
+
+                {audioSource === 'reel' && (
+                  <div>
+                    <label className="label">Instagram Reel Link</label>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <input
+                        type="text"
+                        className="input-field"
+                        placeholder="https://www.instagram.com/reel/..."
+                        value={reelUrl}
+                        onChange={(e) => setReelUrl(e.target.value)}
+                        style={{ fontSize: '12px', flex: 1 }}
+                        disabled={downloadingReel}
+                      />
+                      <button
+                        className="btn-primary"
+                        onClick={handleExtractReelAudio}
+                        disabled={downloadingReel}
+                        style={{ fontSize: '12px', padding: '0 12px', height: '34px', flexShrink: 0 }}
+                      >
+                        {downloadingReel ? 'Extracting...' : 'Extract'}
+                      </button>
+                    </div>
                   </div>
                 )}
 
@@ -3872,6 +4004,99 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
         <div style={{ animation: 'fadeIn 0.2s ease-out' }}>
           {syncMode === 'dialogue' ? (
             <section className="glass-panel" style={{ padding: '20px', marginBottom: '24px' }}>
+              {/* Sticky Real-Time Preview Panel */}
+              <div className="sticky-preview-container" style={{
+                position: 'sticky',
+                top: 0,
+                zIndex: 50,
+                background: 'var(--bg-darker)',
+                borderBottom: '1px solid var(--border-medium)',
+                padding: '16px',
+                marginBottom: '16px',
+                borderRadius: '8px'
+              }}>
+                <div className="preview-canvas" style={{
+                  // Pass design tokens to CSS variables
+                  ['--preview-box-color' as any]: boxColor,
+                  ['--preview-text-color' as any]: fontColor,
+                  ['--preview-box-padding' as any]: boxPadding,
+                  ['--preview-box-radius' as any]: `${boxRounding}px`,
+                  ['--preview-box-color-alpha' as any]: (() => {
+                    const hex = boxColor || '#8A4BF3';
+                    let r = 138, g = 75, b = 243;
+                    if (hex.length === 4) {
+                      r = parseInt(hex[1] + hex[1], 16);
+                      g = parseInt(hex[2] + hex[2], 16);
+                      b = parseInt(hex[3] + hex[3], 16);
+                    } else if (hex.length === 7) {
+                      r = parseInt(hex.slice(1, 3), 16);
+                      g = parseInt(hex.slice(3, 5), 16);
+                      b = parseInt(hex.slice(5, 7), 16);
+                    }
+                    return `rgba(${r}, ${g}, ${b}, 0.65)`;
+                  })(),
+                  ['--preview-glow-color' as any]: glowColor,
+                  ['--preview-outline-size' as any]: `${outlineSize}px`
+                } as any}>
+                  <div 
+                    className={`preview-text-element preview-bg-${textBackgroundStyle} ${textAnimation !== 'none' ? `preview-anim-${textAnimation}` : ''}`}
+                    style={{
+                      fontFamily: fontName,
+                      fontSize: `${Math.min(32, fontSize)}px`,
+                      fontWeight: bold ? 'bold' : 'normal',
+                      fontStyle: italic ? 'italic' : 'normal',
+                      color: fontColor,
+                      WebkitTextStroke: outlineSize > 0 ? `${outlineColor} ${outlineSize}px` : 'none',
+                      textShadow: pop3d 
+                        ? `${outlineSize + 1}px ${outlineSize + 1}px 0px ${pop3dColor}` 
+                        : (shadow ? '2px 2px 4px rgba(0,0,0,0.5)' : 'none')
+                    }}
+                  >
+                    {textAnimation === 'wave' ? (
+                      previewText.split('').map((char, index) => (
+                        <span 
+                          key={index} 
+                          className="preview-anim-wave-char" 
+                          style={{ animationDelay: `${index * 0.08}s` }}
+                        >
+                          {char === ' ' ? '\u00A0' : char}
+                        </span>
+                      ))
+                    ) : textAnimation === 'typewriter' ? (
+                      <span className="preview-anim-typewriter-container">
+                        <span 
+                          className="preview-anim-typewriter" 
+                          style={{ animationDuration: `${Math.max(1, previewText.length * 0.08)}s` }}
+                        >
+                          {previewText}
+                        </span>
+                      </span>
+                    ) : (
+                      previewText
+                    )}
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '12px' }}>
+                  <input
+                    type="text"
+                    className="input-field"
+                    placeholder="Type custom preview word..."
+                    value={previewText}
+                    onChange={(e) => setPreviewText(e.target.value)}
+                    style={{ flex: 1, height: '32px', fontSize: '12px', margin: 0 }}
+                  />
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() => setPreviewText('Creative')}
+                    style={{ height: '32px', fontSize: '11px', padding: '0 8px', flexShrink: 0 }}
+                  >
+                    Reset
+                  </button>
+                </div>
+              </div>
+
               <h4 style={{ fontSize: '14px', marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <Type size={16} style={{ color: 'var(--accent-purple)' }} />
                 Subtitle Styling
@@ -4101,6 +4326,119 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
                       S
                     </label>
                   </div>
+                </div>
+              </div>
+
+              {/* Text Effects & Animation Card */}
+              <div className="inspector-card" style={{ marginBottom: '14px' }}>
+                <div className="inspector-sub-title">Text Effects & Animations</div>
+                
+                <div style={{ marginBottom: '16px' }}>
+                  <label className="label">Background Style</label>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                    {[
+                      { id: 'none', label: 'None', desc: 'No background backing' },
+                      { id: 'rounded-box', label: 'Rounded Box', desc: 'Solid badge background' },
+                      { id: 'outline-badge', label: 'Outline Badge', desc: 'Rounded border outline' },
+                      { id: 'semi-transparent', label: 'Semi-Transparent', desc: 'Soft transparent badge' }
+                    ].map(style => (
+                      <button
+                        key={style.id} type="button" onClick={() => setTextBackgroundStyle(style.id as any)}
+                        style={{
+                          display: 'flex', flexDirection: 'column', alignItems: 'flex-start', padding: '10px 12px',
+                          borderRadius: '8px', background: textBackgroundStyle === style.id ? 'rgba(var(--scrollbar-thumb), 0.1)' : 'transparent',
+                          border: textBackgroundStyle === style.id ? '1px solid var(--primary)' : '1px solid var(--border-light)',
+                          color: textBackgroundStyle === style.id ? 'var(--text-white)' : 'var(--text-gray)', textAlign: 'left', cursor: 'pointer', transition: 'all 0.2s ease'
+                        }}
+                      >
+                        <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-white)' }}>{style.label}</span>
+                        <span style={{ fontSize: '9px', color: 'var(--text-muted)', marginTop: '2px', lineHeight: '1.2' }}>{style.desc}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: '16px' }}>
+                  <label className="label">Text Animation</label>
+                  <select
+                    className="input-field"
+                    value={textAnimation}
+                    onChange={(e) => setTextAnimation(e.target.value as any)}
+                    style={{ height: '34px', fontSize: '12px' }}
+                  >
+                    <option value="none">None (Static)</option>
+                    <option value="typewriter">Typewriter (Sequential reveal)</option>
+                    <option value="bounce">Bounce (Entrance scale pop)</option>
+                    <option value="flicker">Flicker (Neon flicker)</option>
+                    <option value="slide">Slide (Slide in from bottom)</option>
+                    <option value="wave">Wave (Sine bobbing characters)</option>
+                    <option value="glitch">Glitch (Cyber jitter)</option>
+                  </select>
+                </div>
+
+                {textBackgroundStyle !== 'none' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '12px', padding: '12px', background: 'var(--bg-darker)', borderRadius: '8px', border: '1px solid var(--border-light)' }}>
+                    <div>
+                      <label className="label" style={{ marginBottom: '4px' }}>Background Color</label>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <input
+                          type="color"
+                          value={boxColor}
+                          onChange={(e) => setBoxColor(e.target.value)}
+                          style={{ width: '32px', height: '32px', border: '1px solid var(--border-medium)', borderRadius: '50%', cursor: 'pointer', background: 'transparent', padding: 0 }}
+                        />
+                        <input
+                          type="text"
+                          className="input-field"
+                          value={boxColor.toUpperCase()}
+                          onChange={(e) => setBoxColor(e.target.value)}
+                          style={{ flex: 1, height: '32px', fontSize: '12px', fontFamily: 'monospace' }}
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                        <span style={{ fontSize: '11px', color: 'var(--text-gray)' }}>Box Padding</span>
+                        <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{boxPadding}</span>
+                      </div>
+                      <select
+                        className="input-field"
+                        value={boxPadding}
+                        onChange={(e) => setBoxPadding(e.target.value)}
+                        style={{ height: '32px', fontSize: '12px' }}
+                      >
+                        <option value="4px 8px">Small (4px 8px)</option>
+                        <option value="6px 12px">Medium (6px 12px)</option>
+                        <option value="8px 16px">Large (8px 16px)</option>
+                        <option value="12px 24px">Extra Large (12px 24px)</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                        <span style={{ fontSize: '11px', color: 'var(--text-gray)' }}>Box Corner Rounding</span>
+                        <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{boxRounding}px</span>
+                      </div>
+                      <input
+                        type="range" min={0} max={24} step={2} value={boxRounding}
+                        onChange={(e) => setBoxRounding(parseInt(e.target.value, 10))}
+                        style={{ width: '100%' }}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <div style={{ marginTop: '12px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                    <span style={{ fontSize: '11px', color: 'var(--text-gray)' }}>Outline Stroke Size</span>
+                    <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{outlineSize}px</span>
+                  </div>
+                  <input
+                    type="range" min={0} max={8} step={1} value={outlineSize}
+                    onChange={(e) => setOutlineSize(parseInt(e.target.value, 10))}
+                    style={{ width: '100%' }}
+                  />
                 </div>
               </div>
 
@@ -4515,7 +4853,7 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
                       <input
                         type="range"
                         min={1}
-                        max={10}
+                        max={15}
                         step={1}
                         value={maxWordsPerLine}
                         onChange={(e) => setMaxWordsPerLine(parseInt(e.target.value, 10))}

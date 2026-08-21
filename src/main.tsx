@@ -1,6 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
+import './SubtitlePreview.css'
 import App from './App.tsx'
 
 // Intercept fetch to inject auth header for API requests
