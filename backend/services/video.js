@@ -2341,6 +2341,7 @@ export async function assembleVideo(options, onProgress) {
     let s1 = effectiveSceneDuration, s2 = effectiveSceneDuration, s3 = effectiveSceneDuration;
     let a1 = 0, a2 = 0;
     let isSpeedRamped = false;
+    let constantSpeed = (typeof scene.speed === 'number' && scene.speed > 0) ? scene.speed : 1.0;
 
     if (scene.speedRamp && scene.speedRamp.enabled) {
       isSpeedRamped = true;
@@ -2366,7 +2367,11 @@ export async function assembleVideo(options, onProgress) {
       s3 = ((v0 + 6 * v1 + v2) / 8) * effectiveSceneDuration;
     }
 
-    const sourceDuration = isSpeedRamped ? s3 : effectiveSceneDuration;
+    const sourceDuration = isSpeedRamped ? s3 : (effectiveSceneDuration * constantSpeed);
+
+    if (scene.reverse && (scene.reverseTarget === 'prev' || scene.reverseTarget === 'next')) {
+      clipStartOffset = Math.max(0, clipStartOffset - sourceDuration);
+    }
 
     let applyMinterpolate = false;
     let brollFilterString = '';
@@ -2379,13 +2384,18 @@ export async function assembleVideo(options, onProgress) {
         brollFilter += `,tpad=stop_mode=clone:stop=${padFrames}`;
       }
 
-      // Append speed ramping setpts filter if enabled
+      // Append speed ramping or constant speed setpts filter if enabled
       if (isSpeedRamped) {
         const setptsExpr = `(if(lt(T, ${s1}), (-${v0} + sqrt(max(0, ${v0}*${v0} + 8*${a1}*T))) / (4*${a1}), if(lt(T, ${s2}), 0.25*${effectiveSceneDuration} + (T - ${s1}) / ${v1}, 0.75*${effectiveSceneDuration} + (-${v1} + sqrt(max(0, ${v1}*${v1} + 8*${a2}*(T - ${s2})))) / (4*${a2}))))/TB`;
         brollFilter += `,setpts='${setptsExpr}'`;
 
         const hasSlowMotion = v0 < 1.0 || v1 < 1.0 || v2 < 1.0;
         if (hasSlowMotion) {
+          applyMinterpolate = true;
+        }
+      } else if (constantSpeed !== 1.0) {
+        brollFilter += `,setpts=(1/${constantSpeed})*PTS-STARTPTS`;
+        if (constantSpeed < 1.0) {
           applyMinterpolate = true;
         }
       }
@@ -2401,6 +2411,11 @@ export async function assembleVideo(options, onProgress) {
       // Apply optical flow slow motion interpolation after scaling to reduce resolution workload (highly optimized)
       if (applyMinterpolate) {
         brollFilter += `,minterpolate=fps=${targetFps}:mi_mode=mci:me_mode=bidir:me=ds:scd=none`;
+      }
+
+      // Reverse video playback (Reverse Continuity / Match-Cut)
+      if (scene.reverse) {
+        brollFilter += `,reverse,setpts=PTS-STARTPTS`;
       }
 
       // Ping-pong (Beat Bounce)

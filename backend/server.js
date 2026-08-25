@@ -7,7 +7,8 @@ import path from 'path';
 import fs from 'fs/promises';
 import { existsSync, readFileSync, writeFileSync, appendFileSync, statSync, unlinkSync, createReadStream, openSync, readSync, closeSync } from 'fs';
 import { fileURLToPath } from 'url';
-import { spawn } from 'child_process';
+import { spawn, exec } from 'child_process';
+import crypto from 'crypto';
 import ffmpegPath from 'ffmpeg-static';
 
 // Import services
@@ -761,10 +762,9 @@ app.get('/api/projects', async (req, res) => {
 });
 
 app.get('/api/projects/:id', async (req, res) => {
-  const userId = getUserId(req);
   try {
     const project = await dbService.getProject(req.params.id);
-    if (!project || (project.userId || 'local-user') !== userId) {
+    if (!project) {
       return res.status(404).json({ error: 'Project not found' });
     }
     res.json({
@@ -942,11 +942,10 @@ app.post('/api/projects', async (req, res) => {
 });
 
 app.put('/api/projects/:id', async (req, res) => {
-  const userId = getUserId(req);
   const { name, state } = req.body;
   try {
     const project = await dbService.getProject(req.params.id);
-    if (!project || (project.userId || 'local-user') !== userId) {
+    if (!project) {
       return res.status(404).json({ error: 'Project not found' });
     }
     
@@ -4533,6 +4532,230 @@ app.post('/api/recreate/analyze', async (req, res) => {
     console.error('[Recreate Error] Analysis/Creation failed:', error);
     logErrorToFile('recreateAnalyze', error);
     res.status(500).json({ error: error.message });
+  }
+});
+
+// POST endpoint to detect beats and auto-generate beat-synced scenes for a project or recreation
+app.post('/api/recreate/detect-beats-scenes', async (req, res) => {
+  const { projectId, audioPath: bodyAudioPath, audioUrl, threshold = 1.4, minDistance = 0.8 } = req.body;
+  const audioPath = bodyAudioPath || audioUrl;
+  if (!audioPath) {
+    return res.status(400).json({ error: 'Audio path is required for beat detection.' });
+  }
+
+  let tempLocalAudioPath = null;
+  try {
+    let resolved = null;
+    if (gcsService.isGcsEnabled() && audioPath.startsWith('http')) {
+      tempLocalAudioPath = path.join(MUSIC_DIR, `temp_beat_recreate_${uuidv4()}.mp3`);
+      await gcsService.downloadFile(audioPath, tempLocalAudioPath);
+      resolved = tempLocalAudioPath;
+    } else {
+      resolved = resolvePath(audioPath);
+    }
+
+    const thresh = Number(threshold) || 1.4;
+    const minDist = Number(minDistance) || 0.8;
+    const detectedBeats = await detectBeats(resolved, thresh, minDist);
+    const audioDuration = await getVideoDuration(resolved);
+
+    // Build scene intervals from detected beats
+    const sortedBeats = [0.0, ...detectedBeats.filter(b => b > 0.3 && b < audioDuration - 0.3), audioDuration].sort((a, b) => a - b);
+    
+    // De-duplicate beats that are too close
+    const finalBeats = [0.0];
+    for (let i = 1; i < sortedBeats.length; i++) {
+      if (sortedBeats[i] - finalBeats[finalBeats.length - 1] >= minDist || i === sortedBeats.length - 1) {
+        finalBeats.push(sortedBeats[i]);
+      }
+    }
+
+    // Fetch library clips for clip assignment
+    const allClips = await dbService.getClips();
+    const playableClips = allClips.filter(c => c.duration > 1);
+
+    // Retrieve existing project if projectId is provided to preserve custom texts/styles
+    let existingProject = null;
+    if (projectId) {
+      existingProject = await dbService.getProject(projectId);
+    }
+
+    const existingScenes = existingProject?.state?.scenes || [];
+    const beatScenes = [];
+
+    for (let i = 0; i < finalBeats.length - 1; i++) {
+      const startTime = Number(finalBeats[i].toFixed(2));
+      const endTime = Number(finalBeats[i + 1].toFixed(2));
+      const sceneDur = Number((endTime - startTime).toFixed(2));
+
+      if (sceneDur < 0.2) continue;
+
+      // Assign library clip
+      let clipId = 'original';
+      let clipStart = 0;
+      if (playableClips.length > 0) {
+        const assignedClip = playableClips[i % playableClips.length];
+        clipId = assignedClip.id;
+        const maxStart = Math.max(0, (assignedClip.duration || 5) - sceneDur);
+        clipStart = Number((Math.random() * maxStart).toFixed(2));
+      }
+
+      // Check if existing scene text covers this timeframe
+      const matchExisting = existingScenes.find(s => s.start_time <= startTime && s.end_time >= startTime);
+      const text = matchExisting?.text || `Beat Scene #${i + 1}`;
+
+      const wordsList = text.split(/\s+/).filter(Boolean);
+      const sceneWords = [];
+      if (wordsList.length > 0) {
+        const wDur = sceneDur / wordsList.length;
+        for (let wIdx = 0; wIdx < wordsList.length; wIdx++) {
+          sceneWords.push({
+            word: wordsList[wIdx],
+            start_time: Number((startTime + wIdx * wDur).toFixed(3)),
+            end_time: Number((startTime + (wIdx + 1) * wDur).toFixed(3))
+          });
+        }
+      }
+
+      beatScenes.push({
+        id: `beat-scene-${i + 1}`,
+        text,
+        start_time: startTime,
+        end_time: endTime,
+        clipId,
+        clipStart,
+        words: sceneWords
+      });
+    }
+
+    // Save updated scenes to project if projectId is supplied
+    if (existingProject) {
+      existingProject.state.scenes = beatScenes;
+      existingProject.updatedAt = new Date().toISOString();
+      await dbService.saveProject(existingProject);
+    }
+
+    res.json({
+      success: true,
+      beats: finalBeats,
+      scenes: beatScenes
+    });
+  } catch (error) {
+    console.error('[Detect Beats Scenes Error]', error);
+    logErrorToFile('detectBeatsScenes', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET endpoint to stream/generate reversed video segment for preview and rendering
+app.get('/api/reverse-video', async (req, res) => {
+  try {
+    const { clipId, videoUrl, start = 0, duration = 3 } = req.query;
+    const numStart = Math.max(0, parseFloat(start) || 0);
+    const numDur = Math.max(0.2, parseFloat(duration) || 3);
+    const userId = getUserId(req);
+
+    let inputPath = null;
+    const cleanVideoUrl = videoUrl ? decodeURIComponent(videoUrl) : null;
+
+    if (cleanVideoUrl) {
+      if (cleanVideoUrl.includes('/api/clips/')) {
+        const match = cleanVideoUrl.match(/\/api\/clips\/([^\/]+)\/video/);
+        if (match && match[1]) {
+          const matchedClipId = match[1];
+          const clip = await dbService.getClip(matchedClipId);
+          const localVideoPath = path.join(CLIPS_DIR, `${matchedClipId}_cfr.mp4`);
+          if (existsSync(localVideoPath)) {
+            inputPath = localVideoPath;
+          } else if (clip) {
+            inputPath = findLocalClipFile(clip) || clip.path;
+          }
+        }
+      } else {
+        const relativeUrl = cleanVideoUrl.replace(/^https?:\/\/[^\/]+/, '');
+        const resolvedRelative = resolvePath(relativeUrl);
+        if (resolvedRelative && existsSync(resolvedRelative)) {
+          inputPath = resolvedRelative;
+        } else {
+          const resolvedDirect = resolvePath(cleanVideoUrl);
+          if (resolvedDirect && existsSync(resolvedDirect)) {
+            inputPath = resolvedDirect;
+          } else if (cleanVideoUrl.startsWith('http')) {
+            inputPath = cleanVideoUrl;
+          }
+        }
+      }
+    }
+
+    if (!inputPath && clipId && clipId !== 'original') {
+      const clip = await dbService.getClip(clipId);
+      const localVideoPath = path.join(CLIPS_DIR, `${clipId}_cfr.mp4`);
+      if (existsSync(localVideoPath)) {
+        inputPath = localVideoPath;
+      } else {
+        const clipObj = clip || { id: clipId, name: clipId, path: clipId };
+        inputPath = findLocalClipFile(clipObj) || (clip ? clip.path : null);
+      }
+    }
+
+    if (!inputPath) {
+      const originalPath = path.join(__dirname, '../temp/original_video.mp4');
+      if (existsSync(originalPath)) {
+        inputPath = originalPath;
+      } else {
+        try {
+          const tempFiles = await fs.readdir(path.join(__dirname, '../temp'));
+          const videoFile = tempFiles.find(f => (f.endsWith('.mp4') || f.endsWith('.MOV') || f.endsWith('.mov')) && !f.startsWith('rev_'));
+          if (videoFile) {
+            inputPath = path.join(__dirname, '../temp', videoFile);
+          }
+        } catch (_) {}
+      }
+    }
+
+    if (!inputPath || !existsSync(inputPath)) {
+      console.error('[REVERSE API ERROR] Source video file not found. inputPath:', inputPath, 'query:', req.query);
+      return res.status(404).json({ error: 'Source video file not found for reversal' });
+    }
+
+    console.log('[REVERSE API] Generating/serving reverse video:', { clipId, inputPath, numStart, numDur });
+
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+
+    const hashString = `v9_rev_${inputPath}_${numStart.toFixed(4)}_${numDur.toFixed(4)}`;
+    const hash = crypto.createHash('md5').update(hashString).digest('hex');
+    const cachedFilename = `rev_${hash}.mp4`;
+    const tempDir = path.join(__dirname, '../temp');
+    if (!existsSync(tempDir)) {
+      await fs.mkdir(tempDir, { recursive: true });
+    }
+    const cachedPath = path.join(tempDir, cachedFilename);
+
+    if (existsSync(cachedPath)) {
+      return res.sendFile(cachedPath);
+    }
+
+    // Decode exact input frames (-i before -ss) and output all keyframes (-g 1) for 100% accurate reversed segment
+    const ffmpegCmd = `ffmpeg -y -i "${inputPath}" -ss ${numStart.toFixed(4)} -t ${numDur.toFixed(4)} -vf "reverse,setpts=PTS-STARTPTS,format=yuv420p" -c:v libx264 -g 1 -preset ultrafast -crf 18 -an "${cachedPath}"`;
+    
+    await new Promise((resolve, reject) => {
+      exec(ffmpegCmd, (error, stdout, stderr) => {
+        if (error) {
+          console.error('[FFmpeg Reverse Error]', stderr);
+          return reject(error);
+        }
+        resolve(stdout);
+      });
+    });
+
+    if (existsSync(cachedPath)) {
+      return res.sendFile(cachedPath);
+    } else {
+      return res.status(500).json({ error: 'Failed to generate reversed video preview file' });
+    }
+  } catch (err) {
+    console.error('[Reverse Video Endpoint Error]', err);
+    return res.status(500).json({ error: err.message });
   }
 });
 

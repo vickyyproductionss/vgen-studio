@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { SubtitleStyleEditor } from './SubtitleStyleEditor';
-import { Sparkles, RefreshCw, AlertTriangle, CheckCircle, Upload, Zap, Play, Pause, Video, Layers, Sparkle, Trash, Scissors, GitMerge } from 'lucide-react';
+import { Sparkles, RefreshCw, AlertTriangle, CheckCircle, Upload, Zap, Play, Pause, Video, Layers, Sparkle, Trash, Scissors, GitMerge, RotateCcw, Music } from 'lucide-react';
 import RichClipSelector from './RichClipSelector';
 import { Player } from '@remotion/player';
 import { VideoReel } from '../remotion/VideoReel';
@@ -815,68 +815,56 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
     init();
   }, [projectId]);
 
+  const saveProjectState = async (overrides?: any) => {
+    if (!hasLoadedProject) return;
+    try {
+      const endpoint = projectId ? `/api/projects/${projectId}` : '/api/project';
+      const method = projectId ? 'PUT' : 'POST';
+      const currentScenes = overrides?.scenes || scenes;
+
+      // Prevent overwriting an existing project with empty scenes
+      if (projectId && (!currentScenes || currentScenes.length === 0)) {
+        console.warn('[saveProjectState] Guard triggered: refusing to overwrite project with 0 scenes.');
+        return;
+      }
+
+      const stateObj = {
+        scriptText, selectedVoice, audioSource, voiceoverPath, voiceoverUrl, scenes: currentScenes, activeLang,
+        originalVideoPath, originalVideoUrl,
+        aspectRatio, fillMode, bgMusicPath, bgMusicVolume, muteBgMusic, bgMusicStartOffset,
+        voiceoverVolume, muteVoiceover, videoVolume, muteVideoAudio, sfxVolume, muteSfx,
+        clipTransition, transitionDuration, zoomAnimation, subtitleMode,
+        fontName, fontSize, fontColor, outlineColor, outlineThickness, bold, italic, shadow, highlightColor,
+        showHighlightBox, boxColor, boxRounding, textFade, textTransition, textMotion,
+        activeWordScale, wordDisplayTime, maxWordsPerLine, textPositionX, textPositionY, exportResolution,
+        exportFps, showEmojis, autoEmphasis, emphasisColor, neonGlow, glowColor, glowBlur, glowDistance, highlightTrigger, textCase, pop3d, pop3dColor,
+        pop3dDepth, letterSpacing, wordSpacing, shadowColor, shadowBlur, shadowDistance, shadowAngle, shadowOpacity,
+        textBackgroundStyle, textAnimation, boxPadding, outlineSize,
+        normalStyle, highlightStyle, emojiStyle, elevenLabsModel, enhanceWithThoughtfulTags, originalScriptText,
+        headingTitle, headingFontName, headingFontSize, headingFontColor, headingBoxColor, headingPadding, showTimer, headingTopOffset, headingLeftOffset,
+        headingBoxOpacity, headingTextOpacity,
+        brandingTheme, seriesName, episodeNumber, nextEpisode,
+        backgroundType, backgroundColor, backgroundClipId,
+        talkingHeadEnabled, talkingHeadChromaColor, talkingHeadChromaSimilarity, talkingHeadChromaBlend,
+        talkingHeadSize, talkingHeadPosition, talkingHeadPositionX, talkingHeadPositionY,
+        talkingHeadOutlineEnabled, talkingHeadOutlineColor, talkingHeadOutlineThickness,
+        brandPrimaryColor, brandSecondaryColor, cardPositionY, cardScale, cardFontName, showLayoutCards, applyHUDToAll
+      };
+
+      const payload = projectId ? { state: stateObj } : stateObj;
+
+      await fetch(endpoint, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+    } catch (err) {
+      console.error('Failed to save project state:', err);
+    }
+  };
+
   useEffect(() => {
     if (!hasLoadedProject) return;
-
-    const saveProjectState = async () => {
-      try {
-        const endpoint = projectId ? `/api/projects/${projectId}` : '/api/project';
-        const method = projectId ? 'PUT' : 'POST';
-        const payload = projectId ? {
-          state: {
-            scriptText, selectedVoice, audioSource, voiceoverPath, voiceoverUrl, scenes, activeLang,
-            originalVideoPath, originalVideoUrl,
-            aspectRatio, fillMode, bgMusicPath, bgMusicVolume, muteBgMusic, bgMusicStartOffset,
-            voiceoverVolume, muteVoiceover, videoVolume, muteVideoAudio, sfxVolume, muteSfx,
-            clipTransition, transitionDuration, zoomAnimation, subtitleMode,
-            fontName, fontSize, fontColor, outlineColor, outlineThickness, bold, italic, shadow, highlightColor,
-            showHighlightBox, boxColor, boxRounding, textFade, textTransition, textMotion,
-            activeWordScale, wordDisplayTime, maxWordsPerLine, textPositionX, textPositionY, exportResolution,
-            exportFps, showEmojis, autoEmphasis, emphasisColor, neonGlow, glowColor, glowBlur, glowDistance, highlightTrigger, textCase, pop3d, pop3dColor,
-            pop3dDepth, letterSpacing, wordSpacing, shadowColor, shadowBlur, shadowDistance, shadowAngle, shadowOpacity,
-            textBackgroundStyle, textAnimation, boxPadding, outlineSize,
-            normalStyle, highlightStyle, emojiStyle, elevenLabsModel, enhanceWithThoughtfulTags, originalScriptText,
-            headingTitle, headingFontName, headingFontSize, headingFontColor, headingBoxColor, headingPadding, showTimer, headingTopOffset, headingLeftOffset,
-            headingBoxOpacity, headingTextOpacity,
-            brandingTheme, seriesName, episodeNumber, nextEpisode,
-            backgroundType, backgroundColor, backgroundClipId,
-            talkingHeadEnabled, talkingHeadChromaColor, talkingHeadChromaSimilarity, talkingHeadChromaBlend,
-            talkingHeadSize, talkingHeadPosition, talkingHeadPositionX, talkingHeadPositionY,
-            talkingHeadOutlineEnabled, talkingHeadOutlineColor, talkingHeadOutlineThickness,
-            brandPrimaryColor, brandSecondaryColor, cardPositionY, cardScale, cardFontName, showLayoutCards, applyHUDToAll
-          }
-        } : {
-          scriptText, selectedVoice, audioSource, voiceoverPath, voiceoverUrl, scenes, activeLang,
-          originalVideoPath, originalVideoUrl,
-          aspectRatio, fillMode, bgMusicPath, bgMusicVolume, muteBgMusic, bgMusicStartOffset,
-          voiceoverVolume, muteVoiceover, videoVolume, muteVideoAudio, sfxVolume, muteSfx,
-          clipTransition, transitionDuration, zoomAnimation, subtitleMode,
-          fontName, fontSize, fontColor, outlineColor, outlineThickness, bold, italic, shadow, highlightColor,
-          showHighlightBox, boxColor, boxRounding, textFade, textTransition, textMotion,
-          activeWordScale, wordDisplayTime, maxWordsPerLine, textPositionX, textPositionY, exportResolution,
-          exportFps, showEmojis, autoEmphasis, emphasisColor, neonGlow, glowColor, glowBlur, glowDistance, highlightTrigger, textCase, pop3d, pop3dColor,
-          pop3dDepth, letterSpacing, wordSpacing, shadowColor, shadowBlur, shadowDistance, shadowAngle, shadowOpacity,
-          textBackgroundStyle, textAnimation, boxPadding, outlineSize,
-          normalStyle, highlightStyle, emojiStyle, elevenLabsModel, enhanceWithThoughtfulTags, originalScriptText,
-          headingTitle, headingFontName, headingFontSize, headingFontColor, headingBoxColor, headingPadding, showTimer, headingTopOffset, headingLeftOffset,
-          headingBoxOpacity, headingTextOpacity,
-          brandingTheme, seriesName, episodeNumber, nextEpisode,
-          backgroundType, backgroundColor, backgroundClipId,
-          talkingHeadEnabled, talkingHeadChromaColor, talkingHeadChromaSimilarity, talkingHeadChromaBlend,
-          talkingHeadSize, talkingHeadPosition, talkingHeadPositionX, talkingHeadPositionY,
-          talkingHeadOutlineEnabled, talkingHeadOutlineColor, talkingHeadOutlineThickness,
-          brandPrimaryColor, brandSecondaryColor, cardPositionY, cardScale, cardFontName, showLayoutCards, applyHUDToAll
-        };
-
-        await fetch(endpoint, {
-          method,
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-      } catch (err) {
-        console.error('Failed to save project state:', err);
-      }
-    };
 
     const delayDebounce = setTimeout(() => {
       saveProjectState();
@@ -913,10 +901,10 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
       const res = await fetch(endpoint);
       if (res.ok) {
         const data = await res.json();
-        const project = projectId ? (data.state || {}) : data;
+        const project = projectId ? ({ ...data, ...(data.state || {}) }) : data;
         if (projectId) {
-          setProjectName(data.name || 'Untitled Project');
-          setProjectType(data.type || 'create');
+          if (data.name) setProjectName(data.name);
+          if (data.type) setProjectType(data.type);
         }
         
         if (project.originalVideoPath !== undefined) setOriginalVideoPath(project.originalVideoPath);
@@ -931,7 +919,9 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
           }
         }
         if (project.voiceoverUrl !== undefined) setVoiceoverUrl(project.voiceoverUrl);
-        if (project.scenes !== undefined) setScenes(project.scenes);
+        if (project.scenes !== undefined && Array.isArray(project.scenes) && project.scenes.length > 0) {
+          setScenes(project.scenes);
+        }
         if (project.activeLang !== undefined) setActiveLang(project.activeLang);
         if (project.aspectRatio !== undefined) setAspectRatio(project.aspectRatio);
         if (project.fillMode !== undefined) setFillMode(project.fillMode);
@@ -1488,6 +1478,133 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
   const mergeSceneWithNext = (idx: number) => {
     if (idx < 0 || idx >= scenes.length - 1) return;
     mergeSceneWithPrevious(idx + 1);
+  };
+
+  const playerRef = useRef<any>(null);
+
+  const handleSelectSceneToPreview = (sceneStartTime: number) => {
+    const targetFrame = Math.max(0, Math.round((sceneStartTime || 0) * 30));
+    if (playerRef.current) {
+      playerRef.current.seekTo(targetFrame);
+      playerRef.current.play();
+    }
+  };
+
+  const [openReverseMenuIdx, setOpenReverseMenuIdx] = useState<number | null>(null);
+
+  const handleMatchCutReverse = (idx: number, target: 'prev' | 'next' | 'toggle') => {
+    const updatedScenes = [...scenes];
+    const currentScene = { ...updatedScenes[idx] };
+    const currentDur = Math.max(0.5, (currentScene.end_time || 0) - (currentScene.start_time || 0));
+
+    if (target === 'toggle') {
+      currentScene.reverse = !currentScene.reverse;
+      if (!currentScene.reverse) {
+        currentScene.reverseTarget = undefined;
+        currentScene.reverseStartTimestamp = undefined;
+      } else {
+        const rawStart = (currentScene.clipId === 'original' && (currentScene.clipStart === undefined || currentScene.clipStart === null)) ? (currentScene.start_time || 0) : (currentScene.clipStart || 0);
+        currentScene.reverseStartTimestamp = Number((rawStart + currentDur).toFixed(3));
+      }
+    } else if (target === 'prev') {
+      if (idx === 0) {
+        alert('No previous scene available to match cut.');
+        return;
+      }
+      const prevScene = updatedScenes[idx - 1];
+      const prevDur = Math.max(0.5, (prevScene.end_time || 0) - (prevScene.start_time || 0));
+      const prevClipStart = (prevScene.clipId === 'original' && (prevScene.clipStart === undefined || prevScene.clipStart === null)) ? (prevScene.start_time || 0) : (prevScene.clipStart || 0);
+
+      const fps = 30;
+      const prevStartFrame = Math.round(prevClipStart * fps);
+      const prevDurFrames = Math.max(1, Math.round(prevDur * fps));
+
+      const sliceStartInSec = prevStartFrame / fps;
+      const prevEndInSec = (prevStartFrame + prevDurFrames) / fps;
+
+      currentScene.clipId = prevScene.clipId || 'original';
+      currentScene.clipUrl = prevScene.clipUrl || (prevScene.clipId && prevScene.clipId !== 'original' ? `/api/clips/${prevScene.clipId}/video` : undefined);
+      currentScene.clipStart = Number(sliceStartInSec.toFixed(4));
+      currentScene.reverse = true;
+      currentScene.reverseTarget = 'prev';
+      currentScene.reverseStartTimestamp = Number(prevEndInSec.toFixed(4));
+    } else if (target === 'next') {
+      if (idx >= updatedScenes.length - 1) {
+        alert('No next scene available to match cut.');
+        return;
+      }
+      const nextScene = updatedScenes[idx + 1];
+      const nextClipStart = (nextScene.clipId === 'original' && (nextScene.clipStart === undefined || nextScene.clipStart === null)) ? (nextScene.start_time || 0) : (nextScene.clipStart || 0);
+
+      currentScene.clipId = nextScene.clipId || 'original';
+      currentScene.clipUrl = nextScene.clipUrl || (nextScene.clipId && nextScene.clipId !== 'original' ? `/api/clips/${nextScene.clipId}/video` : undefined);
+      currentScene.clipStart = Number(nextClipStart.toFixed(3));
+      currentScene.reverse = true;
+      currentScene.reverseTarget = 'next';
+      currentScene.reverseStartTimestamp = Number((nextClipStart + currentDur).toFixed(3));
+    }
+
+    updatedScenes[idx] = currentScene;
+    setScenes(updatedScenes);
+    saveProjectState({ scenes: updatedScenes });
+  };
+
+  const [showBeatSyncPanel, setShowBeatSyncPanel] = useState(false);
+  const [beatThreshold, setBeatThreshold] = useState(1.4);
+  const [minBeatDist, setMinBeatDist] = useState(0.8);
+  const [isDetectingBeats, setIsDetectingBeats] = useState(false);
+
+  const handleDetectBeatsInCreateProject = async () => {
+    const audioUrl = voiceoverUrl || originalVideoUrl || bgMusicPath;
+    if (!audioUrl) {
+      alert('No audio track or video audio found for beat detection. Please upload a video or audio track.');
+      return;
+    }
+
+    try {
+      setIsDetectingBeats(true);
+      const targetPort = 8000;
+      const backendUrl = window.location.port 
+        ? `${window.location.protocol}//${window.location.hostname}:${targetPort}`
+        : window.location.origin;
+
+      const res = await fetch(`${backendUrl}/api/recreate/detect-beats-scenes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          audioPath: audioUrl,
+          audioUrl,
+          threshold: beatThreshold,
+          minDistance: minBeatDist
+        })
+      });
+
+      const data = await res.json();
+      if (data.success && Array.isArray(data.scenes) && data.scenes.length > 0) {
+        const newScenes = data.scenes.map((bs: any, idx: number) => {
+          const oldScene = scenes[idx % scenes.length] || scenes[0] || {};
+          return {
+            ...oldScene,
+            start_time: bs.start_time,
+            end_time: bs.end_time,
+            text: oldScene.text || bs.text || `Scene ${idx + 1}`,
+            clipId: oldScene.clipId || 'original',
+            clipStart: oldScene.clipStart || 0
+          };
+        });
+
+        setScenes(newScenes);
+        saveProjectState({ scenes: newScenes });
+        alert(`✨ Beat Detection Complete! Created ${newScenes.length} beat-synced scenes.`);
+      } else {
+        alert('Failed to detect beats: ' + (data.error || 'No beats detected. Try adjusting sensitivity.'));
+      }
+    } catch (err: any) {
+      console.error('Beat detection error:', err);
+      alert('Error detecting beats: ' + err.message);
+    } finally {
+      setIsDetectingBeats(false);
+    }
   };
 
   const updateSceneText = (idx: number, text: string) => {
@@ -2425,6 +2542,22 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
 
                 <button
                   type="button"
+                  onClick={() => setShowBeatSyncPanel(!showBeatSyncPanel)}
+                  className="btn-secondary"
+                  style={{
+                    fontSize: '12px',
+                    padding: '6px 14px',
+                    height: '32px',
+                    borderColor: showBeatSyncPanel ? 'var(--accent-purple)' : 'var(--border-medium)',
+                    color: showBeatSyncPanel ? '#FFF' : 'var(--text-gray)',
+                    background: showBeatSyncPanel ? 'var(--accent-purple)' : 'transparent'
+                  }}
+                >
+                  <Music size={12} style={{ marginRight: '6px' }} />
+                  Beat Sync & Auto-Cut
+                </button>
+                <button
+                  type="button"
                   onClick={() => setShowBulkTransitions(!showBulkTransitions)}
                   className="btn-secondary"
                   style={{ fontSize: '12px', padding: '6px 14px', height: '32px', borderColor: showBulkTransitions ? 'var(--primary)' : 'var(--border-medium)', color: showBulkTransitions ? 'var(--text-white)' : 'var(--text-gray)' }}
@@ -2443,6 +2576,96 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                 </button>
               </div>
             </div>
+
+            {showBeatSyncPanel && (
+              <div
+                className="premium-card"
+                style={{
+                  padding: '16px 20px',
+                  marginBottom: '20px',
+                  background: 'rgba(138, 75, 243, 0.08)',
+                  border: '1px solid rgba(138, 75, 243, 0.3)',
+                  borderRadius: 'var(--radius-lg)'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Music size={18} style={{ color: 'var(--accent-purple)' }} />
+                    <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-white)' }}>
+                      🎵 Beat Detection & Auto-Split Timeline
+                    </span>
+                  </div>
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)', background: 'rgba(255,255,255,0.06)', padding: '2px 8px', borderRadius: '4px' }}>
+                    Analyzes audio PCM energy & creates beat-matched scenes
+                  </span>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px', alignItems: 'end' }}>
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-gray)', marginBottom: '4px' }}>
+                      <span>Sensitivity / Threshold:</span>
+                      <strong style={{ color: '#FFF' }}>{beatThreshold.toFixed(1)}</strong>
+                    </div>
+                    <input
+                      type="range" min={0.6} max={2.4} step={0.1}
+                      value={beatThreshold}
+                      onChange={(e) => setBeatThreshold(parseFloat(e.target.value))}
+                      style={{ width: '100%', accentColor: 'var(--accent-purple)', cursor: 'pointer' }}
+                    />
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                      <span>Frequent (0.6)</span>
+                      <span>Heavy Beats (2.4)</span>
+                    </div>
+                  </div>
+
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-gray)', marginBottom: '4px' }}>
+                      <span>Min Cut Duration:</span>
+                      <strong style={{ color: '#FFF' }}>{minBeatDist.toFixed(1)}s</strong>
+                    </div>
+                    <input
+                      type="range" min={0.4} max={3.0} step={0.1}
+                      value={minBeatDist}
+                      onChange={(e) => setMinBeatDist(parseFloat(e.target.value))}
+                      style={{ width: '100%', accentColor: 'var(--accent-purple)', cursor: 'pointer' }}
+                    />
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                      <span>Fast (0.4s)</span>
+                      <span>Slow (3.0s)</span>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleDetectBeatsInCreateProject}
+                    disabled={isDetectingBeats}
+                    className="btn-secondary"
+                    style={{
+                      height: '36px',
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      justifyContent: 'center',
+                      background: 'var(--accent-purple)',
+                      color: '#FFF',
+                      border: 'none',
+                      cursor: isDetectingBeats ? 'not-allowed' : 'pointer'
+                    }}
+                  >
+                    {isDetectingBeats ? (
+                      <>
+                        <RefreshCw className="spin" size={14} style={{ marginRight: '6px' }} />
+                        Analyzing Audio Beats...
+                      </>
+                    ) : (
+                      <>
+                        <Music size={14} style={{ marginRight: '6px' }} />
+                        Detect Beats & Auto-Cut Scenes
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
 
             {showBulkTransitions && clips.length > 0 && (
               <div className="premium-card" style={{ padding: '16px', marginBottom: '20px', display: 'flex', flexWrap: 'wrap', gap: '16px', alignItems: 'center', background: 'var(--bg-surface)', border: '1px solid var(--border-medium)', borderRadius: 'var(--radius-lg)' }}>
@@ -2542,7 +2765,10 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                       key={idx}
                       onMouseEnter={() => setHoveredSceneIdx(idx)}
                       onMouseLeave={() => setHoveredSceneIdx(null)}
-                      onClick={() => setActiveSceneIdx(idx)}
+                      onClick={() => {
+                        setActiveSceneIdx(idx);
+                        handleSelectSceneToPreview(scene.start_time);
+                      }}
                       className="tonal-border"
                       style={{
                         background: 'var(--bg-darker)', 
@@ -2573,7 +2799,8 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                           <VideoPreview
                             clipId={selectedClip.id}
                             thumbnail={selectedClip.thumbnail}
-                            clipStart={scene.clipStart || 0}
+                            clipStart={scene.reverse ? 0 : (scene.clipStart || 0)}
+                            videoUrl={scene.reverse ? `/api/reverse-video?clipId=${selectedClip.id}&videoUrl=${encodeURIComponent(`/api/clips/${selectedClip.id}/video`)}&start=${scene.clipStart || 0}&duration=${Math.max(0.5, (scene.end_time || 0) - (scene.start_time || 0))}` : undefined}
                             isActive={hoveredSceneIdx === idx || activeSliderIdx === idx}
                           />
                         ) : (
@@ -2648,6 +2875,140 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                           >
                             <Scissors size={12} />
                           </button>
+
+                          {/* Reverse Continuity Cut Popover Button */}
+                          <div style={{ position: 'relative', display: 'inline-block' }}>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setOpenReverseMenuIdx(openReverseMenuIdx === idx ? null : idx);
+                              }}
+                              style={{
+                                background: scene.reverse ? 'rgba(234, 179, 8, 0.45)' : 'rgba(168, 85, 247, 0.35)',
+                                backdropFilter: 'blur(8px)',
+                                border: scene.reverse ? '1px solid #facc15' : '1px solid rgba(168, 85, 247, 0.6)',
+                                color: scene.reverse ? '#fef08a' : '#f3e8ff',
+                                borderRadius: '50%',
+                                width: '24px',
+                                height: '24px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                cursor: 'pointer',
+                                transition: 'all 0.2s'
+                              }}
+                              title="Reverse Continuity Match-Cut (Left/Right)"
+                            >
+                              <RotateCcw size={12} />
+                            </button>
+
+                            {openReverseMenuIdx === idx && (
+                              <div
+                                style={{
+                                  position: 'absolute',
+                                  top: '28px',
+                                  right: '0',
+                                  zIndex: 100,
+                                  background: 'var(--bg-darker)',
+                                  border: '1px solid var(--border-medium)',
+                                  borderRadius: '8px',
+                                  padding: '6px',
+                                  boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  gap: '4px',
+                                  minWidth: '190px'
+                                }}
+                              >
+                                <div style={{ fontSize: '9px', fontWeight: 600, color: 'var(--text-muted)', padding: '2px 6px', textTransform: 'uppercase' }}>
+                                  Reverse Match-Cut:
+                                </div>
+                                
+                                <button
+                                  type="button"
+                                  disabled={idx === 0}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleMatchCutReverse(idx, 'prev');
+                                    setOpenReverseMenuIdx(null);
+                                  }}
+                                  style={{
+                                    fontSize: '11px',
+                                    padding: '6px 8px',
+                                    textAlign: 'left',
+                                    background: 'transparent',
+                                    border: 'none',
+                                    color: idx === 0 ? 'var(--text-muted)' : 'var(--text-white)',
+                                    cursor: idx === 0 ? 'not-allowed' : 'pointer',
+                                    borderRadius: '4px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px'
+                                  }}
+                                  onMouseEnter={(e) => { if (idx > 0) e.currentTarget.style.background = 'var(--bg-medium)' }}
+                                  onMouseLeave={(e) => { if (idx > 0) e.currentTarget.style.background = 'transparent' }}
+                                >
+                                  ⬅️ Match Prev Scene (Left)
+                                </button>
+
+                                <button
+                                  type="button"
+                                  disabled={idx >= scenes.length - 1}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleMatchCutReverse(idx, 'next');
+                                    setOpenReverseMenuIdx(null);
+                                  }}
+                                  style={{
+                                    fontSize: '11px',
+                                    padding: '6px 8px',
+                                    textAlign: 'left',
+                                    background: 'transparent',
+                                    border: 'none',
+                                    color: idx >= scenes.length - 1 ? 'var(--text-muted)' : 'var(--text-white)',
+                                    cursor: idx >= scenes.length - 1 ? 'not-allowed' : 'pointer',
+                                    borderRadius: '4px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px'
+                                  }}
+                                  onMouseEnter={(e) => { if (idx < scenes.length - 1) e.currentTarget.style.background = 'var(--bg-medium)' }}
+                                  onMouseLeave={(e) => { if (idx < scenes.length - 1) e.currentTarget.style.background = 'transparent' }}
+                                >
+                                  ➡️ Match Next Scene (Right)
+                                </button>
+
+                                <div style={{ height: '1px', background: 'var(--border-light)', margin: '2px 0' }} />
+
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleMatchCutReverse(idx, 'toggle');
+                                    setOpenReverseMenuIdx(null);
+                                  }}
+                                  style={{
+                                    fontSize: '11px',
+                                    padding: '6px 8px',
+                                    textAlign: 'left',
+                                    background: 'transparent',
+                                    border: 'none',
+                                    color: scene.reverse ? '#facc15' : 'var(--text-white)',
+                                    cursor: 'pointer',
+                                    borderRadius: '4px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px'
+                                  }}
+                                  onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-medium)'}
+                                  onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                                >
+                                  🔄 {scene.reverse ? 'Disable Reverse' : 'Toggle Reverse'}
+                                </button>
+                              </div>
+                            )}
+                          </div>
 
                           {idx < scenes.length - 1 && (
                             <button
@@ -3349,19 +3710,20 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                                 style={{ width: '100%' }}
                               />
 
-                              {/* Video Crop & Framing Controls (Zoom, Move X, Move Y) */}
+                              {/* Video Crop & Framing Controls (Zoom, Move X, Move Y, Speed) */}
                               <div style={{ marginTop: '6px', borderTop: '1px solid var(--border-light)', paddingTop: '8px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                   <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                                    🔍 Framing & Zoom
+                                    🔍 Framing & Speed
                                   </span>
-                                  {((scene.zoom || 1) !== 1 || (scene.offsetX || 0) !== 0 || (scene.offsetY || 0) !== 0) && (
+                                  {((scene.zoom || 1) !== 1 || (scene.offsetX || 0) !== 0 || (scene.offsetY || 0) !== 0 || (scene.speed || 1) !== 1) && (
                                     <button
                                       type="button"
                                       onClick={() => {
                                         handleUpdateScene(idx, 'zoom', 1.0);
                                         handleUpdateScene(idx, 'offsetX', 0);
                                         handleUpdateScene(idx, 'offsetY', 0);
+                                        handleUpdateScene(idx, 'speed', 1.0);
                                       }}
                                       style={{ fontSize: '9px', background: 'transparent', border: 'none', color: 'var(--text-gray)', cursor: 'pointer', textDecoration: 'underline' }}
                                     >
@@ -3417,6 +3779,27 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                                     </span>
                                   </div>
                                 </div>
+
+                                {/* Speed slider */}
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                  <span style={{ fontSize: '10px', color: 'var(--text-gray)' }}>Speed:</span>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <input
+                                      type="range" min={0.25} max={4.0} step={0.05}
+                                      value={scene.speed || 1.0}
+                                      onChange={(e) => handleUpdateScene(idx, 'speed', parseFloat(e.target.value))}
+                                      style={{ width: '90px', height: '10px', accentColor: 'var(--primary)' }}
+                                    />
+                                    <span style={{ fontSize: '10px', color: (scene.speed || 1.0) < 1.0 ? '#fbbf24' : '#FFF', minWidth: '28px', textAlign: 'right', fontWeight: (scene.speed || 1.0) !== 1.0 ? 600 : 400 }}>
+                                      {(scene.speed || 1.0).toFixed(2)}x
+                                    </span>
+                                  </div>
+                                </div>
+                                {(scene.speed || 1.0) < 1.0 && (
+                                  <div style={{ fontSize: '9px', color: '#fbbf24', textAlign: 'right', marginTop: '-2px', fontStyle: 'italic' }}>
+                                    ✨ Optical-Flow Slo-Mo Active
+                                  </div>
+                                )}
                               </div>
 
                               <div style={{ marginTop: '8px', borderTop: '1px solid var(--border-light)', paddingTop: '8px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
@@ -5241,6 +5624,7 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
               }}>
                 <PlayerErrorBoundary componentName="CreateProject-RemotionPlayer">
                   <Player
+                    ref={playerRef}
                     component={VideoReel as React.ComponentType<any>}
                     inputProps={{
                       scenes: scenes.map(s => ({

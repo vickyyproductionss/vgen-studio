@@ -190,6 +190,86 @@ export default function RecreateReel({ onOpenProject }: RecreateReelProps) {
     return matched?.name || 'Library Clip';
   };
 
+  const [beatThreshold, setBeatThreshold] = useState(1.4);
+  const [minBeatDist, setMinBeatDist] = useState(0.8);
+  const [isDetectingBeats, setIsDetectingBeats] = useState(false);
+
+  const handleDetectBeatsAndCreateScenes = async () => {
+    if (!createdProject) return;
+    setIsDetectingBeats(true);
+    try {
+      const audioPath = createdProject.state?.voiceoverPath || createdProject.state?.originalVideoPath || videoUrl;
+      const res = await fetch('/api/recreate/detect-beats-scenes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId: createdProject.id,
+          audioPath,
+          threshold: beatThreshold,
+          minDistance: minBeatDist
+        })
+      });
+
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || 'Failed to detect beats');
+      }
+
+      const data = await res.json();
+      setCreatedProject({
+        ...createdProject,
+        state: {
+          ...createdProject.state,
+          scenes: data.scenes
+        }
+      });
+    } catch (err: any) {
+      console.error('Failed to detect beats:', err);
+      alert(err.message || 'Error running beat detection.');
+    } finally {
+      setIsDetectingBeats(false);
+    }
+  };
+
+  const handleUpdateSceneText = (index: number, newText: string) => {
+    if (!createdProject) return;
+    const updatedScenes = [...createdProject.state.scenes];
+    
+    const scene = updatedScenes[index];
+    const wordsList = (newText || '').split(/\s+/).filter(Boolean);
+    const sceneDur = Math.max(0.5, (scene.end_time || 2) - (scene.start_time || 0));
+    const wordDur = sceneDur / Math.max(1, wordsList.length);
+    const baseStart = scene.start_time || 0;
+    
+    const sceneWords = wordsList.map((w, i) => ({
+      word: w,
+      start_time: Number((baseStart + i * wordDur).toFixed(3)),
+      end_time: Number((baseStart + (i + 1) * wordDur).toFixed(3))
+    }));
+
+    updatedScenes[index] = {
+      ...scene,
+      text: newText,
+      words: sceneWords
+    };
+
+    const updatedProj = {
+      ...createdProject,
+      state: {
+        ...createdProject.state,
+        scenes: updatedScenes
+      }
+    };
+
+    setCreatedProject(updatedProj);
+
+    fetch('/api/projects', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updatedProj)
+    }).catch(err => console.error('Failed to save scene text update:', err));
+  };
+
   const renderStepIcon = (currentStep: RecreateStep, targetStep: RecreateStep, defaultIcon: React.ReactNode) => {
     const stepOrder: RecreateStep[] = ['idle', 'downloading', 'extracting', 'analyzing', 'matching', 'creating', 'done'];
     const currentIndex = stepOrder.indexOf(currentStep);
@@ -466,9 +546,77 @@ export default function RecreateReel({ onOpenProject }: RecreateReelProps) {
           </div>
 
           {/* Analysis Breakdown */}
-          <div className="glass-panel" style={{ padding: '24px', height: 'fit-content', maxHeight: '720px', overflowY: 'auto' }}>
-            <h3 style={{ fontSize: '18px', marginBottom: '20px' }}>Scene & Subtitle Breakdown</h3>
+          <div className="glass-panel" style={{ padding: '24px', height: 'fit-content', maxHeight: '780px', overflowY: 'auto' }}>
+            <h3 style={{ fontSize: '18px', marginBottom: '16px' }}>Scene & Beat Breakdown</h3>
             
+            {/* Beat Analysis & Auto-Split Panel */}
+            <div style={{ background: 'rgba(138, 75, 243, 0.08)', border: '1px solid rgba(138, 75, 243, 0.25)', borderRadius: '12px', padding: '16px', marginBottom: '20px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+                <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 600, color: 'var(--accent-purple)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Music size={16} /> Beat Detection & Auto-Split
+                </h4>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)', background: 'rgba(255,255,255,0.06)', padding: '2px 8px', borderRadius: '4px' }}>
+                  {createdProject.state.scenes.length} Scenes
+                </span>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '14px' }}>
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-gray)', marginBottom: '4px' }}>
+                    <span>Sensitivity / Threshold:</span>
+                    <strong style={{ color: '#FFF' }}>{beatThreshold.toFixed(1)}</strong>
+                  </div>
+                  <input
+                    type="range" min={0.6} max={2.4} step={0.1}
+                    value={beatThreshold}
+                    onChange={(e) => setBeatThreshold(parseFloat(e.target.value))}
+                    style={{ width: '100%', accentColor: 'var(--accent-purple)', cursor: 'pointer' }}
+                  />
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                    <span>Frequent (0.6)</span>
+                    <span>Heavy Beats (2.4)</span>
+                  </div>
+                </div>
+
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-gray)', marginBottom: '4px' }}>
+                    <span>Min Cut Duration:</span>
+                    <strong style={{ color: '#FFF' }}>{minBeatDist.toFixed(1)}s</strong>
+                  </div>
+                  <input
+                    type="range" min={0.4} max={3.0} step={0.1}
+                    value={minBeatDist}
+                    onChange={(e) => setMinBeatDist(parseFloat(e.target.value))}
+                    style={{ width: '100%', accentColor: 'var(--accent-purple)', cursor: 'pointer' }}
+                  />
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                    <span>Fast (0.4s)</span>
+                    <span>Slow (3.0s)</span>
+                  </div>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleDetectBeatsAndCreateScenes}
+                disabled={isDetectingBeats}
+                className="btn-secondary"
+                style={{ width: '100%', justifyContent: 'center', padding: '10px', fontSize: '13px', background: 'var(--accent-purple)', color: '#FFF', border: 'none', cursor: isDetectingBeats ? 'not-allowed' : 'pointer' }}
+              >
+                {isDetectingBeats ? (
+                  <>
+                    <RefreshCw className="spin" size={15} />
+                    Analyzing Audio Beats...
+                  </>
+                ) : (
+                  <>
+                    <Music size={15} />
+                    Detect Beats & Re-Create Scenes
+                  </>
+                )}
+              </button>
+            </div>
+
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               {createdProject.state.scenes.map((scene: any, index: number) => (
                 <div key={index} style={{ borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '16px' }}>
@@ -494,23 +642,33 @@ export default function RecreateReel({ onOpenProject }: RecreateReelProps) {
                     </div>
 
                     <div style={{ flexGrow: 1 }}>
-                      <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>
-                        Original: <span style={{ color: 'var(--text-gray)' }}>{analysis.scenes[index]?.visual_description}</span>
-                      </div>
+                      {analysis?.scenes?.[index]?.visual_description && (
+                        <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>
+                          Original: <span style={{ color: 'var(--text-gray)' }}>{analysis.scenes[index]?.visual_description}</span>
+                        </div>
+                      )}
                       <div style={{ fontSize: '13px', fontWeight: '500' }}>
                         Matched: <span style={{ color: 'var(--accent-blue)' }}>{getClipName(scene.clipId)}</span>
                       </div>
                     </div>
                   </div>
 
-                  {scene.text && (
+                  <div style={{ marginTop: '8px' }}>
+                    <label style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, display: 'block', marginBottom: '4px' }}>
+                      Per-Scene Subtitle / Text:
+                    </label>
                     <div style={{ display: 'flex', gap: '8px', alignItems: 'center', background: 'rgba(138, 75, 243, 0.08)', borderLeft: '3px solid var(--accent-purple)', padding: '6px 12px', borderRadius: '0 6px 6px 0' }}>
                       <Type size={14} style={{ color: 'var(--accent-purple)', flexShrink: 0 }} />
-                      <div style={{ fontSize: '13px', fontWeight: '500', color: 'var(--text-gray)' }}>
-                        "{scene.text}"
-                      </div>
+                      <input
+                        type="text"
+                        className="input-field"
+                        style={{ padding: '4px 6px', fontSize: '13px', border: 'none', background: 'transparent', width: '100%', color: 'var(--text-white)' }}
+                        value={scene.text || ''}
+                        placeholder="Enter per-scene text for this beat scene..."
+                        onChange={(e) => handleUpdateSceneText(index, e.target.value)}
+                      />
                     </div>
-                  )}
+                  </div>
                 </div>
               ))}
             </div>

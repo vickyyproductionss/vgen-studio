@@ -34,6 +34,21 @@ export default function App() {
     setTheme(prev => prev === 'dark' ? 'light' : 'dark');
   };
 
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const projectFromUrl = urlParams.get('project') || urlParams.get('id');
+    if (projectFromUrl) {
+      fetch(`/api/projects/${projectFromUrl}`)
+        .then(res => res.ok ? res.json() : null)
+        .then(proj => {
+          if (proj) {
+            openProject(proj.id, proj.type || 'create');
+          }
+        })
+        .catch(() => {});
+    }
+  }, []);
+
 
   // SaaS States
   const [user, setUser] = useState<{ email: string; plan: string; credits: number } | null>(null);
@@ -221,6 +236,10 @@ export default function App() {
     setActiveProjectId(projectId);
     setActiveProjectType(type);
     setActiveTab(type === 'beatsync' ? 'beatsync' : type === 'youtube' ? 'youtube' : 'create');
+    try {
+      const newUrl = `${window.location.pathname}?project=${projectId}`;
+      window.history.replaceState({ projectId }, '', newUrl);
+    } catch (_) {}
   };
 
   const handleTabClick = async (tab: Tab) => {
