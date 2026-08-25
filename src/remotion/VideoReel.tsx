@@ -65,6 +65,7 @@ const emphasisWords = [
 
 export interface VideoReelProps {
   scenes: Scene[];
+  originalVideoUrl?: string;
   voiceoverUrl?: string;
   voiceoverVolume?: number;
   bgMusicUrl?: string;
@@ -125,15 +126,14 @@ export interface VideoReelProps {
   applyHUDToAll?: boolean;
 }
 
-// Hook to dynamically load Google Fonts and pause Remotion render until loaded
-const useGoogleFont = (fontName: string) => {
+// Hook to dynamically load Google Fonts and pause Remotion render until loaded (only during server rendering)
+const useGoogleFont = (fontName: string, isRendering?: boolean) => {
   React.useEffect(() => {
     const systemFonts = ['Arial', 'Impact', 'Courier New', 'Times New Roman', 'Trebuchet MS'];
     if (systemFonts.includes(fontName) || !fontName) {
       return;
     }
 
-    const handle = delayRender(`Loading font: ${fontName}`);
     let targetFont = fontName;
     if (fontName.startsWith('Kalam')) {
       targetFont = 'Kalam';
@@ -143,9 +143,10 @@ const useGoogleFont = (fontName: string) => {
     
     // Check if link tag is already injected
     if (document.getElementById(fontId)) {
-      continueRender(handle);
       return;
     }
+
+    const handle = isRendering ? delayRender(`Loading font: ${fontName}`) : null;
 
     const link = document.createElement('link');
     link.id = fontId;
@@ -155,59 +156,68 @@ const useGoogleFont = (fontName: string) => {
     link.onload = () => {
       if (document.fonts) {
         document.fonts.load(`12px "${targetFont}"`).then(() => {
-          continueRender(handle);
+          if (handle) continueRender(handle);
         }).catch((err) => {
           console.warn(`document.fonts failed to load ${targetFont}:`, err);
-          continueRender(handle);
+          if (handle) continueRender(handle);
         });
       } else {
-        continueRender(handle);
+        if (handle) continueRender(handle);
       }
     };
 
     link.onerror = (err) => {
       console.error(`Failed to load link stylesheet for font ${targetFont}:`, err);
-      continueRender(handle);
+      if (handle) continueRender(handle);
     };
 
     document.head.appendChild(link);
-  }, [fontName]);
+  }, [fontName, isRendering]);
 };
 
 const resolveAssetUrl = (url: string, baseUrl?: string, isRendering?: boolean) => {
   if (!url) return '';
   
-  // If it's a GCS URL, route it through the Express proxy to support native seeking / range requests
-  const isGcsUrl = url.includes('storage.googleapis.com') || url.includes('_cloudbuild') || url.includes('-renders');
-  if (isGcsUrl) {
-    const backendBase = isRendering ? 'http://localhost:8000' : (baseUrl || '');
-    return `${backendBase}/api/serve-local-file?path=${encodeURIComponent(url)}`;
+  let formattedUrl = url.trim();
+
+  // If raw filename without leading slash or protocol (e.g. "audio_123.mp3" or "sfx_xyz.mp3"), prefix with /uploads/
+  if (!formattedUrl.startsWith('http://') && 
+      !formattedUrl.startsWith('https://') && 
+      !formattedUrl.startsWith('data:') && 
+      !formattedUrl.startsWith('/')) {
+    formattedUrl = `/uploads/${formattedUrl}`;
   }
 
-  if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) return url;
-  
-  // Handle absolute local paths (macOS/Linux)
-  if (url.startsWith('/') && (
-    url.startsWith('/Volumes/') || 
-    url.startsWith('/Users/') || 
-    url.startsWith('/var/') || 
-    url.startsWith('/tmp/')
-  )) {
-    // Always route through Express backend at port 8000 using serve-local-file.
-    // During rendering (isRendering=true), Remotion's internal proxy (localhost:3001/3002)
-    // CANNOT serve /Volumes/ paths on macOS — it times out after 28s.
-    // The Express backend at port 8000 properly supports HTTP range requests and is
-    // accessible from within the Remotion headless renderer environment.
+  // If it's a GCS URL, route it through the Express proxy to support native seeking / range requests
+  const isGcsUrl = formattedUrl.includes('storage.googleapis.com') || formattedUrl.includes('_cloudbuild') || formattedUrl.includes('-renders');
+  if (isGcsUrl) {
     const backendBase = isRendering ? 'http://localhost:8000' : (baseUrl || '');
-    return `${backendBase}/api/serve-local-file?path=${encodeURIComponent(url)}`;
+    return `${backendBase}/api/serve-local-file?path=${encodeURIComponent(formattedUrl)}`;
+  }
+
+  if (formattedUrl.startsWith('http://') || formattedUrl.startsWith('https://') || formattedUrl.startsWith('data:')) {
+    return formattedUrl;
+  }
+  
+  // Handle absolute local paths (macOS/Linux) or /uploads/ local asset URLs
+  if (formattedUrl.startsWith('/') && (
+    formattedUrl.startsWith('/Volumes/') || 
+    formattedUrl.startsWith('/Users/') || 
+    formattedUrl.startsWith('/var/') || 
+    formattedUrl.startsWith('/tmp/') ||
+    formattedUrl.startsWith('/uploads/')
+  )) {
+    const backendBase = isRendering ? 'http://localhost:8000' : (baseUrl || '');
+    return `${backendBase}/api/serve-local-file?path=${encodeURIComponent(formattedUrl)}`;
   }
   
   const base = baseUrl || '';
-  return `${base}${url}`;
+  return `${base}${formattedUrl}`;
 };
 
 export const VideoReel: React.FC<VideoReelProps> = ({
   scenes,
+  originalVideoUrl,
   voiceoverUrl,
   voiceoverVolume = 1.0,
   bgMusicUrl,
@@ -262,7 +272,7 @@ export const VideoReel: React.FC<VideoReelProps> = ({
   showLayoutCards = true,
   applyHUDToAll = true,
 }) => {
-  useGoogleFont(fontName);
+  useGoogleFont(fontName, isRendering);
 
   React.useEffect(() => {
     if (isRendering) return;
@@ -309,25 +319,14 @@ export const VideoReel: React.FC<VideoReelProps> = ({
     let active = true;
     const prefetches: { free: () => void }[] = [];
 
-    const runPrefetchQueue = async () => {
-      console.log(`[Prefetch] Starting sequential prefetch of ${urlsToPrefetch.length} assets...`);
-      for (const url of urlsToPrefetch) {
-        if (!active) break;
+    const runPrefetchQueue = () => {
+      urlsToPrefetch.forEach(url => {
+        if (!active) return;
         try {
-          console.log(`[Prefetch] Loading: ${url}`);
           const p = prefetch(url);
           prefetches.push(p);
-          // Wait for it to finish or timeout after 5 seconds to keep queue moving
-          await Promise.race([
-            p.waitUntilDone(),
-            new Promise((resolve) => setTimeout(resolve, 5000))
-          ]);
-          console.log(`[Prefetch] Ready: ${url}`);
-        } catch (err) {
-          console.warn(`[Prefetch] Failed: ${url}`, err);
-        }
-      }
-      console.log('[Prefetch] Sequential prefetch queue completed.');
+        } catch (_) {}
+      });
     };
 
     runPrefetchQueue();
@@ -408,9 +407,9 @@ export const VideoReel: React.FC<VideoReelProps> = ({
   return (
     <AbsoluteFill
       style={{
-        backgroundColor: backgroundColor || '#080c18',
-        backgroundImage: bgImageStyle,
-        backgroundSize: bgSizeStyle,
+        backgroundColor: '#000000',
+        backgroundImage: resolvedBgImage ? `url(${resolvedBgImage})` : 'none',
+        backgroundSize: 'cover',
         backgroundPosition: 'center',
         overflow: 'hidden',
       }}
@@ -443,8 +442,8 @@ export const VideoReel: React.FC<VideoReelProps> = ({
         <Audio
           src={resolveAssetUrl(bgMusicUrl, baseUrl)}
           volume={bgMusicVolume}
-          crossOrigin="anonymous"
-          pauseWhenBuffering={true}
+          crossOrigin={isRendering ? "anonymous" : undefined}
+          pauseWhenBuffering={isRendering ? true : false}
           onError={(error) => {
             console.error("Remotion Audio Error (BGM):", error);
             const targetPort = 8000;
@@ -471,8 +470,8 @@ export const VideoReel: React.FC<VideoReelProps> = ({
         <Audio
           src={resolveAssetUrl(voiceoverUrl, baseUrl)}
           volume={voiceoverVolume}
-          crossOrigin="anonymous"
-          pauseWhenBuffering={true}
+          crossOrigin={isRendering ? "anonymous" : undefined}
+          pauseWhenBuffering={isRendering ? true : false}
           onError={(error) => {
             console.error("Remotion Audio Error (Voiceover):", error);
             const targetPort = 8000;
@@ -598,10 +597,10 @@ export const VideoReel: React.FC<VideoReelProps> = ({
         const relativeFrame = frame - startFrame;
 
         // B-Roll Clip Video URL
-        const clipUrl = scene.clipUrl !== undefined
+        const clipUrl = (scene.clipUrl !== undefined && scene.clipUrl !== null && scene.clipUrl !== '')
           ? scene.clipUrl
-          : (!scene.clipId || scene.clipId === 'original'
-            ? null
+          : ((!scene.clipId || scene.clipId === 'original')
+            ? (originalVideoUrl || null)
             : `/api/clips/${scene.clipId}/video`);
 
         const getEasingFn = (easingName: string) => {
@@ -738,11 +737,15 @@ export const VideoReel: React.FC<VideoReelProps> = ({
         }
 
         let videoTransform = '';
-        const isZoom = !subtitlesOnly && (scene.zoom || scene.transition === 'zoom-in' || scene.transition === 'zoom-out');
+        const customZoom = (typeof scene.zoom === 'number' && scene.zoom > 0) ? scene.zoom : ((typeof scene.clipScale === 'number' && scene.clipScale > 0) ? scene.clipScale : 1.0);
+        const customOffsetX = (typeof scene.offsetX === 'number') ? scene.offsetX : ((typeof scene.clipOffsetX === 'number') ? scene.clipOffsetX : 0);
+        const customOffsetY = (typeof scene.offsetY === 'number') ? scene.offsetY : ((typeof scene.clipOffsetY === 'number') ? scene.clipOffsetY : 0);
+        const isZoom = !subtitlesOnly && (scene.transition === 'zoom-in' || scene.transition === 'zoom-out');
         const isShake = !subtitlesOnly && (scene.shake || scene.transition === 'shake');
         const baseScale = isShake ? (1.0 + (scene.shakeIntensity || 15) / 300) : 1.0;
         const zoomScale = isZoom ? (1.0 + 0.1 * (relativeFrame / durationInFrames)) : 1.0;
-        const scaleVal = subtitlesOnly ? 1.0 : (baseScale * zoomScale * transitionScale);
+        
+        const scaleVal = subtitlesOnly ? customZoom : (baseScale * zoomScale * transitionScale * customZoom);
 
         if (isShake) {
           const intensity = scene.shakeIntensity || 15;
@@ -750,9 +753,9 @@ export const VideoReel: React.FC<VideoReelProps> = ({
           const t = relativeFrame / fps;
           const dx = intensity * Math.sin(2 * Math.PI * t * speed);
           const dy = intensity * Math.cos(2 * Math.PI * t * (speed * 1.25));
-          videoTransform = `scale(${scaleVal}) translate(${dx}px, ${dy}px)`;
-        } else if (scaleVal !== 1.0) {
-          videoTransform = `scale(${scaleVal})`;
+          videoTransform = `scale(${scaleVal}) translate(calc(${customOffsetX}% + ${dx}px), calc(${customOffsetY}% + ${dy}px))`;
+        } else {
+          videoTransform = `scale(${scaleVal}) translate(${customOffsetX}%, ${customOffsetY}%)`;
         }
 
         // Subtitle Word Extraction
@@ -788,6 +791,18 @@ export const VideoReel: React.FC<VideoReelProps> = ({
         const vertPercent = 50 - (textPositionY / 2); // e.g. textPositionY=-70 matches bottom: ~15%
         const effectiveVertPercent = hasGraph ? 14 : vertPercent;
 
+        const transitionCaptions = scene.transitionCaptionsWithScene !== undefined
+          ? scene.transitionCaptionsWithScene
+          : true;
+
+        const captionTranslateX = (transitionCaptions && transitionTranslateX !== 0) ? transitionTranslateX : 0;
+        const captionTranslateY = (transitionCaptions && transitionTranslateY !== 0) ? transitionTranslateY : 0;
+
+        let captionTransform = `translateX(${textPositionX}px)`;
+        if (captionTranslateX !== 0 || captionTranslateY !== 0) {
+          captionTransform += ` translate(${captionTranslateX}%, ${captionTranslateY}%)`;
+        }
+
         // Render Subtitles
         const renderSubtitles = () => {
           if (words.length === 0) return null;
@@ -802,7 +817,9 @@ export const VideoReel: React.FC<VideoReelProps> = ({
             justifyContent: 'center',
             alignItems: 'center',
             textAlign: 'center',
-            transform: `translateX(${textPositionX}px)`,
+            transform: captionTransform,
+            opacity: transitionCaptions ? transitionOpacity : 1.0,
+            filter: transitionCaptions && transitionBlur > 0 ? `blur(${transitionBlur}px)` : undefined,
             zIndex: 100,
           };
 
@@ -990,19 +1007,53 @@ export const VideoReel: React.FC<VideoReelProps> = ({
           );
         };
 
-        // Resolve post-processing filter preset style
-        let filterStyle = 'none';
+        // Resolve custom color adjustments & post-processing filter presets
+        const adj = scene.adjustments || {};
+        const brightness = adj.brightness !== undefined ? adj.brightness : 1.0;
+        const contrast = adj.contrast !== undefined ? adj.contrast : 1.0;
+        const saturation = adj.saturation !== undefined ? adj.saturation : 1.0;
+        const temperature = adj.temperature !== undefined ? adj.temperature : 0;
+        const hueRotate = adj.hueRotate !== undefined ? adj.hueRotate : 0;
+        const blur = adj.blur !== undefined ? adj.blur : 0;
+        const sepia = adj.sepia !== undefined ? adj.sepia : 0.0;
+        const grayscale = adj.grayscale !== undefined ? adj.grayscale : 0.0;
+        const invert = adj.invert !== undefined ? adj.invert : 0.0;
+
+        const filterParts: string[] = [];
+        if (brightness !== 1.0) filterParts.push(`brightness(${brightness})`);
+        if (contrast !== 1.0) filterParts.push(`contrast(${contrast})`);
+        if (saturation !== 1.0) filterParts.push(`saturate(${saturation})`);
+
+        // Temperature (Warm Gold vs Cool Cyan)
+        if (temperature > 0) {
+          const warmSepia = (temperature / 100) * 0.45;
+          filterParts.push(`sepia(${warmSepia.toFixed(3)})`);
+        } else if (temperature < 0) {
+          const coolHue = (temperature / 100) * 22;
+          filterParts.push(`hue-rotate(${coolHue.toFixed(1)}deg)`);
+        }
+
+        // Hue Shift (Color Wheel Spectrum)
+        if (hueRotate !== 0) filterParts.push(`hue-rotate(${hueRotate}deg)`);
+
+        if (blur > 0) filterParts.push(`blur(${blur}px)`);
+        if (sepia > 0) filterParts.push(`sepia(${sepia})`);
+        if (grayscale > 0) filterParts.push(`grayscale(${grayscale})`);
+        if (invert > 0) filterParts.push(`invert(${invert})`);
+
         if (!subtitlesOnly && scene.clipId !== 'original') {
           if (scene.postProcessingPreset === 'vintage_sepia') {
-            filterStyle = 'sepia(0.55) contrast(1.1) brightness(0.95) saturate(0.85)';
+            filterParts.push('sepia(0.55) contrast(1.1) brightness(0.95) saturate(0.85)');
           } else if (scene.postProcessingPreset === 'cyber_neon') {
-            filterStyle = 'contrast(1.15) saturate(1.45) hue-rotate(5deg)';
+            filterParts.push('contrast(1.15) saturate(1.45) hue-rotate(5deg)');
           } else if (scene.postProcessingPreset === 'noir_monochrome') {
-            filterStyle = 'grayscale(1) contrast(1.3) brightness(0.95)';
+            filterParts.push('grayscale(1) contrast(1.3) brightness(0.95)');
           } else if (scene.postProcessingPreset === 'cinematic_warm') {
-            filterStyle = 'saturate(1.1) sepia(0.12) contrast(1.05) brightness(0.98)';
+            filterParts.push('saturate(1.1) sepia(0.12) contrast(1.05) brightness(0.98)');
           }
         }
+
+        let filterStyle = filterParts.length > 0 ? filterParts.join(' ') : 'none';
 
         return (
           <Sequence
@@ -1048,7 +1099,7 @@ export const VideoReel: React.FC<VideoReelProps> = ({
                         startFrom={Math.round(((scene.clipId === 'original' && (!scene.clipStart || scene.clipStart === 0)) ? (scene.start_time || 0) : (scene.clipStart || 0)) * fps)}
                         volume={subtitlesOnly ? 1.0 : videoVolume}
                         crossOrigin="anonymous"
-                        pauseWhenBuffering={true}
+                        pauseWhenBuffering={isRendering ? true : false}
                         style={{
                           width: '100%',
                           height: '100%',
@@ -1078,8 +1129,8 @@ export const VideoReel: React.FC<VideoReelProps> = ({
                         src={resolveAssetUrl(clipUrl, baseUrl, isRendering)}
                         startFrom={Math.round(((scene.clipId === 'original' && (!scene.clipStart || scene.clipStart === 0)) ? (scene.start_time || 0) : (scene.clipStart || 0)) * fps)}
                         volume={subtitlesOnly ? 1.0 : videoVolume}
-                        crossOrigin="anonymous"
-                        pauseWhenBuffering={true}
+                        crossOrigin={isRendering ? "anonymous" : undefined}
+                        pauseWhenBuffering={isRendering ? true : false}
                         style={{
                           width: '100%',
                           height: '100%',
@@ -1317,7 +1368,7 @@ export const VideoReel: React.FC<VideoReelProps> = ({
                   zIndex: 90,
                   textAlign: 'center',
                   maxWidth: '85%',
-                  opacity: contextOpacity,
+                  opacity: transitionCaptions ? (contextOpacity * transitionOpacity) : contextOpacity,
                   whiteSpace: 'nowrap',
                   textOverflow: 'ellipsis',
                   overflow: 'hidden'

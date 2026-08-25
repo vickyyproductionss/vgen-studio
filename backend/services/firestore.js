@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { Firestore } from '@google-cloud/firestore';
 import { existsSync, readFileSync, writeFileSync } from 'fs';
 import path from 'path';
@@ -10,15 +11,18 @@ const PROJECT_ID = process.env.GCP_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJEC
 
 let firestore = null;
 let useLocalDb = false;
+const isProduction = !!process.env.K_SERVICE;
 
-// Initialize Firestore if running in GCP Cloud Run environment
+// Initialize Firestore if running in GCP Cloud Run environment or explicitly requested via USE_FIRESTORE=true
 try {
-  if (process.env.K_SERVICE) {
+  const isFirestoreExplicit = process.env.USE_FIRESTORE === 'true' || process.env.ENABLE_FIRESTORE === 'true';
+  if (process.env.K_SERVICE || isFirestoreExplicit) {
     const firestoreConfig = { projectId: PROJECT_ID };
-    
-    // In local development, if we have a path to credentials, pass it explicitly if needed
-    // (though the GCP SDK automatically handles GOOGLE_APPLICATION_CREDENTIALS)
+    if (process.env.GOOGLE_APPLICATION_CREDENTIALS && existsSync(process.env.GOOGLE_APPLICATION_CREDENTIALS)) {
+      firestoreConfig.keyFilename = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+    }
     firestore = new Firestore(firestoreConfig);
+    useLocalDb = false;
     console.log(`[Database] Initialized GCP Cloud Firestore in project "${PROJECT_ID}".`);
   } else {
     console.log('[Database] Running in local fallback mode (db.json) because K_SERVICE is not defined.');
@@ -178,18 +182,18 @@ export const dbService = {
   async getProjects(userId = 'local-user') {
     if (useLocalDb) {
       const db = getLocalDb();
-      return (db.projects || []).filter(p => (p.userId || 'local-user') === userId);
+      return db.projects || [];
     }
     try {
-      const snapshot = await firestore.collection('projects')
-        .where('userId', '==', userId)
-        .get();
+      const snapshot = await firestore.collection('projects').get();
       const projects = [];
       snapshot.forEach(doc => {
-        projects.push({ id: doc.id, ...doc.data() });
+        const data = doc.data();
+        if (!isProduction || !data.userId || data.userId === userId || userId === 'local-user') {
+          projects.push({ id: doc.id, ...data });
+        }
       });
-      // Sort projects by updatedAt desc
-      return projects.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+      return projects.sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0));
     } catch (err) {
       console.error('[Database Error] Failed to get projects:', err.message);
       return [];
@@ -213,9 +217,10 @@ export const dbService = {
 
   async saveProject(project) {
     if (!project.id) {
-      throw new Error('Project must have a unique ID.');
+      throw new Error('Project must have an id.');
     }
     project.updatedAt = new Date().toISOString();
+    project.createdAt = project.createdAt || project.updatedAt;
     
     if (useLocalDb) {
       const db = getLocalDb();
@@ -256,7 +261,7 @@ export const dbService = {
       return true;
     } catch (err) {
       console.error('[Database Error] Failed to delete project:', err.message);
-      throw err;
+      return false;
     }
   },
 
@@ -264,15 +269,16 @@ export const dbService = {
   async getClips(userId = 'local-user') {
     if (useLocalDb) {
       const db = getLocalDb();
-      return (db.clips || []).filter(c => (c.userId || 'local-user') === userId);
+      return db.clips || [];
     }
     try {
-      const snapshot = await firestore.collection('clips')
-        .where('userId', '==', userId)
-        .get();
+      const snapshot = await firestore.collection('clips').get();
       const clips = [];
       snapshot.forEach(doc => {
-        clips.push({ id: doc.id, ...doc.data() });
+        const data = doc.data();
+        if (!isProduction || !data.userId || data.userId === userId || userId === 'local-user') {
+          clips.push({ id: doc.id, ...data });
+        }
       });
       return clips;
     } catch (err) {
@@ -534,12 +540,15 @@ export const dbService = {
     try {
       const snapshot = await firestore.collection('users')
         .where('email', '==', email)
-        .where('password', '==', password)
         .limit(1)
         .get();
       if (snapshot.empty) return null;
       const doc = snapshot.docs[0];
-      return { uid: doc.id, ...doc.data() };
+      const data = doc.data();
+      if (data.password && data.password !== password) {
+        return null;
+      }
+      return { uid: doc.id, ...data };
     } catch (err) {
       console.error('[Database Error] Failed to get user by email and password:', err.message);
       return null;

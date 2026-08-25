@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { Storage } from '@google-cloud/storage';
 import { existsSync, createWriteStream, createReadStream } from 'fs';
 import fs from 'fs/promises';
@@ -15,8 +16,14 @@ let useLocalFiles = false;
 
 // Check if we should use GCP GCS
 try {
-  if (process.env.K_SERVICE) {
-    storage = new Storage({ projectId: PROJECT_ID });
+  const isCloudStorageExplicit = process.env.ENABLE_CLOUD_STORAGE === 'true' || process.env.USE_GCS === 'true';
+  if (process.env.K_SERVICE || isCloudStorageExplicit) {
+    const storageOptions = { projectId: PROJECT_ID };
+    if (process.env.GOOGLE_APPLICATION_CREDENTIALS && existsSync(process.env.GOOGLE_APPLICATION_CREDENTIALS)) {
+      storageOptions.keyFilename = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+    }
+    storage = new Storage(storageOptions);
+    useLocalFiles = false;
     console.log(`[Storage] Initialized Google Cloud Storage for bucket "${BUCKET_NAME}".`);
   } else {
     console.log('[Storage] Running in local fallback mode (local filesystem) because K_SERVICE is not defined.');
@@ -125,30 +132,11 @@ export const gcsService = {
     }
 
     try {
-      // Parse object name from URL or GS URI
-      let objectName = gcsUrlOrPath;
-      if (gcsUrlOrPath.startsWith('gs://')) {
-        objectName = gcsUrlOrPath.replace(`gs://${BUCKET_NAME}/`, '');
-      } else if (gcsUrlOrPath.includes('storage.googleapis.com')) {
-        const parts = gcsUrlOrPath.split(`${BUCKET_NAME}/`);
-        if (parts.length > 1) {
-          objectName = parts[1].split('?')[0];
-        }
-      } else if (gcsUrlOrPath.startsWith('http')) {
-        // Handle signed URLs by parsing the path between bucket name and query params
-        const urlObj = new URL(gcsUrlOrPath);
-        const pathDecoded = decodeURIComponent(urlObj.pathname);
-        const bucketMatchIndex = pathDecoded.indexOf(`/${BUCKET_NAME}/`);
-        if (bucketMatchIndex !== -1) {
-          objectName = pathDecoded.substring(bucketMatchIndex + BUCKET_NAME.length + 2);
-        }
-      }
-
-      // Ensure directory exists
+      const { bucketName, objectName } = this.parseBucketAndObject(gcsUrlOrPath);
       await fs.mkdir(path.dirname(localDestPath), { recursive: true });
 
-      const bucket = storage.bucket(BUCKET_NAME);
-      console.log(`[Storage] Downloading GCS object "${objectName}" to local path: ${localDestPath}`);
+      const bucket = storage.bucket(bucketName);
+      console.log(`[Storage] Downloading GCS object "${objectName}" from bucket "${bucketName}" to local path: ${localDestPath}`);
       
       await bucket.file(objectName).download({ destination: localDestPath });
       console.log(`[Storage] Download completed successfully.`);
@@ -177,30 +165,13 @@ export const gcsService = {
     }
 
     try {
-      let objectName = gcsUrlOrPath;
-      if (gcsUrlOrPath.startsWith('gs://')) {
-        objectName = gcsUrlOrPath.replace(`gs://${BUCKET_NAME}/`, '');
-      } else if (gcsUrlOrPath.includes('storage.googleapis.com')) {
-        const parts = gcsUrlOrPath.split(`${BUCKET_NAME}/`);
-        if (parts.length > 1) {
-          objectName = parts[1].split('?')[0];
-        }
-      } else if (gcsUrlOrPath.startsWith('http')) {
-        const urlObj = new URL(gcsUrlOrPath);
-        const pathDecoded = decodeURIComponent(urlObj.pathname);
-        const bucketMatchIndex = pathDecoded.indexOf(`/${BUCKET_NAME}/`);
-        if (bucketMatchIndex !== -1) {
-          objectName = pathDecoded.substring(bucketMatchIndex + BUCKET_NAME.length + 2);
-        }
-      }
-
-      const bucket = storage.bucket(BUCKET_NAME);
-      console.log(`[Storage] Deleting object "${objectName}" from GCS bucket "${BUCKET_NAME}"...`);
+      const { bucketName, objectName } = this.parseBucketAndObject(gcsUrlOrPath);
+      const bucket = storage.bucket(bucketName);
+      console.log(`[Storage] Deleting object "${objectName}" from GCS bucket "${bucketName}"...`);
       await bucket.file(objectName).delete();
       console.log(`[Storage] Object deleted.`);
       return true;
     } catch (err) {
-      // If it's a 404 (file not found), ignore the error
       if (err.code === 404) {
         console.warn(`[Storage Warning] Object to delete not found in GCS: ${gcsUrlOrPath}`);
         return true;
@@ -210,40 +181,111 @@ export const gcsService = {
     }
   },
 
-  createReadStream(objectName, options) {
+  createReadStream(gcsUrlOrPath, options) {
     if (useLocalFiles) {
       return null;
     }
-    return storage.bucket(BUCKET_NAME).file(objectName).createReadStream(options);
+    const { bucketName, objectName } = this.parseBucketAndObject(gcsUrlOrPath);
+    return storage.bucket(bucketName).file(objectName).createReadStream(options);
   },
 
-  async getMetadata(objectName) {
+  async getMetadata(gcsUrlOrPath) {
     if (useLocalFiles) {
       return null;
     }
-    const [metadata] = await storage.bucket(BUCKET_NAME).file(objectName).getMetadata();
+    const { bucketName, objectName } = this.parseBucketAndObject(gcsUrlOrPath);
+    const [metadata] = await storage.bucket(bucketName).file(objectName).getMetadata();
     return metadata;
   },
 
-  parseObjectName(gcsUrlOrPath) {
-    let objectName = gcsUrlOrPath;
+  parseBucketAndObject(gcsUrlOrPath) {
+    if (!gcsUrlOrPath || typeof gcsUrlOrPath !== 'string') {
+      return { bucketName: BUCKET_NAME, objectName: gcsUrlOrPath };
+    }
     if (gcsUrlOrPath.startsWith('gs://')) {
-      objectName = gcsUrlOrPath.replace(`gs://${BUCKET_NAME}/`, '');
-    } else if (gcsUrlOrPath.includes('storage.googleapis.com')) {
-      const parts = gcsUrlOrPath.split(`${BUCKET_NAME}/`);
-      if (parts.length > 1) {
-        objectName = parts[1].split('?')[0];
+      const withoutGs = gcsUrlOrPath.substring(5);
+      const slashIdx = withoutGs.indexOf('/');
+      if (slashIdx !== -1) {
+        return {
+          bucketName: withoutGs.substring(0, slashIdx),
+          objectName: withoutGs.substring(slashIdx + 1)
+        };
       }
-    } else if (gcsUrlOrPath.startsWith('http')) {
+    }
+    if (gcsUrlOrPath.startsWith('http')) {
       try {
         const urlObj = new URL(gcsUrlOrPath);
-        const pathDecoded = decodeURIComponent(urlObj.pathname);
-        const bucketMatchIndex = pathDecoded.indexOf(`/${BUCKET_NAME}/`);
-        if (bucketMatchIndex !== -1) {
-          objectName = pathDecoded.substring(bucketMatchIndex + BUCKET_NAME.length + 2);
+        const pathDecoded = decodeURIComponent(urlObj.pathname).replace(/^\//, '');
+        const slashIdx = pathDecoded.indexOf('/');
+        if (slashIdx !== -1) {
+          return {
+            bucketName: pathDecoded.substring(0, slashIdx),
+            objectName: pathDecoded.substring(slashIdx + 1)
+          };
         }
       } catch (_) {}
     }
-    return objectName;
+    return { bucketName: BUCKET_NAME, objectName: gcsUrlOrPath };
+  },
+
+  parseObjectName(gcsUrlOrPath) {
+    return this.parseBucketAndObject(gcsUrlOrPath).objectName;
+  },
+
+  /**
+   * Background upload of a local file to GCS without blocking local editing
+   */
+  async uploadInBackground(localFilePath, destinationName) {
+    if (useLocalFiles || !storage) return null;
+    setTimeout(async () => {
+      try {
+        console.log(`[Storage Hybrid Sync] Uploading ${localFilePath} to cloud storage in background as "${destinationName}"...`);
+        await this.uploadFile(localFilePath, destinationName);
+        console.log(`[Storage Hybrid Sync] Background cloud upload complete: ${destinationName}`);
+      } catch (err) {
+        console.warn(`[Storage Hybrid Sync Warning] Background cloud upload failed for ${destinationName}:`, err.message);
+      }
+    }, 100);
+  },
+
+  /**
+   * Syncs a remote GCS clip to local Mac disk if missing locally
+   */
+  async ensureLocalCopy(gcsUrlOrPath, localDestPath) {
+    if (existsSync(localDestPath)) {
+      try {
+        const stat = await fs.stat(localDestPath);
+        if (stat.size > 0) {
+          return localDestPath;
+        }
+      } catch (_) {}
+    }
+
+    if (useLocalFiles || !storage) {
+      return localDestPath;
+    }
+
+    try {
+      // Check if file already exists with same size locally before downloading
+      const { bucketName, objectName } = this.parseBucketAndObject(gcsUrlOrPath);
+      try {
+        const metadata = await this.getMetadata(gcsUrlOrPath);
+        if (metadata && metadata.size && existsSync(localDestPath)) {
+          const localStat = await fs.stat(localDestPath);
+          if (parseInt(metadata.size, 10) === localStat.size) {
+            console.log(`[Storage Hybrid Sync] File "${path.basename(localDestPath)}" already exists on Mac disk with identical size (${localStat.size} bytes). Skipping download!`);
+            return localDestPath;
+          }
+        }
+      } catch (_) {}
+
+      console.log(`[Storage Hybrid Sync] Downloading "${objectName}" from GCS to Mac disk cache: ${localDestPath}...`);
+      await this.downloadFile(gcsUrlOrPath, localDestPath);
+      console.log(`[Storage Hybrid Sync] Successfully cached ${path.basename(localDestPath)} on Mac disk!`);
+      return localDestPath;
+    } catch (err) {
+      console.warn(`[Storage Hybrid Sync Warning] Failed to cache ${gcsUrlOrPath} locally:`, err.message);
+      return null;
+    }
   }
 };

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { SubtitleStyleEditor } from './SubtitleStyleEditor';
-import { Sparkles, RefreshCw, AlertTriangle, CheckCircle, Upload, Zap, Play, Pause, Video, Layers, Sparkle, Trash } from 'lucide-react';
+import { Sparkles, RefreshCw, AlertTriangle, CheckCircle, Upload, Zap, Play, Pause, Video, Layers, Sparkle, Trash, Scissors, GitMerge } from 'lucide-react';
 import RichClipSelector from './RichClipSelector';
 import { Player } from '@remotion/player';
 import { VideoReel } from '../remotion/VideoReel';
@@ -436,6 +436,59 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
   const [showBulkTransitions, setShowBulkTransitions] = useState(false);
   const [bulkTransition, setBulkTransition] = useState('none');
   const [bulkSfx, setBulkSfx] = useState('none');
+
+  // Split scene modal states
+  const [splitModalSceneIdx, setSplitModalSceneIdx] = useState<number | null>(null);
+  const [splitPointSeconds, setSplitPointSeconds] = useState<number>(1.5);
+
+  const openSplitModal = (idx: number) => {
+    const scene = scenes[idx];
+    if (!scene) return;
+    const dur = Number((scene.end_time - scene.start_time || 2.0).toFixed(2));
+    setSplitPointSeconds(Number((dur / 2).toFixed(2)));
+    setSplitModalSceneIdx(idx);
+  };
+
+  const confirmSplitSceneInProject = (idx: number, splitDurationSeconds: number) => {
+    const scene = scenes[idx];
+    if (!scene) return;
+
+    const totalDuration = scene.end_time - scene.start_time;
+    const firstDuration = Number(Math.max(0.1, Math.min(splitDurationSeconds, totalDuration - 0.1)).toFixed(2));
+    const secondDuration = Number((totalDuration - firstDuration).toFixed(2));
+
+    const midTime = Number((scene.start_time + firstDuration).toFixed(2));
+
+    // Split subtitle text proportionally by words
+    const words = (scene.text || '').trim().split(/\s+/);
+    let text1 = scene.text || '';
+    let text2 = '';
+
+    if (words.length > 1) {
+      const splitWordIdx = Math.round((firstDuration / totalDuration) * words.length);
+      text1 = words.slice(0, Math.max(1, splitWordIdx)).join(' ');
+      text2 = words.slice(Math.max(1, splitWordIdx)).join(' ');
+    }
+
+    const scene1 = {
+      ...scene,
+      end_time: midTime,
+      text: text1
+    };
+
+    const scene2 = {
+      ...scene,
+      start_time: midTime,
+      text: text2,
+      clipStart: (scene.clipStart || 0) + firstDuration
+    };
+
+    const updated = [...scenes];
+    updated.splice(idx, 1, scene1, scene2);
+    setScenes(updated);
+    setSplitModalSceneIdx(null);
+    setSuccess(`Scene #${idx + 1} split into ${firstDuration}s and ${secondDuration}s scenes.`);
+  };
 
   const [highlightTrigger, setHighlightTrigger] = useState<'all' | 'emphasis' | 'emoji' | 'none'>('all');
   const [textCase, setTextCase] = useState<'default' | 'upper' | 'first-word-larger'>('default');
@@ -1390,7 +1443,51 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
   };
 
   const removeScene = (idx: number) => {
+    if (scenes.length <= 1) return;
     setScenes(scenes.filter((_, i) => i !== idx));
+  };
+
+  const mergeSceneWithPrevious = (idx: number) => {
+    if (idx <= 0 || idx >= scenes.length) return;
+    const prevIdx = idx - 1;
+    const updated = [...scenes];
+    const prevScene = updated[prevIdx];
+    const currScene = updated[idx];
+
+    // Combine text
+    const combinedText = `${prevScene.text || ''} ${currScene.text || ''}`.trim();
+    prevScene.text = combinedText;
+    if (prevScene.text_hinglish || currScene.text_hinglish) {
+      prevScene.text_hinglish = `${prevScene.text_hinglish || ''} ${currScene.text_hinglish || ''}`.trim();
+    }
+
+    // Combine end_time
+    prevScene.end_time = currScene.end_time;
+
+    // Combine words if available
+    const prevWords = prevScene.words || [];
+    const currWords = currScene.words || [];
+    if (prevWords.length > 0 || currWords.length > 0) {
+      prevScene.words = [...prevWords, ...currWords];
+    } else if (combinedText) {
+      const textWords = combinedText.split(/\s+/).filter(Boolean);
+      const totalDur = prevScene.end_time - prevScene.start_time;
+      const wordDur = totalDur / (textWords.length || 1);
+      prevScene.words = textWords.map((w, wIdx) => ({
+        word: w,
+        start_time: prevScene.start_time + wIdx * wordDur,
+        end_time: prevScene.start_time + (wIdx + 1) * wordDur
+      }));
+    }
+
+    // Remove current scene
+    updated.splice(idx, 1);
+    setScenes(updated);
+  };
+
+  const mergeSceneWithNext = (idx: number) => {
+    if (idx < 0 || idx >= scenes.length - 1) return;
+    mergeSceneWithPrevious(idx + 1);
   };
 
   const updateSceneText = (idx: number, text: string) => {
@@ -2494,18 +2591,48 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                           {scene.start_time.toFixed(1)}s - {scene.end_time.toFixed(1)}s ({duration.toFixed(1)}s)
                         </div>
 
-                        {projectType === 'subtitles' && (
+                        {/* Action buttons overlay: Merge Prev, Split, Merge Next, Delete */}
+                        <div style={{ position: 'absolute', top: '8px', right: '8px', display: 'flex', gap: '4px', zIndex: 11 }}>
+                          {idx > 0 && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                mergeSceneWithPrevious(idx);
+                              }}
+                              style={{
+                                background: 'rgba(59, 130, 246, 0.35)',
+                                backdropFilter: 'blur(8px)',
+                                border: '1px solid rgba(59, 130, 246, 0.6)',
+                                color: '#93c5fd',
+                                borderRadius: '50%',
+                                width: '24px',
+                                height: '24px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                cursor: 'pointer',
+                                transition: 'all 0.2s'
+                              }}
+                              title="Merge with Previous Scene"
+                              onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(59, 130, 246, 0.7)'; }}
+                              onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(59, 130, 246, 0.35)'; }}
+                            >
+                              <GitMerge size={12} style={{ transform: 'rotate(180deg)' }} />
+                            </button>
+                          )}
+
                           <button
                             type="button"
-                            onClick={() => removeScene(idx)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openSplitModal(idx);
+                            }}
                             style={{
-                              position: 'absolute',
-                              top: '8px',
-                              right: '8px',
-                              background: 'rgba(239, 68, 68, 0.25)',
+                              background: 'rgba(138, 75, 243, 0.35)',
                               backdropFilter: 'blur(8px)',
-                              border: '1px solid rgba(239, 68, 68, 0.4)',
-                              color: '#ff8a8a',
+                              border: '1px solid rgba(138, 75, 243, 0.6)',
+                              color: '#e9d5ff',
                               borderRadius: '50%',
                               width: '24px',
                               height: '24px',
@@ -2513,22 +2640,79 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                               alignItems: 'center',
                               justifyContent: 'center',
                               cursor: 'pointer',
-                              zIndex: 11,
                               transition: 'all 0.2s'
                             }}
-                            title="Remove Subtitle"
-                            onMouseEnter={(e) => {
-                              e.currentTarget.style.background = 'rgba(239, 68, 68, 0.5)';
-                              e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.7)';
-                            }}
-                            onMouseLeave={(e) => {
-                              e.currentTarget.style.background = 'rgba(239, 68, 68, 0.25)';
-                              e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.4)';
-                            }}
+                            title="Split Scene at Custom Length or Half"
+                            onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(138, 75, 243, 0.7)'; }}
+                            onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(138, 75, 243, 0.35)'; }}
                           >
-                            <Trash size={12} />
+                            <Scissors size={12} />
                           </button>
-                        )}
+
+                          {idx < scenes.length - 1 && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                mergeSceneWithNext(idx);
+                              }}
+                              style={{
+                                background: 'rgba(59, 130, 246, 0.35)',
+                                backdropFilter: 'blur(8px)',
+                                border: '1px solid rgba(59, 130, 246, 0.6)',
+                                color: '#93c5fd',
+                                borderRadius: '50%',
+                                width: '24px',
+                                height: '24px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                cursor: 'pointer',
+                                transition: 'all 0.2s'
+                              }}
+                              title="Merge with Next Scene"
+                              onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(59, 130, 246, 0.7)'; }}
+                              onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(59, 130, 246, 0.35)'; }}
+                            >
+                              <GitMerge size={12} />
+                            </button>
+                          )}
+
+                          {scenes.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                removeScene(idx);
+                              }}
+                              style={{
+                                background: 'rgba(239, 68, 68, 0.25)',
+                                backdropFilter: 'blur(8px)',
+                                border: '1px solid rgba(239, 68, 68, 0.4)',
+                                color: '#ff8a8a',
+                                borderRadius: '50%',
+                                width: '24px',
+                                height: '24px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                cursor: 'pointer',
+                                transition: 'all 0.2s'
+                              }}
+                              title="Delete Scene"
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.background = 'rgba(239, 68, 68, 0.5)';
+                                e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.7)';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.background = 'rgba(239, 68, 68, 0.25)';
+                                e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.4)';
+                              }}
+                            >
+                              <Trash size={12} />
+                            </button>
+                          )}
+                        </div>
                       </div>
 
                       <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px', flex: 1 }}>
@@ -3164,6 +3348,76 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
                                 onTouchEnd={() => setActiveSliderIdx(null)}
                                 style={{ width: '100%' }}
                               />
+
+                              {/* Video Crop & Framing Controls (Zoom, Move X, Move Y) */}
+                              <div style={{ marginTop: '6px', borderTop: '1px solid var(--border-light)', paddingTop: '8px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                    🔍 Framing & Zoom
+                                  </span>
+                                  {((scene.zoom || 1) !== 1 || (scene.offsetX || 0) !== 0 || (scene.offsetY || 0) !== 0) && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        handleUpdateScene(idx, 'zoom', 1.0);
+                                        handleUpdateScene(idx, 'offsetX', 0);
+                                        handleUpdateScene(idx, 'offsetY', 0);
+                                      }}
+                                      style={{ fontSize: '9px', background: 'transparent', border: 'none', color: 'var(--text-gray)', cursor: 'pointer', textDecoration: 'underline' }}
+                                    >
+                                      Reset Framing
+                                    </button>
+                                  )}
+                                </div>
+
+                                {/* Zoom slider */}
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                  <span style={{ fontSize: '10px', color: 'var(--text-gray)' }}>Zoom:</span>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <input
+                                      type="range" min={0.2} max={3.0} step={0.05}
+                                      value={scene.zoom || 1.0}
+                                      onChange={(e) => handleUpdateScene(idx, 'zoom', parseFloat(e.target.value))}
+                                      style={{ width: '90px', height: '10px', accentColor: 'var(--primary)' }}
+                                    />
+                                    <span style={{ fontSize: '10px', color: '#FFF', minWidth: '28px', textAlign: 'right' }}>
+                                      {(scene.zoom || 1.0).toFixed(2)}x
+                                    </span>
+                                  </div>
+                                </div>
+
+                                {/* Move X slider */}
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                  <span style={{ fontSize: '10px', color: 'var(--text-gray)' }}>Move X:</span>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <input
+                                      type="range" min={-50} max={50} step={1}
+                                      value={scene.offsetX || 0}
+                                      onChange={(e) => handleUpdateScene(idx, 'offsetX', parseInt(e.target.value, 10))}
+                                      style={{ width: '90px', height: '10px', accentColor: 'var(--primary)' }}
+                                    />
+                                    <span style={{ fontSize: '10px', color: '#FFF', minWidth: '28px', textAlign: 'right' }}>
+                                      {scene.offsetX || 0}%
+                                    </span>
+                                  </div>
+                                </div>
+
+                                {/* Move Y slider */}
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                  <span style={{ fontSize: '10px', color: 'var(--text-gray)' }}>Move Y:</span>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <input
+                                      type="range" min={-50} max={50} step={1}
+                                      value={scene.offsetY || 0}
+                                      onChange={(e) => handleUpdateScene(idx, 'offsetY', parseInt(e.target.value, 10))}
+                                      style={{ width: '90px', height: '10px', accentColor: 'var(--primary)' }}
+                                    />
+                                    <span style={{ fontSize: '10px', color: '#FFF', minWidth: '28px', textAlign: 'right' }}>
+                                      {scene.offsetY || 0}%
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
 
                               <div style={{ marginTop: '8px', borderTop: '1px solid var(--border-light)', paddingTop: '8px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -5162,6 +5416,135 @@ export default function CreateProject({ projectId, onStartRender }: CreateProjec
           </div>
         </div>
       )}
+
+      {/* Interactive Split Scene Modal */}
+      {splitModalSceneIdx !== null && scenes[splitModalSceneIdx] && (() => {
+        const scene = scenes[splitModalSceneIdx];
+        const totalDuration = Number((scene.end_time - scene.start_time || 2.0).toFixed(2));
+        const part1Dur = Number(Math.max(0.1, Math.min(splitPointSeconds, totalDuration - 0.1)).toFixed(2));
+        const part2Dur = Number((totalDuration - part1Dur).toFixed(2));
+
+        return (
+          <div className="modal-backdrop" style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(6px)',
+            zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', animation: 'fadeIn 0.2s ease'
+          }}>
+            <div className="glass-panel" style={{
+              width: '520px', maxWidth: '92vw', padding: '28px', borderRadius: '16px',
+              boxShadow: 'var(--shadow-xl)', border: '1px solid var(--border-light)'
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                <h3 style={{ fontSize: '18px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Scissors size={18} style={{ color: 'var(--accent-purple)' }} />
+                  Split Scene #{splitModalSceneIdx + 1}
+                </h3>
+                <button className="btn-secondary" style={{ padding: '4px 8px', fontSize: '12px' }} onClick={() => setSplitModalSceneIdx(null)}>
+                  ✕
+                </button>
+              </div>
+
+              <div style={{ background: 'rgba(255,255,255,0.03)', padding: '14px', borderRadius: '10px', marginBottom: '20px', fontSize: '13px' }}>
+                <div style={{ color: 'var(--text-muted)', marginBottom: '4px' }}>Original Scene Duration</div>
+                <div style={{ fontSize: '18px', fontWeight: 700, color: '#fff' }}>{totalDuration}s</div>
+                {scene.text && (
+                  <div style={{ fontSize: '12px', color: 'var(--text-gray)', marginTop: '6px', fontStyle: 'italic' }}>
+                    "{scene.text.length > 80 ? scene.text.substring(0, 80) + '...' : scene.text}"
+                  </div>
+                )}
+              </div>
+
+              {/* Preset Quick Split Buttons */}
+              <div style={{ marginBottom: '20px' }}>
+                <label className="label" style={{ fontSize: '12px', marginBottom: '8px' }}>Quick Split Presets</label>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  <button type="button" className="btn-secondary" style={{ fontSize: '12px', padding: '6px 12px' }}
+                    onClick={() => setSplitPointSeconds(Number((totalDuration / 2).toFixed(2)))}>
+                    ⚡ 50 / 50 (Half)
+                  </button>
+                  <button type="button" className="btn-secondary" style={{ fontSize: '12px', padding: '6px 12px' }}
+                    onClick={() => setSplitPointSeconds(Number((totalDuration / 3).toFixed(2)))}>
+                    ⅓ & ⅔
+                  </button>
+                  {totalDuration > 1.5 && (
+                    <button type="button" className="btn-secondary" style={{ fontSize: '12px', padding: '6px 12px' }}
+                      onClick={() => setSplitPointSeconds(1.0)}>
+                      1.0s Cut
+                    </button>
+                  )}
+                  {totalDuration > 2.5 && (
+                    <button type="button" className="btn-secondary" style={{ fontSize: '12px', padding: '6px 12px' }}
+                      onClick={() => setSplitPointSeconds(2.0)}>
+                      2.0s Cut
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Interactive Range Slider */}
+              <div style={{ marginBottom: '24px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', fontWeight: 600, marginBottom: '8px' }}>
+                  <span style={{ color: 'var(--accent-indigo)' }}>Part 1: {part1Dur}s</span>
+                  <span style={{ color: '#34d399' }}>Part 2: {part2Dur}s</span>
+                </div>
+                <input
+                  type="range"
+                  min={0.1}
+                  max={Math.max(0.2, totalDuration - 0.1)}
+                  step={0.05}
+                  value={splitPointSeconds}
+                  onChange={(e) => setSplitPointSeconds(parseFloat(e.target.value))}
+                  style={{ width: '100%', cursor: 'pointer', accentColor: 'var(--primary)' }}
+                />
+              </div>
+
+              {/* Numeric Inputs */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' }}>
+                <div>
+                  <label className="label" style={{ fontSize: '12px' }}>Scene 1 Length (sec)</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min={0.1}
+                    max={totalDuration - 0.1}
+                    className="input-field"
+                    value={part1Dur}
+                    onChange={(e) => {
+                      const val = parseFloat(e.target.value) || 0.1;
+                      setSplitPointSeconds(Math.max(0.1, Math.min(val, totalDuration - 0.1)));
+                    }}
+                  />
+                </div>
+                <div>
+                  <label className="label" style={{ fontSize: '12px' }}>Scene 2 Length (sec)</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min={0.1}
+                    max={totalDuration - 0.1}
+                    className="input-field"
+                    value={part2Dur}
+                    onChange={(e) => {
+                      const val = parseFloat(e.target.value) || 0.1;
+                      setSplitPointSeconds(Math.max(0.1, Math.min(totalDuration - val, totalDuration - 0.1)));
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+                <button className="btn-secondary" onClick={() => setSplitModalSceneIdx(null)}>
+                  Cancel
+                </button>
+                <button className="btn-primary" onClick={() => confirmSplitSceneInProject(splitModalSceneIdx, part1Dur)}>
+                  <Scissors size={14} />
+                  Confirm Split (2 Scenes)
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

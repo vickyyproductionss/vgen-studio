@@ -447,6 +447,8 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
   const [useAiFallback, setUseAiFallback] = useState(false);
   // AI generation modal states
   const [showAiGenModal, setShowAiGenModal] = useState(false);
+  const [splitModalSceneIdx, setSplitModalSceneIdx] = useState<number | null>(null);
+  const [splitPointSeconds, setSplitPointSeconds] = useState<number>(1.5);
   const [aiGenSceneIdx, setAiGenSceneIdx] = useState<number | null>(null);
   const [aiGenPrompt, setAiGenPrompt] = useState('');
   const [aiGenType, setAiGenType] = useState<'image' | 'video'>('video');
@@ -1554,17 +1556,28 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
     setScenes(rebuildScenes(newBounds, scenes));
   };
 
-  // Split a segment in half (inserts a new beat/cut boundary)
-  const handleSplitSegment = (idx: number) => {
+  const openSplitModal = (idx: number) => {
     const scene = scenes[idx];
-    const midPoint = parseFloat(((scene.start_time + scene.end_time) / 2).toFixed(2));
+    if (!scene) return;
+    const dur = Number((scene.duration || (scene.end_time - scene.start_time) || 2.0).toFixed(2));
+    setSplitPointSeconds(Number((dur / 2).toFixed(2)));
+    setSplitModalSceneIdx(idx);
+  };
 
-    const newBounds = [...boundaries, midPoint].sort((a, b) => a - b);
+  const confirmSplitScene = (idx: number, splitDurationSeconds: number) => {
+    const scene = scenes[idx];
+    if (!scene) return;
+
+    const splitAtTime = Number((scene.start_time + splitDurationSeconds).toFixed(2));
+    
+    const newBounds = Array.from(new Set([...boundaries, splitAtTime])).sort((a, b) => a - b);
     setBoundaries(newBounds);
+
     const rebuilt = rebuildScenes(newBounds, scenes);
     setScenes(rebuilt);
     setRawScenes(rebuilt);
-    setSuccess('Segment split successfully.');
+    setSplitModalSceneIdx(null);
+    setSuccess(`Scene #${idx + 1} split successfully at ${splitDurationSeconds.toFixed(2)}s.`);
   };
 
   // Delete a boundary (merges segment idx with idx + 1)
@@ -2539,10 +2552,10 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
                           </button>
                         )}
                         <button
-                          title="Split segment in half"
+                          title="Split scene into custom lengths or half"
                           className="btn-secondary"
-                          onClick={() => handleSplitSegment(idx)}
-                          style={{ height: '26px', padding: '0 6px' }}
+                          onClick={() => openSplitModal(idx)}
+                          style={{ height: '26px', padding: '0 6px', color: '#c4b5fd' }}
                         >
                           <Scissors size={12} />
                         </button>
@@ -5662,6 +5675,135 @@ export default function BeatSync({ projectId, onStartRender }: BeatSyncProps) {
           </div>
         </div>
       )}
+
+      {/* Interactive Split Scene Modal */}
+      {splitModalSceneIdx !== null && scenes[splitModalSceneIdx] && (() => {
+        const scene = scenes[splitModalSceneIdx];
+        const totalDuration = Number((scene.duration || (scene.end_time - scene.start_time) || 2.0).toFixed(2));
+        const part1Dur = Number(Math.max(0.1, Math.min(splitPointSeconds, totalDuration - 0.1)).toFixed(2));
+        const part2Dur = Number((totalDuration - part1Dur).toFixed(2));
+
+        return (
+          <div className="modal-backdrop" style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(6px)',
+            zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', animation: 'fadeIn 0.2s ease'
+          }}>
+            <div className="glass-panel" style={{
+              width: '520px', maxWidth: '92vw', padding: '28px', borderRadius: '16px',
+              boxShadow: 'var(--shadow-xl)', border: '1px solid var(--border-light)'
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                <h3 style={{ fontSize: '18px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Scissors size={18} style={{ color: 'var(--accent-purple)' }} />
+                  Split Scene #{splitModalSceneIdx + 1}
+                </h3>
+                <button className="btn-secondary" style={{ padding: '4px 8px', fontSize: '12px' }} onClick={() => setSplitModalSceneIdx(null)}>
+                  ✕
+                </button>
+              </div>
+
+              <div style={{ background: 'rgba(255,255,255,0.03)', padding: '14px', borderRadius: '10px', marginBottom: '20px', fontSize: '13px' }}>
+                <div style={{ color: 'var(--text-muted)', marginBottom: '4px' }}>Original Scene Duration</div>
+                <div style={{ fontSize: '18px', fontWeight: 700, color: '#fff' }}>{totalDuration}s</div>
+                {scene.text && (
+                  <div style={{ fontSize: '12px', color: 'var(--text-gray)', marginTop: '6px', fontStyle: 'italic' }}>
+                    "{scene.text.length > 80 ? scene.text.substring(0, 80) + '...' : scene.text}"
+                  </div>
+                )}
+              </div>
+
+              {/* Preset Quick Split Buttons */}
+              <div style={{ marginBottom: '20px' }}>
+                <label className="label" style={{ fontSize: '12px', marginBottom: '8px' }}>Quick Split Presets</label>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  <button type="button" className="btn-secondary" style={{ fontSize: '12px', padding: '6px 12px' }}
+                    onClick={() => setSplitPointSeconds(Number((totalDuration / 2).toFixed(2)))}>
+                    ⚡ 50 / 50 (Half)
+                  </button>
+                  <button type="button" className="btn-secondary" style={{ fontSize: '12px', padding: '6px 12px' }}
+                    onClick={() => setSplitPointSeconds(Number((totalDuration / 3).toFixed(2)))}>
+                    ⅓ & ⅔
+                  </button>
+                  {totalDuration > 1.5 && (
+                    <button type="button" className="btn-secondary" style={{ fontSize: '12px', padding: '6px 12px' }}
+                      onClick={() => setSplitPointSeconds(1.0)}>
+                      1.0s Cut
+                    </button>
+                  )}
+                  {totalDuration > 2.5 && (
+                    <button type="button" className="btn-secondary" style={{ fontSize: '12px', padding: '6px 12px' }}
+                      onClick={() => setSplitPointSeconds(2.0)}>
+                      2.0s Cut
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Interactive Range Slider */}
+              <div style={{ marginBottom: '24px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', fontWeight: 600, marginBottom: '8px' }}>
+                  <span style={{ color: 'var(--accent-indigo)' }}>Part 1: {part1Dur}s</span>
+                  <span style={{ color: '#34d399' }}>Part 2: {part2Dur}s</span>
+                </div>
+                <input
+                  type="range"
+                  min={0.1}
+                  max={Math.max(0.2, totalDuration - 0.1)}
+                  step={0.05}
+                  value={splitPointSeconds}
+                  onChange={(e) => setSplitPointSeconds(parseFloat(e.target.value))}
+                  style={{ width: '100%', cursor: 'pointer', accentColor: 'var(--primary)' }}
+                />
+              </div>
+
+              {/* Numeric Inputs */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' }}>
+                <div>
+                  <label className="label" style={{ fontSize: '12px' }}>Scene 1 Length (sec)</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min={0.1}
+                    max={totalDuration - 0.1}
+                    className="input-field"
+                    value={part1Dur}
+                    onChange={(e) => {
+                      const val = parseFloat(e.target.value) || 0.1;
+                      setSplitPointSeconds(Math.max(0.1, Math.min(val, totalDuration - 0.1)));
+                    }}
+                  />
+                </div>
+                <div>
+                  <label className="label" style={{ fontSize: '12px' }}>Scene 2 Length (sec)</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min={0.1}
+                    max={totalDuration - 0.1}
+                    className="input-field"
+                    value={part2Dur}
+                    onChange={(e) => {
+                      const val = parseFloat(e.target.value) || 0.1;
+                      setSplitPointSeconds(Math.max(0.1, Math.min(totalDuration - val, totalDuration - 0.1)));
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+                <button className="btn-secondary" onClick={() => setSplitModalSceneIdx(null)}>
+                  Cancel
+                </button>
+                <button className="btn-primary" onClick={() => confirmSplitScene(splitModalSceneIdx, part1Dur)}>
+                  <Scissors size={14} />
+                  Confirm Split (2 Scenes)
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

@@ -12,18 +12,15 @@ const ai = new GoogleGenAI({
 });
 
 // Helper to dynamically obtain client.
-// In GCP production (Cloud Run), always use Vertex AI with ADC — never an API key.
-// API key is only used as local development fallback.
+// In GCP production or when Service Account credentials are present, always use Vertex AI enterprise client — no API key required.
 function getAiClient(apiKey) {
-  const hasGcpCreds = !!process.env.GOOGLE_APPLICATION_CREDENTIALS;
-  const isGcpProduction = !!(process.env.GCP_PROJECT_ID || process.env.K_SERVICE);
-  if (isGcpProduction || hasGcpCreds) {
-    // Cloud Run or local environment with service account key — Vertex AI works without any API key
-    console.log('[Gemini Client] GCP credentials detected — using Vertex AI client...');
+  const hasGcpAuth = !!(process.env.GOOGLE_APPLICATION_CREDENTIALS || process.env.GCP_PROJECT_ID || process.env.K_SERVICE);
+  if (hasGcpAuth) {
+    console.log('[Gemini Client] GCP Service Account detected — using Vertex AI enterprise client...');
     return ai;
   }
   if (apiKey) {
-    console.log('[Gemini Client] Using provided API Key (local dev)...');
+    console.log('[Gemini Client] Using provided API Key (local dev fallback)...');
     return new GoogleGenAI({ apiKey });
   }
   console.log('[Gemini Client] Using global Vertex AI (enterprise)...');

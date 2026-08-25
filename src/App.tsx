@@ -82,21 +82,24 @@ export default function App() {
     setAuthError('');
     setAuthLoading(true);
     try {
+      const cleanEmail = authEmail.trim();
+      const cleanPassword = authPassword.trim();
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: authEmail, password: authPassword })
+        body: JSON.stringify({ email: cleanEmail, password: cleanPassword })
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        localStorage.setItem('vgen_token', data.user.email);
+        try {
+          localStorage.setItem('vgen_token', data.user.email);
+        } catch (_) {}
         setUser(data.user);
         setShowAuthModal(false);
         setAuthEmail('');
         setAuthPassword('');
-        window.location.reload();
       } else {
-        setAuthError(data.error || 'Login failed.');
+        setAuthError(data.error || 'Invalid email or password.');
       }
     } catch (err: any) {
       setAuthError(err.message || 'Login request failed.');
@@ -110,19 +113,22 @@ export default function App() {
     setAuthError('');
     setAuthLoading(true);
     try {
+      const cleanEmail = authEmail.trim();
+      const cleanPassword = authPassword.trim();
       const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: authEmail, password: authPassword })
+        body: JSON.stringify({ email: cleanEmail, password: cleanPassword })
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        localStorage.setItem('vgen_token', data.user.email);
+        try {
+          localStorage.setItem('vgen_token', data.user.email);
+        } catch (_) {}
         setUser(data.user);
         setShowAuthModal(false);
         setAuthEmail('');
         setAuthPassword('');
-        window.location.reload();
       } else {
         setAuthError(data.error || 'Registration failed.');
       }

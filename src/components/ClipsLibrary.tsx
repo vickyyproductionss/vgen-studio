@@ -31,8 +31,32 @@ export default function ClipsLibrary() {
   const [uploadQueue, setUploadQueue] = useState<UploadProgress[]>([]);
   const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState<'uploads' | 'broll'>('uploads');
-  const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'name-asc' | 'name-desc'>('newest');
+  const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'name-asc' | 'name-desc' | 'duration-desc' | 'duration-asc'>('newest');
+  const [syncStatus, setSyncStatus] = useState<{
+    totalClips: number;
+    localCount: number;
+    syncingCount: number;
+    isSyncing: boolean;
+    percentComplete: number;
+  } | null>(null);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const fetchSyncStatus = async () => {
+    try {
+      const res = await fetch('/api/sync/status');
+      if (res.ok) {
+        const data = await res.json();
+        setSyncStatus(data);
+      }
+    } catch (_) {}
+  };
+
+  useEffect(() => {
+    fetchSyncStatus();
+    const syncInterval = setInterval(fetchSyncStatus, 2000);
+    return () => clearInterval(syncInterval);
+  }, []);
 
   useEffect(() => {
     fetchClips();
@@ -149,14 +173,37 @@ export default function ClipsLibrary() {
       const formData = new FormData();
       formData.append('chunk', chunk, `chunk-${chunkIndex}`);
 
-      const res = await fetch(`/api/clips/upload-chunk/${clipId}`, {
-        method: 'POST',
-        body: formData
-      });
+      let attempts = 0;
+      let success = false;
+      let lastErr = 'Chunk upload failed';
 
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || `Chunk upload failed (${res.status})`);
+      while (attempts < 3 && !success) {
+        attempts++;
+        try {
+          const res = await fetch(`/api/clips/upload-chunk/${clipId}?fileName=${encodeURIComponent(file.name)}`, {
+            method: 'POST',
+            body: formData
+          });
+
+          if (res.ok) {
+            success = true;
+          } else {
+            const err = await res.json().catch(() => ({}));
+            lastErr = err.error || `Chunk upload failed (${res.status})`;
+            if (attempts < 3) {
+              await new Promise(r => setTimeout(r, 1000 * attempts));
+            }
+          }
+        } catch (netErr: any) {
+          lastErr = netErr?.message || 'Network connection glitch during upload';
+          if (attempts < 3) {
+            await new Promise(r => setTimeout(r, 1000 * attempts));
+          }
+        }
+      }
+
+      if (!success) {
+        throw new Error(lastErr);
       }
 
       onProgress(Math.round((end / file.size) * 100));
@@ -367,18 +414,26 @@ export default function ClipsLibrary() {
     if (sortBy === 'newest') {
       const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
       const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-      return timeB - timeA;
+      if (timeA || timeB) return timeB - timeA;
+      return clips.indexOf(b) - clips.indexOf(a);
     }
     if (sortBy === 'oldest') {
       const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
       const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-      return timeA - timeB;
+      if (timeA || timeB) return timeA - timeB;
+      return clips.indexOf(a) - clips.indexOf(b);
     }
     if (sortBy === 'name-asc') {
       return (a.name || '').localeCompare(b.name || '');
     }
     if (sortBy === 'name-desc') {
       return (b.name || '').localeCompare(a.name || '');
+    }
+    if (sortBy === 'duration-desc') {
+      return (b.duration || 0) - (a.duration || 0);
+    }
+    if (sortBy === 'duration-asc') {
+      return (a.duration || 0) - (b.duration || 0);
     }
     return 0;
   });
@@ -422,6 +477,79 @@ export default function ClipsLibrary() {
           </button>
         </div>
       </div>
+
+      {/* Hybrid Local Mac Disk vs Cloud Storage Sync Progress Panel */}
+      {syncStatus && syncStatus.totalClips > 0 && (
+        <div style={{
+          background: syncStatus.isSyncing
+            ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.12), rgba(99, 102, 241, 0.08))'
+            : 'linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(5, 150, 105, 0.06))',
+          border: `1px solid ${syncStatus.isSyncing ? 'rgba(59, 130, 246, 0.3)' : 'rgba(16, 185, 129, 0.3)'}`,
+          borderRadius: '12px',
+          padding: '16px 20px',
+          marginBottom: '24px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '10px',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div style={{
+                width: '36px',
+                height: '36px',
+                borderRadius: '8px',
+                background: syncStatus.isSyncing ? 'rgba(59, 130, 246, 0.2)' : 'rgba(16, 185, 129, 0.2)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '18px'
+              }}>
+                {syncStatus.isSyncing ? '🔄' : '⚡'}
+              </div>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: '14.5px', color: '#fff' }}>
+                  {syncStatus.isSyncing
+                    ? `Syncing Cloud Storage Clips to Local Mac Disk... (${syncStatus.localCount}/${syncStatus.totalClips} Files Cached)`
+                    : `Mac Disk Cache Fully Synced (${syncStatus.totalClips} Clips Loaded on Mac SSD)`}
+                </div>
+                <div style={{ fontSize: '12.5px', color: 'var(--text-gray)', marginTop: '2px' }}>
+                  {syncStatus.isSyncing
+                    ? `Downloading remaining ${syncStatus.syncingCount} cloud file${syncStatus.syncingCount > 1 ? 's' : ''} to local Mac disk for 0ms ultra-fast local editing.`
+                    : `Editing runs directly from local Mac disk (0ms latency) with background Cloud backup active.`}
+                </div>
+              </div>
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <span style={{ fontSize: '16px', fontWeight: 700, color: syncStatus.isSyncing ? '#60a5fa' : '#34d399' }}>
+                {syncStatus.percentComplete}%
+              </span>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                {syncStatus.localCount} / {syncStatus.totalClips} Disk Cached
+              </div>
+            </div>
+          </div>
+
+          {/* Progress Bar Track */}
+          <div style={{
+            width: '100%',
+            height: '8px',
+            background: 'rgba(255, 255, 255, 0.1)',
+            borderRadius: '4px',
+            overflow: 'hidden'
+          }}>
+            <div style={{
+              width: `${syncStatus.percentComplete}%`,
+              height: '100%',
+              background: syncStatus.isSyncing
+                ? 'linear-gradient(90deg, #3b82f6, #6366f1, #60a5fa)'
+                : 'linear-gradient(90deg, #10b981, #34d399)',
+              borderRadius: '4px',
+              transition: 'width 0.4s ease'
+            }} />
+          </div>
+        </div>
+      )}
 
       {/* Upload Progress Panel */}
       {uploadQueue.length > 0 && (
@@ -601,9 +729,9 @@ export default function ClipsLibrary() {
         </button>
       </div>
 
-      {/* Search & Stats */}
-      <div style={{ display: 'flex', gap: '20px', marginBottom: '24px', alignItems: 'center' }}>
-        <div style={{ position: 'relative', flex: 1 }}>
+      {/* Search, Sort & Stats */}
+      <div style={{ display: 'flex', gap: '16px', marginBottom: '24px', alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ position: 'relative', flex: 1, minWidth: '240px' }}>
           <Search size={16} style={{ position: 'absolute', left: '16px', top: '15px', color: 'var(--text-muted)' }} />
           <input
             type="text"
@@ -614,22 +742,38 @@ export default function ClipsLibrary() {
             style={{ paddingLeft: '44px' }}
           />
         </div>
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-          <span style={{ fontSize: '12px', color: 'var(--text-gray)' }}>Sort By:</span>
+
+        {/* Sort selector dropdown */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <label style={{ fontSize: '13px', color: 'var(--text-gray)', fontWeight: 500, whiteSpace: 'nowrap' }}>
+            Sort:
+          </label>
           <select
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value as any)}
             className="input-field"
-            style={{ width: '130px', height: '38px', fontSize: '12px', margin: 0, background: 'var(--bg-darker)' }}
+            style={{
+              padding: '8px 12px',
+              fontSize: '13px',
+              height: '44px',
+              borderRadius: '8px',
+              background: 'var(--bg-darker)',
+              color: '#fff',
+              border: '1px solid var(--border-light)',
+              cursor: 'pointer'
+            }}
           >
-            <option value="newest">Newest First</option>
-            <option value="oldest">Oldest First</option>
-            <option value="name-asc">Name (A-Z)</option>
-            <option value="name-desc">Name (Z-A)</option>
+            <option value="newest">🕒 Latest Uploaded First</option>
+            <option value="oldest">⏳ Oldest Uploaded First</option>
+            <option value="name-asc">🔤 Name (A → Z)</option>
+            <option value="name-desc">🔤 Name (Z → A)</option>
+            <option value="duration-desc">⏱️ Duration (Longest First)</option>
+            <option value="duration-asc">⏱️ Duration (Shortest First)</option>
           </select>
         </div>
+
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-          <span className="badge-tag">Total Clips: {clips.length}</span>
+          <span className="badge-tag">Total: {clips.length}</span>
           <span className="badge-tag" style={{ color: 'var(--accent-indigo)', borderColor: 'var(--border-light)' }}>Ready: {clips.filter(c => c.status === 'ready').length}</span>
         </div>
       </div>

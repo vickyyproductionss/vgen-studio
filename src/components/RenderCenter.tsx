@@ -23,35 +23,71 @@ export default function RenderCenter({ jobId, onClearJob }: RenderCenterProps) {
     if (!jobId) return;
 
     setLogs(['Queued in rendering engine...']);
-    
-    // Connect to Server Sent Events (SSE)
-    const eventSource = new EventSource(`/api/jobs/${jobId}/progress`);
 
-    eventSource.onmessage = (event) => {
-      const data = JSON.parse(event.data) as JobState;
+    let isClosed = false;
+    let pollInterval: any = null;
+    let eventSource: EventSource | null = null;
+
+    const handleUpdate = (data: JobState) => {
       setJob(data);
 
       setLogs(prev => {
-        // Only append status log if it's new
-        if (prev.length === 0 || prev[prev.length - 1] !== data.status) {
-          return [...prev, data.status];
+        const filtered = prev.filter(l => l !== 'Reconnecting to render engine...' && l !== 'Error: Lost connection to render engine.');
+        if (filtered.length === 0 || filtered[filtered.length - 1] !== data.status) {
+          return [...filtered, data.status];
         }
         return prev;
       });
 
       if (data.progress >= 100 || data.status === 'Completed' || data.status === 'Failed') {
-        eventSource.close();
+        if (eventSource) eventSource.close();
+        if (pollInterval) clearInterval(pollInterval);
       }
     };
 
-    eventSource.onerror = (err) => {
-      console.error('SSE Error:', err);
-      setLogs(prev => [...prev, 'Error: Lost connection to render engine.']);
-      eventSource.close();
+    const startPollingFallback = () => {
+      if (pollInterval || isClosed) return;
+      console.log('[RenderCenter] Switching to status polling fallback for job:', jobId);
+      
+      pollInterval = setInterval(async () => {
+        try {
+          const res = await fetch(`/api/jobs/${jobId}/status`);
+          if (res.ok) {
+            const data = await res.json() as JobState;
+            handleUpdate(data);
+          }
+        } catch (err) {
+          console.warn('[RenderCenter] Status polling failed:', err);
+        }
+      }, 2000);
     };
 
+    try {
+      eventSource = new EventSource(`/api/jobs/${jobId}/progress`);
+
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data) as JobState;
+          handleUpdate(data);
+        } catch (_) {}
+      };
+
+      eventSource.onerror = (err) => {
+        console.warn('SSE stream disconnected, starting polling fallback:', err);
+        if (eventSource) {
+          eventSource.close();
+          eventSource = null;
+        }
+        startPollingFallback();
+      };
+    } catch (_) {
+      startPollingFallback();
+    }
+
     return () => {
-      eventSource.close();
+      isClosed = true;
+      if (eventSource) eventSource.close();
+      if (pollInterval) clearInterval(pollInterval);
     };
   }, [jobId]);
 

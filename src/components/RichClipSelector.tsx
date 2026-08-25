@@ -10,6 +10,7 @@ interface Clip {
   exists?: boolean;
   tags?: string[];
   path?: string;
+  createdAt?: string;
 }
 
 interface RichClipSelectorProps {
@@ -33,12 +34,14 @@ export default function RichClipSelector({
   placeholder = '-- Choose Video Clip --',
   excludeBroll = false
 }: RichClipSelectorProps) {
+  type SortOption = 'newest' | 'oldest' | 'name_asc' | 'name_desc' | 'duration_desc' | 'duration_asc';
+
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState('');
+  const [sortBy, setSortBy] = useState<SortOption>('newest');
   const [selectorTab, setSelectorTab] = useState<'uploads' | 'broll'>('uploads');
   const [zoom, setZoom] = useState(160); // Column width in pixels (Finder-like slider)
   const [previewClip, setPreviewClip] = useState<Clip | null>(null);
-  const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'name-asc' | 'name-desc'>('newest');
   
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -115,18 +118,26 @@ export default function RichClipSelector({
     if (sortBy === 'newest') {
       const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
       const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-      return timeB - timeA;
+      if (timeA || timeB) return timeB - timeA;
+      return b.id.localeCompare(a.id);
     }
     if (sortBy === 'oldest') {
       const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
       const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-      return timeA - timeB;
+      if (timeA || timeB) return timeA - timeB;
+      return a.id.localeCompare(b.id);
     }
-    if (sortBy === 'name-asc') {
+    if (sortBy === 'name_asc' || (sortBy as string) === 'name-asc') {
       return (a.name || '').localeCompare(b.name || '');
     }
-    if (sortBy === 'name-desc') {
+    if (sortBy === 'name_desc' || (sortBy as string) === 'name-desc') {
       return (b.name || '').localeCompare(a.name || '');
+    }
+    if ((sortBy as string) === 'duration_desc' || (sortBy as string) === 'duration-desc') {
+      return (b.duration || 0) - (a.duration || 0);
+    }
+    if ((sortBy as string) === 'duration_asc' || (sortBy as string) === 'duration-asc') {
+      return (a.duration || 0) - (b.duration || 0);
     }
     return 0;
   });
@@ -458,29 +469,57 @@ export default function RichClipSelector({
                 )}
               </div>
 
-              {/* Finder-style zoom slider */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <ZoomOut size={12} color="var(--text-gray)" />
-                <input
-                  type="range"
-                  min={110}
-                  max={280}
-                  step={10}
-                  value={zoom}
-                  onChange={(e) => setZoom(parseInt(e.target.value, 10))}
-                  style={{
-                    width: '120px',
-                    height: '4px',
-                    accentColor: 'var(--accent-purple)',
-                    background: 'rgba(255, 255, 255, 0.08)',
-                    borderRadius: '2px',
-                    cursor: 'pointer'
-                  }}
-                />
-                <ZoomIn size={12} color="var(--text-gray)" />
-                <span style={{ fontSize: '11px', color: 'var(--text-gray)', marginLeft: '4px', minWidth: '38px', textAlign: 'right', fontFamily: 'monospace' }}>
-                  {zoom}px
-                </span>
+              {/* Right Toolbar Controls: Sort dropdown & Zoom slider */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <label style={{ fontSize: '11px', color: 'var(--text-gray)', fontWeight: 500 }}>Sort:</label>
+                  <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value as any)}
+                    style={{
+                      background: 'var(--bg-surface)',
+                      border: '1px solid var(--border-medium)',
+                      color: 'var(--text-white)',
+                      fontSize: '11px',
+                      height: '26px',
+                      padding: '0 8px',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      outline: 'none'
+                    }}
+                  >
+                    <option value="newest">📅 Latest Uploaded First</option>
+                    <option value="oldest">⏳ Oldest Uploaded First</option>
+                    <option value="name_asc">🔤 Name (A → Z)</option>
+                    <option value="name_desc">🔠 Name (Z → A)</option>
+                    <option value="duration_desc">⏱️ Duration (Longest)</option>
+                    <option value="duration_asc">⏲️ Duration (Shortest)</option>
+                  </select>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <ZoomOut size={12} color="var(--text-gray)" />
+                  <input
+                    type="range"
+                    min={110}
+                    max={280}
+                    step={10}
+                    value={zoom}
+                    onChange={(e) => setZoom(parseInt(e.target.value, 10))}
+                    style={{
+                      width: '120px',
+                      height: '4px',
+                      accentColor: 'var(--accent-purple)',
+                      background: 'rgba(255, 255, 255, 0.08)',
+                      borderRadius: '2px',
+                      cursor: 'pointer'
+                    }}
+                  />
+                  <ZoomIn size={12} color="var(--text-gray)" />
+                  <span style={{ fontSize: '11px', color: 'var(--text-gray)', marginLeft: '4px', minWidth: '38px', textAlign: 'right', fontFamily: 'monospace' }}>
+                    {zoom}px
+                  </span>
+                </div>
               </div>
             </div>
 

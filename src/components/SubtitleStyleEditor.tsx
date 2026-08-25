@@ -212,6 +212,36 @@ const CURATED_FONTS = [
 
 const CAPTION_PRESETS = [
   {
+    id: 'simple',
+    name: 'Simple / Normal Text',
+    icon: '📝',
+    style: {
+      subtitleMode: 'simple' as const,
+      fontName: 'Arial',
+      fontSize: 44,
+      textCase: 'default' as const,
+      activeWordScale: 1.0,
+      highlightTrigger: 'none' as const,
+      bold: false,
+      italic: false,
+      shadow: false,
+      showHighlightBox: false,
+      neonGlow: false,
+      textTransition: 'none',
+      textMotion: 'none',
+      showEmojis: false,
+      autoEmphasis: false,
+      pop3d: false,
+      fontColor: '#FFFFFF',
+      highlightColor: '#FFFFFF',
+      outlineColor: '#000000',
+      outlineThickness: 1.0,
+      normalStyle: { fontColor: '#FFFFFF', activeWordScale: 1.0, neonGlow: false, glowColor: '#000000', glowBlur: 0, glowDistance: 0 },
+      highlightStyle: { fontColor: '#FFFFFF', activeWordScale: 1.0, neonGlow: false, glowColor: '#000000', glowBlur: 0, glowDistance: 0 },
+      emojiStyle: { fontColor: '#FFFFFF', activeWordScale: 1.0, neonGlow: false, glowColor: '#000000', glowBlur: 0, glowDistance: 0 }
+    }
+  },
+  {
     id: 'tiktok',
     name: 'TikTok Pop',
     icon: '🔥',
@@ -694,6 +724,7 @@ export const SubtitleStyleEditor: React.FC<SubtitleStyleEditorProps> = ({
                 className="input-field"
                 style={{ height: '34px', fontSize: '12.5px', background: 'var(--bg-darker)' }}
               >
+                <option value="simple">📝 Simple / Normal Text (Clean No Animation)</option>
                 <option value="classic">Classic Lines</option>
                 <option value="smart-highlight">Smart Highlight</option>
                 <option value="centered-word">Snappy Single Word</option>
